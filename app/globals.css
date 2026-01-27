@@ -149,6 +149,9 @@
 }
 
 @layer base {
+  html {
+    font-size: clamp(16px, 3.8vw, 18px);
+  }
   * {
     @apply border-border outline-ring/50;
   }
@@ -183,5 +186,11 @@
       linear-gradient(oklch(0.2 0.01 240 / 0.3) 1px, transparent 1px),
       linear-gradient(90deg, oklch(0.2 0.01 240 / 0.3) 1px, transparent 1px);
     background-size: 50px 50px;
+  }
+}
+
+@media (max-width: 640px) {
+  .grid-background {
+    background-size: 36px 36px;
   }
 }

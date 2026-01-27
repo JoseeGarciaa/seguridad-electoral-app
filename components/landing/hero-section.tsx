@@ -14,7 +14,7 @@ const heatmapPoints = Array.from({ length: 20 }, (_, index) => ({
 
 export function HeroSection() {
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-16">
+    <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-16 sm:pt-20">
       {/* Animated Background Elements */}
       <div className="absolute inset-0 overflow-hidden">
         <motion.div
@@ -44,21 +44,21 @@ export function HeroSection() {
         />
       </div>
 
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-        <div className="grid lg:grid-cols-2 gap-12 items-center">
+      <div className="relative z-10 max-w-6xl mx-auto px-5 sm:px-6 lg:px-8 py-16 sm:py-20">
+        <div className="grid gap-10 lg:grid-cols-2 lg:gap-12 items-center">
           {/* Left Content */}
-          <motion.div
+            <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
-            className="text-center lg:text-left"
+            className="text-center lg:text-left space-y-5"
           >
             {/* Status Badge */}
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.2 }}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 mb-6"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 mb-6 text-sm sm:text-base"
             >
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
@@ -68,27 +68,27 @@ export function HeroSection() {
             </motion.div>
 
             {/* Main Headline */}
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-foreground mb-6 text-balance">
+            <h1 className="text-[2.5rem] sm:text-5xl lg:text-6xl font-bold leading-tight tracking-tight text-foreground mb-4 sm:mb-6 text-balance">
               <span className="block">Menos caos.</span>
               <span className="block text-primary text-glow">Más control.</span>
               <span className="block">Cero sorpresas.</span>
             </h1>
 
-            <p className="text-lg text-muted-foreground mb-8 max-w-xl mx-auto lg:mx-0 text-pretty">
+            <p className="text-base sm:text-lg text-muted-foreground mb-8 max-w-2xl mx-auto lg:mx-0 text-pretty leading-relaxed">
               War Room digital premium para campañas políticas en Colombia. 
               Control total del territorio, evidencia en tiempo real, cero improvisación.
             </p>
 
             {/* CTA Buttons */}
-            <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center lg:justify-start">
               <Link href="/login">
-                <Button size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 glow-green w-full sm:w-auto">
+                <Button size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 glow-green w-full sm:w-auto text-base sm:text-lg py-3">
                   Acceder al Centro de Comando
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
               <Link href="#features">
-                <Button size="lg" variant="outline" className="border-border/50 hover:bg-secondary w-full sm:w-auto bg-transparent">
+                <Button size="lg" variant="outline" className="border-border/50 hover:bg-secondary w-full sm:w-auto bg-transparent text-base sm:text-lg py-3">
                   Ver Funciones
                 </Button>
               </Link>
@@ -99,19 +99,19 @@ export function HeroSection() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.6 }}
-              className="mt-12 grid grid-cols-3 gap-6"
+              className="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 text-center sm:text-left"
             >
-              <div className="text-center lg:text-left">
-                <div className="text-2xl font-bold text-foreground">100%</div>
-                <div className="text-xs text-muted-foreground">Cobertura DIVIPOLE</div>
+              <div>
+                <div className="text-2xl sm:text-3xl font-bold text-foreground">100%</div>
+                <div className="text-sm text-muted-foreground">Cobertura DIVIPOLE</div>
               </div>
-              <div className="text-center lg:text-left">
-                <div className="text-2xl font-bold text-foreground">Tiempo Real</div>
-                <div className="text-xs text-muted-foreground">Evidencia Electoral</div>
+              <div>
+                <div className="text-2xl sm:text-3xl font-bold text-foreground">Tiempo Real</div>
+                <div className="text-sm text-muted-foreground">Evidencia Electoral</div>
               </div>
-              <div className="text-center lg:text-left">
-                <div className="text-2xl font-bold text-foreground">Cero</div>
-                <div className="text-xs text-muted-foreground">Excel Necesario</div>
+              <div>
+                <div className="text-2xl sm:text-3xl font-bold text-foreground">Cero</div>
+                <div className="text-sm text-muted-foreground">Excel Necesario</div>
               </div>
             </motion.div>
           </motion.div>

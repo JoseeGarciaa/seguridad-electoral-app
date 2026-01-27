@@ -56,7 +56,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background grid-background flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background grid-background flex items-center justify-center px-4 py-6 sm:py-10">
       {/* Background Effects */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <motion.div
@@ -93,7 +93,7 @@ export default function LoginPage() {
       >
         <div className="grid grid-cols-1 md:grid-cols-[1.05fr_1fr] gap-6 items-stretch">
         {/* Login Card */}
-        <div className="glass rounded-2xl border border-border/50 p-8 shadow-lg h-full">
+        <div className="glass rounded-2xl border border-border/50 p-6 sm:p-8 shadow-lg h-full">
           {/* Header */}
           <div className="text-center mb-8">
             <Link href="/" className="inline-flex items-center gap-2 mb-6">
@@ -102,7 +102,7 @@ export default function LoginPage() {
                 <div className="absolute inset-0 blur-md bg-primary/30" />
               </div>
             </Link>
-            <h1 className="text-2xl font-bold text-foreground mb-2">
+            <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-2">
               {isLogin ? "Centro de Comando" : "Crear Cuenta"}
             </h1>
             <p className="text-sm text-muted-foreground">
@@ -176,7 +176,7 @@ export default function LoginPage() {
             <Button
               type="submit"
               disabled={loading}
-              className="w-full bg-primary text-primary-foreground hover:bg-primary/90 glow-green"
+              className="w-full bg-primary text-primary-foreground hover:bg-primary/90 glow-green text-base sm:text-lg py-3"
             >
               {loading ? (
                 <>
@@ -215,7 +215,7 @@ export default function LoginPage() {
         </div>
 
         {/* Collage */}
-        <div className="glass rounded-2xl border border-border/50 overflow-hidden shadow-lg bg-secondary/40 h-full min-h-[540px]">
+        <div className="glass rounded-2xl border border-border/50 overflow-hidden shadow-lg bg-secondary/40 h-full min-h-[420px] sm:min-h-[540px]">
           <div className="relative h-full bg-gradient-to-br from-primary/15 via-background/5 to-accent/10 flex items-center justify-center">
             {collageImages.map((src, index) => (
               <motion.div
@@ -225,7 +225,7 @@ export default function LoginPage() {
                 transition={{ duration: 0.6 }}
                 className="absolute inset-0"
               >
-                <div className="absolute inset-0 flex items-center justify-center p-2 md:p-4">
+                <div className="absolute inset-0 flex items-center justify-center p-3 md:p-4">
                   <Image
                     src={src}
                     alt="Collage de territorio"
@@ -250,7 +250,7 @@ export default function LoginPage() {
               ))}
             </div>
           </div>
-          <div className="p-4 border-t border-border/40 text-sm text-muted-foreground flex items-center gap-2">
+            <div className="p-4 border-t border-border/40 text-sm text-muted-foreground flex items-center gap-2">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
