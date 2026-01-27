@@ -1,10 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -26,52 +34,17 @@ import {
 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 
-const events = [
-  {
-    id: "EVT-2201",
-    title: "Caravana Atlántico Norte",
-    date: "2026-01-19",
-    hour: "08:00",
-    place: "Barranquilla - Bulevar",
-    type: "movilización",
-    attendance: 320,
-    lead: "Coordinación logística",
-    status: "confirmado",
-  },
-  {
-    id: "EVT-2202",
-    title: "Encuentro con líderes juveniles",
-    date: "2026-01-20",
-    hour: "16:00",
-    place: "Soledad - Casa cultural",
-    type: "formación",
-    attendance: 110,
-    lead: "Juventudes",
-    status: "planificado",
-  },
-  {
-    id: "EVT-2203",
-    title: "Foro transparencia electoral",
-    date: "2026-01-21",
-    hour: "10:00",
-    place: "Puerto Colombia - Auditorio",
-    type: "institucional",
-    attendance: 85,
-    lead: "Equipo jurídico",
-    status: "borrador",
-  },
-  {
-    id: "EVT-2204",
-    title: "Puerta a puerta sector 12",
-    date: "2026-01-18",
-    hour: "09:30",
-    place: "Malambo",
-    type: "territorial",
-    attendance: 45,
-    lead: "Líderes locales",
-    status: "en curso",
-  },
-];
+type EventItem = {
+  id: string
+  title: string
+  date: string | null
+  hour: string | null
+  place: string | null
+  type: string
+  attendance: number
+  lead: string | null
+  status: string
+}
 
 const statusColor: Record<string, string> = {
   confirmado: "bg-emerald-500/20 text-emerald-300",
@@ -81,31 +54,102 @@ const statusColor: Record<string, string> = {
 };
 
 export default function EventosPage() {
-  const [search, setSearch] = useState("");
-  const [type, setType] = useState("todos");
+  const [search, setSearch] = useState("")
+  const [type, setType] = useState("todos")
+  const [items, setItems] = useState<EventItem[]>([])
+  const [totals, setTotals] = useState({ total: 0, confirmados: 0, aforo: 0, proximo: null as string | null })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState({
+    title: "",
+    place: "",
+    type: "movilización",
+    attendance: 0,
+    lead: "",
+    date: "",
+    hour: "",
+  })
 
   const notify = (action: string) =>
     toast({
       title: action,
-      description: "Acción simulada, pendiente de integración",
-    });
+      description: "Acción conectada a backend próximamente",
+    })
+
+  const addEvent = () => {
+    if (!form.title) {
+      toast({ title: "Falta título", description: "Agrega un nombre al evento" })
+      return
+    }
+    const newEvent: EventItem = {
+      id: `EV-${Date.now()}`,
+      title: form.title,
+      date: form.date || null,
+      hour: form.hour || null,
+      place: form.place || null,
+      type: form.type,
+      attendance: Number(form.attendance) || 0,
+      lead: form.lead || null,
+      status: "planificado",
+    }
+    const nextItems = [newEvent, ...items]
+    setItems(nextItems)
+    setTotals({
+      total: nextItems.length,
+      confirmados: nextItems.filter((e) => e.status === "confirmado").length,
+      aforo: nextItems.reduce((acc, e) => acc + (e.attendance || 0), 0),
+      proximo: nextItems.find((e) => e.date)?.date || null,
+    })
+    setOpen(false)
+    setForm({ title: "", place: "", type: "movilización", attendance: 0, lead: "", date: "", hour: "" })
+    toast({ title: "Evento creado", description: newEvent.title })
+  }
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/events", { cache: "no-store" })
+        if (!res.ok) throw new Error(`Error ${res.status}`)
+        const data = await res.json()
+        if (!active) return
+        setItems(data.items ?? [])
+        setTotals({
+          total: data.stats?.total ?? 0,
+          confirmados: data.stats?.confirmados ?? 0,
+          aforo: data.stats?.aforo ?? 0,
+          proximo: data.stats?.proximo ?? null,
+        })
+      } catch (err) {
+        console.error(err)
+        if (!active) return
+        setError("No se pudieron cargar eventos")
+        setItems([])
+        setTotals({ total: 0, confirmados: 0, aforo: 0, proximo: null })
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      active = false
+    }
+  }, [])
 
   const filtered = useMemo(() => {
-    return events.filter((e) => {
+    const q = search.toLowerCase()
+    return items.filter((e) => {
       const matchesSearch =
-        e.title.toLowerCase().includes(search.toLowerCase()) ||
-        e.place.toLowerCase().includes(search.toLowerCase());
-      const matchesType = type === "todos" || e.type === type;
-      return matchesSearch && matchesType;
-    });
-  }, [search, type]);
-
-  const totals = useMemo(() => {
-    const confirmados = events.filter((e) => e.status === "confirmado").length;
-    const aforo = events.reduce((sum, e) => sum + e.attendance, 0);
-    const proximo = events[0]?.date;
-    return { total: events.length, confirmados, aforo, proximo };
-  }, []);
+        !q ||
+        e.title.toLowerCase().includes(q) ||
+        (e.place ?? "").toLowerCase().includes(q)
+      const matchesType = type === "todos" || e.type === type
+      return matchesSearch && matchesType
+    })
+  }, [items, search, type])
 
   return (
     <div className="space-y-6 pb-20 lg:pb-6">
@@ -171,17 +215,94 @@ export default function EventosPage() {
         </Card>
       </div>
 
+      {loading && (
+        <Card className="bg-zinc-900/50 border-zinc-800">
+          <CardContent className="p-4 text-sm text-muted-foreground">Cargando eventos...</CardContent>
+        </Card>
+      )}
+      {error && !loading && (
+        <Card className="bg-zinc-900/50 border-red-900/60 border">
+          <CardContent className="p-4 text-sm text-red-300">{error}</CardContent>
+        </Card>
+      )}
+
       <Card className="bg-zinc-900/50 border-zinc-800">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center justify-between text-base">
             <span className="flex items-center gap-2"><Filter className="h-4 w-4" /> Agenda</span>
-            <Button
-              size="sm"
-              className="bg-cyan-600 hover:bg-cyan-700"
-              onClick={() => notify("Nuevo evento")}
-            >
-              <Plus className="h-4 w-4 mr-2" /> Nuevo evento
-            </Button>
+            <Dialog open={open} onOpenChange={setOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  size="sm"
+                  className="bg-cyan-600 hover:bg-cyan-700"
+                >
+                  <Plus className="h-4 w-4 mr-2" /> Nuevo evento
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="bg-zinc-900 border-zinc-800">
+                <DialogHeader>
+                  <DialogTitle>Registrar evento</DialogTitle>
+                </DialogHeader>
+                <div className="grid gap-3">
+                  <Input
+                    placeholder="Título"
+                    value={form.title}
+                    onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))}
+                    className="bg-zinc-800/50 border-zinc-700"
+                  />
+                  <Input
+                    placeholder="Lugar"
+                    value={form.place}
+                    onChange={(e) => setForm((p) => ({ ...p, place: e.target.value }))}
+                    className="bg-zinc-800/50 border-zinc-700"
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input
+                      type="date"
+                      value={form.date}
+                      onChange={(e) => setForm((p) => ({ ...p, date: e.target.value }))}
+                      className="bg-zinc-800/50 border-zinc-700"
+                    />
+                    <Input
+                      type="time"
+                      value={form.hour}
+                      onChange={(e) => setForm((p) => ({ ...p, hour: e.target.value }))}
+                      className="bg-zinc-800/50 border-zinc-700"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Select value={form.type} onValueChange={(v) => setForm((p) => ({ ...p, type: v }))}>
+                      <SelectTrigger className="bg-zinc-800/50 border-zinc-700">
+                        <SelectValue placeholder="Tipo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="movilización">Movilización</SelectItem>
+                        <SelectItem value="formación">Formación</SelectItem>
+                        <SelectItem value="territorial">Territorial</SelectItem>
+                        <SelectItem value="institucional">Institucional</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="number"
+                      min={0}
+                      placeholder="Aforo estimado"
+                      value={form.attendance}
+                      onChange={(e) => setForm((p) => ({ ...p, attendance: Number(e.target.value) }))}
+                      className="bg-zinc-800/50 border-zinc-700"
+                    />
+                  </div>
+                  <Input
+                    placeholder="Responsable"
+                    value={form.lead}
+                    onChange={(e) => setForm((p) => ({ ...p, lead: e.target.value }))}
+                    className="bg-zinc-800/50 border-zinc-700"
+                  />
+                </div>
+                <DialogFooter>
+                  <Button onClick={addEvent} className="bg-cyan-600 hover:bg-cyan-700">Guardar</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-3">

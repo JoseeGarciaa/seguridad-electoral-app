@@ -2,9 +2,11 @@
 
 import "maplibre-gl/dist/maplibre-gl.css"
 import { useEffect, useRef, useState } from "react"
-import maplibregl, { Map as MLMap, GeoJSONSource, LngLatBoundsLike } from "maplibre-gl"
+import maplibregl, { Map as MLMap, GeoJSONSource } from "maplibre-gl"
 import { Maximize2, Minimize2, Layers } from "lucide-react"
 import { Button } from "@/components/ui/button"
+
+type ViewMode = "circle" | "heatmap" | "3d"
 
 type Feature = {
   type: "Feature"
@@ -19,16 +21,28 @@ type Feature = {
     total: number
     hombres: number
     mujeres: number
+    dd?: string
+    mm?: string
+    pp?: string
+    delegateAssigned?: boolean
   }
 }
 
 const TILE_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
 
-export function TerritoryMap() {
+type Props = {
+  viewMode: ViewMode
+  features: Feature[]
+  onViewModeChange?: (v: ViewMode) => void
+  selectedId?: string | null
+  onSelect?: (id: string) => void
+  selectionVersion?: number
+}
+
+export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId, onSelect, selectionVersion }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MLMap | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [viewMode, setViewMode] = useState<"circle" | "heatmap">("circle")
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -100,33 +114,49 @@ export function TerritoryMap() {
         },
       })
 
-      map.addLayer({
-        id: "unclustered-point",
-        type: viewMode === "heatmap" ? "heatmap" : "circle",
-        source: "puestos",
-        filter: ["!", ["has", "point_count"]],
-        paint:
-          viewMode === "heatmap"
-            ? {
-                "heatmap-weight": ["interpolate", ["linear"], ["get", "total"], 0, 0, 500, 1],
-                "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 5, 0.5, 12, 2],
-                "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 5, 15, 12, 30],
-                "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.7, 12, 0.9],
-              }
-            : {
-                "circle-color": "#22c55e",
-                "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 4, 12, 8, 16, 14],
-                "circle-stroke-width": 1,
-                "circle-stroke-color": "#0f172a",
-                "circle-opacity": 0.9,
-              },
+      addPointsLayer(map, viewMode)
+
+      const src = map.getSource("puestos") as GeoJSONSource | undefined
+      src?.setData({ type: "FeatureCollection", features })
+
+      map.on("click", "clusters", (e) => {
+        const feature = e.features?.[0]
+        if (!feature) return
+        const clusterId = feature.properties?.cluster_id
+        const source = map.getSource("puestos") as GeoJSONSource
+        if (!source || clusterId === undefined) return
+        source.getClusterExpansionZoom(clusterId, (err, zoom) => {
+          if (err) return
+          map.easeTo({ center: feature.geometry.coordinates as [number, number], zoom })
+        })
       })
 
-      map.on("moveend", async () => {
-        await fetchAndSetData(map)
+      map.on("click", "unclustered-point", (e) => {
+        const feature = e.features?.[0] as Feature | undefined
+        if (!feature) return
+        const coords = feature.geometry.coordinates
+        const props = feature.properties
+        onSelect?.(props.id)
+        new maplibregl.Popup({ closeButton: true })
+          .setLngLat(coords)
+          .setHTML(`
+            <div class="space-y-1 text-sm">
+              <div class="font-semibold" style="color:#000">${props.puesto}</div>
+              <div class="text-muted-foreground">${props.municipio}, ${props.departamento}</div>
+              <div class="text-muted-foreground text-xs">Mesas: ${props.mesas?.toLocaleString?.() ?? "-"} · Votantes: ${
+            props.total?.toLocaleString?.() ?? "-"
+          }</div>
+            </div>
+          `)
+          .addTo(map)
       })
 
-      await fetchAndSetData(map)
+      map.on("mouseenter", "unclustered-point", () => {
+        map.getCanvas().style.cursor = "pointer"
+      })
+      map.on("mouseleave", "unclustered-point", () => {
+        map.getCanvas().style.cursor = ""
+      })
     })
 
     mapRef.current = map
@@ -135,18 +165,39 @@ export function TerritoryMap() {
       map.remove()
       mapRef.current = null
     }
+  }, [])
+
+  useEffect(() => {
+    if (!mapRef.current) return
+    applyViewMode(mapRef.current, viewMode)
   }, [viewMode])
 
-  const fetchAndSetData = async (map: MLMap) => {
-    const src = map.getSource("puestos") as GeoJSONSource | undefined
+  useEffect(() => {
+    if (!mapRef.current) return
+    const src = mapRef.current.getSource("puestos") as GeoJSONSource | undefined
     if (!src) return
-    const bounds = map.getBounds().toArray().flat()
-    const bbox = bounds.join(",")
-    const res = await fetch(`/api/divipole?bbox=${bbox}&limit=2000`)
-    if (!res.ok) return
-    const geojson = (await res.json()) as { type: "FeatureCollection"; features: Feature[] }
-    src.setData(geojson)
-  }
+    src.setData({ type: "FeatureCollection", features })
+  }, [features])
+
+  useEffect(() => {
+    if (!mapRef.current || !selectedId) return
+    const feature = features.find((f) => f.properties.id === selectedId)
+    if (!feature) return
+    const [lng, lat] = feature.geometry.coordinates
+    mapRef.current.easeTo({ center: [lng, lat], zoom: Math.max(mapRef.current.getZoom(), 11) })
+    new maplibregl.Popup({ closeButton: true })
+      .setLngLat([lng, lat])
+      .setHTML(`
+        <div class="space-y-1 text-sm">
+          <div class="font-semibold" style="color:#000">${feature.properties.puesto}</div>
+          <div class="text-muted-foreground">${feature.properties.municipio}, ${feature.properties.departamento}</div>
+          <div class="text-muted-foreground text-xs">Mesas: ${feature.properties.mesas?.toLocaleString?.() ?? "-"} · Votantes: ${
+        feature.properties.total?.toLocaleString?.() ?? "-"
+      }</div>
+        </div>
+      `)
+      .addTo(mapRef.current)
+  }, [selectedId, selectionVersion, features])
 
   return (
     <div className="glass rounded-xl border border-border/50 h-full flex flex-col overflow-hidden">
@@ -161,7 +212,12 @@ export function TerritoryMap() {
             variant="ghost"
             size="icon"
             className="h-8 w-8"
-            onClick={() => setViewMode(viewMode === "heatmap" ? "circle" : "heatmap")}
+            onClick={() => {
+              if (!mapRef.current) return
+              const next = viewMode === "heatmap" ? "circle" : "heatmap"
+              onViewModeChange?.(next)
+              applyViewMode(mapRef.current, next)
+            }}
           >
             <Layers className="w-4 h-4" />
           </Button>
@@ -187,4 +243,43 @@ export function TerritoryMap() {
       <div ref={containerRef} className="flex-1" />
     </div>
   )
+}
+
+function addPointsLayer(map: MLMap, mode: ViewMode) {
+  if (!map.getSource("puestos")) return
+  if (map.getLayer("unclustered-point")) {
+    map.removeLayer("unclustered-point")
+  }
+
+  map.addLayer({
+    id: "unclustered-point",
+    type: mode === "heatmap" ? "heatmap" : "circle",
+    source: "puestos",
+    filter: ["!", ["has", "point_count"]],
+    paint:
+      mode === "heatmap"
+        ? {
+            "heatmap-weight": ["interpolate", ["linear"], ["get", "total"], 0, 0, 500, 1],
+            "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 5, 0.5, 12, 2],
+            "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 5, 15, 12, 30],
+            "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.7, 12, 0.9],
+          }
+        : {
+            "circle-color": mode === "3d" ? "#06b6d4" : "#22c55e",
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 4, 12, 8, 16, 14],
+            "circle-stroke-width": 1,
+            "circle-stroke-color": "#0f172a",
+            "circle-opacity": 0.9,
+          },
+  })
+}
+
+function applyViewMode(map: MLMap, mode: ViewMode) {
+  if (!map.getSource("puestos")) return
+  addPointsLayer(map, mode)
+  if (mode === "3d") {
+    map.easeTo({ pitch: 55, duration: 300 })
+  } else {
+    map.easeTo({ pitch: 0, duration: 300 })
+  }
 }

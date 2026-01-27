@@ -28,6 +28,7 @@ interface User {
   name: string | null
   email: string
   role: string
+  delegateId?: string | null
   profile?: {
     role_extended: string
   } | null
@@ -67,7 +68,18 @@ export function DashboardSidebar({ user }: SidebarProps) {
   const roleLabel = user.profile?.role_extended?.toLowerCase() ?? ""
   const isWitness = user.role === "witness" || roleLabel.includes("testigo")
 
-  const visibleNavigation = isWitness ? witnessNavigation : navigation
+  const restrictedForDelegate = new Set([
+    "/dashboard/asignaciones",
+    "/dashboard/simpatizantes",
+    "/dashboard/equipo",
+    "/dashboard/comunicacion",
+  ])
+
+  const isDelegate = !isWitness && (user.role === "delegate" || roleLabel.includes("delegado"))
+  const baseNavigation = isWitness ? witnessNavigation : navigation
+  const visibleNavigation = isDelegate
+    ? baseNavigation.filter((item) => !restrictedForDelegate.has(item.href))
+    : baseNavigation
   const visibleBottomNavigation = isWitness ? [] : bottomNavigation
 
   return (

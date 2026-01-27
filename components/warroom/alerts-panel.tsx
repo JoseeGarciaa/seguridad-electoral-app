@@ -1,43 +1,11 @@
 "use client"
 
+import { useMemo, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { AlertTriangle, AlertCircle, XCircle, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
-
-const alerts = [
-  {
-    id: 1,
-    severity: "critical",
-    title: "Sin cobertura",
-    message: "Puesto 2345 en Medellín sin testigo asignado",
-    time: "Hace 5 min",
-    icon: XCircle,
-  },
-  {
-    id: 2,
-    severity: "warning",
-    title: "Anomalía detectada",
-    message: "Diferencia de votos > 10% en Mesa 5, Puesto 892",
-    time: "Hace 12 min",
-    icon: AlertTriangle,
-  },
-  {
-    id: 3,
-    severity: "warning",
-    title: "Evidencia pendiente",
-    message: "3 actas sin verificar en Puesto 456",
-    time: "Hace 18 min",
-    icon: AlertCircle,
-  },
-  {
-    id: 4,
-    severity: "info",
-    title: "Cobertura recuperada",
-    message: "Puesto 1234 ahora tiene testigo activo",
-    time: "Hace 25 min",
-    icon: CheckCircle,
-  },
-]
+import { toast } from "@/components/ui/use-toast"
+import { useWarRoomData } from "./warroom-data-provider"
 
 const severityStyles = {
   critical: {
@@ -61,6 +29,15 @@ const severityStyles = {
 }
 
 export function AlertsPanel() {
+  const { data, loading, error } = useWarRoomData()
+  const [handled, setHandled] = useState<string[]>([])
+  const alerts = useMemo(() => (data?.alerts ?? []).filter((a) => !handled.includes(a.id)), [data?.alerts, handled])
+
+  const handleAlert = (id: string, title: string) => {
+    setHandled((prev) => (prev.includes(id) ? prev : [...prev, id]))
+    toast({ title: "Alerta atendida", description: title })
+  }
+
   return (
     <div className="glass rounded-xl border border-border/50 h-full flex flex-col overflow-hidden">
       {/* Header */}
@@ -72,10 +49,10 @@ export function AlertsPanel() {
           </div>
           <div className="flex items-center gap-2">
             <span className="px-2 py-0.5 rounded-full bg-destructive/20 text-destructive text-xs font-medium">
-              1 crítica
+              {loading ? "--" : `${alerts.filter(a => a.severity === "critical").length} crítica`}
             </span>
             <span className="px-2 py-0.5 rounded-full bg-neon-orange/20 text-neon-orange text-xs font-medium">
-              2 avisos
+              {loading ? "--" : `${alerts.filter(a => a.severity === "warning").length} avisos`}
             </span>
           </div>
         </div>
@@ -84,8 +61,11 @@ export function AlertsPanel() {
       {/* Alerts List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         <AnimatePresence>
-          {alerts.map((alert, index) => {
+          {error && <p className="text-xs text-destructive px-2">{error}</p>}
+          {loading && <div className="h-16 rounded-lg bg-secondary/50 animate-pulse" />}
+          {!loading && alerts.map((alert, index) => {
             const styles = severityStyles[alert.severity as keyof typeof severityStyles]
+            const Icon = alert.severity === "critical" ? XCircle : alert.severity === "warning" ? AlertTriangle : AlertCircle
             return (
               <motion.div
                 key={alert.id}
@@ -95,13 +75,20 @@ export function AlertsPanel() {
                 className={`p-3 rounded-lg ${styles.bg} border ${styles.border}`}
               >
                 <div className="flex items-start gap-2">
-                  <alert.icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${styles.icon}`} />
+                  <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${styles.icon}`} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground">{alert.title}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">{alert.message}</p>
                     <div className="flex items-center justify-between mt-2">
-                      <span className="text-[10px] text-muted-foreground">{alert.time}</span>
-                      <Button variant="ghost" size="sm" className="h-6 text-xs px-2">
+                      <span className="text-[10px] text-muted-foreground">
+                        {alert.time ? new Date(alert.time).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }) : "--"}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs px-2"
+                        onClick={() => handleAlert(alert.id, alert.title)}
+                      >
                         Atender
                       </Button>
                     </div>

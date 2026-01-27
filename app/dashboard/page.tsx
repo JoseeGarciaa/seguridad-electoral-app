@@ -1,42 +1,44 @@
-import { Suspense } from "react"
 import { DashboardStats } from "@/components/dashboard/stats"
 import { QuickActions } from "@/components/dashboard/quick-actions"
 import { RecentAlerts } from "@/components/dashboard/recent-alerts"
 import { CoverageOverview } from "@/components/dashboard/coverage-overview"
 import { ActivityFeed } from "@/components/dashboard/activity-feed"
+import {
+  getActivityFeed,
+  getCoverageOverview,
+  getDashboardStats,
+  getRecentAlerts,
+} from "@/lib/dashboard-data"
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const [stats, coverage, alerts, activities] = await Promise.all([
+    getDashboardStats(),
+    getCoverageOverview(),
+    getRecentAlerts(),
+    getActivityFeed(),
+  ])
+
   return (
     <div className="space-y-6 pb-20 lg:pb-6">
-      {/* Stats Grid */}
-      <Suspense fallback={<div className="h-32 animate-pulse bg-secondary/50 rounded-xl" />}>
-        <DashboardStats />
-      </Suspense>
+      <DashboardStats stats={stats} />
 
-      {/* Quick Actions */}
-      <QuickActions />
+      <QuickActions pendingAlerts={alerts.activeCount} />
 
       {/* Main Content Grid */}
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Coverage Overview - Takes 2 columns */}
         <div className="lg:col-span-2">
-          <Suspense fallback={<div className="h-80 animate-pulse bg-secondary/50 rounded-xl" />}>
-            <CoverageOverview />
-          </Suspense>
+          <CoverageOverview items={coverage.items} summary={coverage.summary} />
         </div>
 
         {/* Alerts */}
         <div>
-          <Suspense fallback={<div className="h-80 animate-pulse bg-secondary/50 rounded-xl" />}>
-            <RecentAlerts />
-          </Suspense>
+          <RecentAlerts alerts={alerts.items} />
         </div>
       </div>
 
       {/* Activity Feed */}
-      <Suspense fallback={<div className="h-40 animate-pulse bg-secondary/50 rounded-xl" />}>
-        <ActivityFeed />
-      </Suspense>
+      <ActivityFeed activities={activities} />
     </div>
   )
 }

@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -12,6 +13,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   AlertTriangle,
   Bell,
@@ -24,7 +33,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 
-const alerts = [
+const initialAlerts = [
   {
     id: "ALR-8801",
     title: "Posible compra de votos",
@@ -80,30 +89,54 @@ const statusColor: Record<string, string> = {
 };
 
 export default function AlertasPage() {
+  const [data, setData] = useState(initialAlerts)
   const [search, setSearch] = useState("");
   const [level, setLevel] = useState("todas");
-
-  const notify = (action: string) =>
-    toast({
-      title: "Acción de demostración",
-      description: `${action} se conectará a flujo real próximamente`,
-    });
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState({
+    title: "",
+    municipality: "",
+    level: "crítica",
+    category: "operativa",
+    detail: "",
+  })
 
   const filtered = useMemo(() => {
-    return alerts.filter((a) => {
+    return data.filter((a) => {
       const matchesSearch =
         a.title.toLowerCase().includes(search.toLowerCase()) ||
         a.municipality.toLowerCase().includes(search.toLowerCase());
       const matchesLevel = level === "todas" || a.level === level;
       return matchesSearch && matchesLevel;
     });
-  }, [level, search]);
+  }, [data, level, search]);
 
   const stats = useMemo(() => {
-    const criticas = alerts.filter((a) => a.level === "crítica").length;
-    const abiertas = alerts.filter((a) => a.status === "abierta").length;
-    return { total: alerts.length, criticas, abiertas };
-  }, []);
+    const criticas = data.filter((a) => a.level === "crítica").length;
+    const abiertas = data.filter((a) => a.status === "abierta").length;
+    return { total: data.length, criticas, abiertas };
+  }, [data]);
+
+  const addAlert = () => {
+    if (!form.title || !form.municipality) {
+      toast({ title: "Faltan datos", description: "Título y municipio son obligatorios" })
+      return
+    }
+    const newAlert = {
+      id: `ALR-${Date.now()}`,
+      title: form.title,
+      level: form.level,
+      category: form.category,
+      municipality: form.municipality,
+      time: "Hace 1 min",
+      status: "abierta",
+      detail: form.detail || "Sin detalle",
+    }
+    setData((prev) => [newAlert, ...prev])
+    setOpen(false)
+    setForm({ title: "", municipality: "", level: "crítica", category: "operativa", detail: "" })
+    toast({ title: "Alerta creada", description: newAlert.title })
+  }
 
   return (
     <div className="space-y-6 pb-20 lg:pb-6">
@@ -173,13 +206,65 @@ export default function AlertasPage() {
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center justify-between text-base">
             <span className="flex items-center gap-2"><Filter className="h-4 w-4" /> Filtros</span>
-            <Button
-              size="sm"
-              className="bg-cyan-600 hover:bg-cyan-700"
-              onClick={() => notify("Agregar alerta")}
-            >
-              Agregar alerta (UI)
-            </Button>
+            <Dialog open={open} onOpenChange={setOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  size="sm"
+                  className="bg-cyan-600 hover:bg-cyan-700"
+                >
+                  Agregar alerta (UI)
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="bg-zinc-900 border-zinc-800">
+                <DialogHeader>
+                  <DialogTitle>Registrar alerta</DialogTitle>
+                </DialogHeader>
+                <div className="grid gap-3">
+                  <Input
+                    placeholder="Título"
+                    value={form.title}
+                    onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+                    className="bg-zinc-800/50 border-zinc-700"
+                  />
+                  <Input
+                    placeholder="Municipio"
+                    value={form.municipality}
+                    onChange={(e) => setForm((prev) => ({ ...prev, municipality: e.target.value }))}
+                    className="bg-zinc-800/50 border-zinc-700"
+                  />
+                  <Select value={form.level} onValueChange={(v) => setForm((prev) => ({ ...prev, level: v }))}>
+                    <SelectTrigger className="bg-zinc-800/50 border-zinc-700">
+                      <SelectValue placeholder="Nivel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="crítica">Crítica</SelectItem>
+                      <SelectItem value="alta">Alta</SelectItem>
+                      <SelectItem value="media">Media</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={form.category} onValueChange={(v) => setForm((prev) => ({ ...prev, category: v }))}>
+                    <SelectTrigger className="bg-zinc-800/50 border-zinc-700">
+                      <SelectValue placeholder="Categoría" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="operativa">Operativa</SelectItem>
+                      <SelectItem value="irregularidad">Irregularidad</SelectItem>
+                      <SelectItem value="orden público">Orden público</SelectItem>
+                      <SelectItem value="documental">Documental</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Textarea
+                    placeholder="Detalle"
+                    value={form.detail}
+                    onChange={(e) => setForm((prev) => ({ ...prev, detail: e.target.value }))}
+                    className="bg-zinc-800/50 border-zinc-700"
+                  />
+                </div>
+                <DialogFooter>
+                  <Button onClick={addAlert} className="bg-cyan-600 hover:bg-cyan-700">Guardar</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-3">

@@ -1,17 +1,7 @@
 "use client"
 
 import { motion } from "framer-motion"
-
-const departments = [
-  { name: "Bogotá D.C.", coverage: 92, puestos: 1247, status: "green" },
-  { name: "Antioquia", coverage: 88, puestos: 1156, status: "green" },
-  { name: "Valle del Cauca", coverage: 76, puestos: 892, status: "yellow" },
-  { name: "Cundinamarca", coverage: 85, puestos: 743, status: "green" },
-  { name: "Atlántico", coverage: 72, puestos: 456, status: "yellow" },
-  { name: "Santander", coverage: 45, puestos: 534, status: "red" },
-  { name: "Bolívar", coverage: 68, puestos: 412, status: "yellow" },
-  { name: "Nariño", coverage: 82, puestos: 387, status: "yellow" },
-]
+import type { CoverageItem, CoverageSummary } from "@/lib/dashboard-data"
 
 const statusColors = {
   green: "bg-neon-green",
@@ -19,13 +9,13 @@ const statusColors = {
   red: "bg-destructive",
 }
 
-const statusLabels = {
-  green: "Óptimo",
-  yellow: "Atención",
-  red: "Crítico",
-}
-
-export function CoverageOverview() {
+export function CoverageOverview({
+  items,
+  summary,
+}: {
+  items: CoverageItem[]
+  summary: CoverageSummary
+}) {
   return (
     <div className="glass rounded-xl border border-border/50 p-4 lg:p-6">
       <div className="flex items-center justify-between mb-6">
@@ -50,7 +40,7 @@ export function CoverageOverview() {
       </div>
 
       <div className="space-y-3">
-        {departments.map((dept, index) => (
+        {items.map((dept, index) => (
           <motion.div
             key={dept.name}
             initial={{ opacity: 0, x: -10 }}
@@ -83,15 +73,15 @@ export function CoverageOverview() {
       {/* Summary */}
       <div className="mt-6 pt-4 border-t border-border/50 grid grid-cols-3 gap-4">
         <div className="text-center">
-          <p className="text-2xl font-bold text-neon-green">5</p>
+          <p className="text-2xl font-bold text-neon-green">{summary.green}</p>
           <p className="text-xs text-muted-foreground">Óptimos</p>
         </div>
         <div className="text-center">
-          <p className="text-2xl font-bold text-neon-orange">4</p>
+          <p className="text-2xl font-bold text-neon-orange">{summary.yellow}</p>
           <p className="text-xs text-muted-foreground">Atención</p>
         </div>
         <div className="text-center">
-          <p className="text-2xl font-bold text-destructive">1</p>
+          <p className="text-2xl font-bold text-destructive">{summary.red}</p>
           <p className="text-xs text-muted-foreground">Críticos</p>
         </div>
       </div>

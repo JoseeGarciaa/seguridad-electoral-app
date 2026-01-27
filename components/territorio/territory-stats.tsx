@@ -3,14 +3,25 @@
 import { motion } from "framer-motion"
 import { MapPin, Users, Building2, CheckCircle } from "lucide-react"
 
-const stats = [
-  { name: "Puestos Totales", value: "12,847", icon: Building2 },
-  { name: "Con Coordenadas", value: "11,923", icon: MapPin },
-  { name: "Testigos Asignados", value: "892", icon: Users },
-  { name: "Cobertura", value: "87%", icon: CheckCircle },
-]
+type Props = {
+  total: number
+  withCoords: number
+  assigned: number
+  coveragePct: number
+}
 
-export function TerritoryStats() {
+const numberFormatter = new Intl.NumberFormat("es-CO")
+
+const formatNumber = (value: number) => numberFormatter.format(Math.max(0, Math.trunc(value)))
+
+export function TerritoryStats({ total, withCoords, assigned, coveragePct }: Props) {
+  const stats = [
+    { name: "Puestos Totales", value: formatNumber(total), icon: Building2 },
+    { name: "Con Coordenadas", value: formatNumber(withCoords), icon: MapPin },
+    { name: "Testigos Asignados", value: formatNumber(assigned), icon: Users },
+    { name: "Cobertura", value: `${Math.round(Math.max(0, coveragePct))}%`, icon: CheckCircle },
+  ]
+
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       {stats.map((stat, index) => (

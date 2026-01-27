@@ -7,295 +7,439 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Existing tables from the database
-model User {
-  id            String        @id @default(cuid())
-  email         String        @unique
-  password_hash String
-  name          String?
-  role          String        @default("delegate") // admin | delegate | witness
-  created_at    DateTime      @default(now())
-  updated_at    DateTime      @updatedAt
-  
-  sessions      AuthSession[]
-  profile       UserProfile?
-  
-  @@map("users")
+model Department {
+  code                String                @id @db.Text
+  name                String                @db.Text
+  capital             String?               @db.Text
+  created_at          DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime              @default(now()) @db.Timestamptz(6)
+  municipalities      Municipality[]
+  delegates           Delegate[]            @relation("DepartmentDelegates")
+  candidates          Candidate[]           @relation("CandidateDepartment")
+  electoralCandidates ElectoralCandidate[]  @relation("ElectoralCandidateDepartment")
+
+  @@map("departments")
+  @@unique([name])
 }
 
-model AuthSession {
-  id         String   @id @default(cuid())
-  user_id    String
-  token      String   @unique
-  expires_at DateTime
-  created_at DateTime @default(now())
-  
-  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  
-  @@map("auth_sessions")
+model Municipality {
+  code            String      @id @db.Text
+  name            String      @db.Text
+  department_code String      @db.Text
+  created_at      DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime    @default(now()) @db.Timestamptz(6)
+  department      Department  @relation(fields: [department_code], references: [code], onDelete: Cascade)
+  delegates       Delegate[]
+
+  @@map("municipalities")
+  @@index([department_code])
+  @@unique([department_code, name])
 }
 
-model UserProfile {
-  id              String   @id @default(cuid())
-  user_id         String   @unique
-  role_extended   String   @default("volunteer") // admin | coordinator | leader | volunteer | delegate | witness
-  phone           String?
-  avatar_url      String?
-  department      String?
-  municipality    String?
-  zone            String?
-  points          Int      @default(0)
-  badges          String[] @default([])
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-  
-  user            User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  
-  @@map("user_profiles")
-}
+model ElectoralPosition {
+  id                  String                @id @default(uuid()) @db.Uuid
+  name                String                @db.Text
+  level               String?               @db.Text
+  description         String?               @db.Text
+  created_at          DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime              @default(now()) @db.Timestamptz(6)
+  candidates          Candidate[]
+  electoralCandidates ElectoralCandidate[]
 
-model DivipoleLocation {
-  id            String   @id @default(cuid())
-  departamento  String
-  municipio     String
-  puesto        String
-  direccion     String?
-  comuna        String?
-  mesas         Int      @default(0)
-  total         Int      @default(0)
-  hombres       Int      @default(0)
-  mujeres       Int      @default(0)
-  latitud       Float?
-  longitud      Float?
-  dd            String?  // Código departamento
-  mm            String?  // Código municipio
-  zz            String?  // Código zona
-  pp            String?  // Código puesto
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
-  
-  assignments   DelegatePollingAssignment[]
-  votes         VoteRecord[]
-  
-  @@map("divipole_locations")
+  @@map("electoral_positions")
+  @@unique([name])
 }
 
 model Candidate {
-  id              String   @id @default(cuid())
-  name            String
-  party           String?
-  position        String?  // Alcalde, Concejal, Gobernador, etc.
-  photo_url       String?
-  color_primary   String?
-  color_secondary String?
-  logo_url        String?
-  slogan          String?
-  is_own          Boolean  @default(false) // Is this our candidate?
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-  
-  votes           VoteRecord[]
-  assets          CandidateAsset[]
-  
+  id               String              @id @default(uuid()) @db.Uuid
+  ballot_number    Int                 @db.Integer
+  full_name        String              @db.Text
+  position         String              @db.Text
+  region           String?             @db.Text
+  color            String              @db.Text
+  created_at       DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime            @default(now()) @db.Timestamptz(6)
+  position_id      String?             @db.Uuid
+  department_code  String?             @db.Text
+  party            String?             @db.Text
+  position_ref     ElectoralPosition?  @relation(fields: [position_id], references: [id], onDelete: SetNull)
+  department_ref   Department?         @relation("CandidateDepartment", fields: [department_code], references: [code], onDelete: SetNull)
+  vote_details     VoteDetail[]
+
   @@map("candidates")
+  @@index([position_id])
+  @@index([department_code])
+  @@unique([position, party, ballot_number])
 }
 
-model CandidateAsset {
-  id           String   @id @default(cuid())
-  candidate_id String
-  type         String   // logo | photo | banner | document
-  url          String
-  name         String?
-  created_at   DateTime @default(now())
-  
-  candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
-  
-  @@map("candidate_assets")
+model ElectoralCandidate {
+  id               String              @id @default(uuid()) @db.Uuid
+  full_name        String              @db.Text
+  preferred_name   String?             @db.Text
+  party            String?             @db.Text
+  ballot_number    Int?                @db.Integer
+  color            String?             @db.Text
+  position_id      String              @db.Uuid
+  department_code  String?             @db.Text
+  municipality     String?             @db.Text
+  profile_url      String?             @db.Text
+  created_at       DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime            @default(now()) @db.Timestamptz(6)
+  position_ref     ElectoralPosition   @relation(fields: [position_id], references: [id], onDelete: Cascade)
+  department_ref   Department?         @relation("ElectoralCandidateDepartment", fields: [department_code], references: [code], onDelete: SetNull)
+
+  @@map("electoral_candidates")
+  @@index([position_id])
+  @@index([department_code])
+  @@unique([position_id, department_code, municipality, ballot_number])
 }
 
-model Party {
-  id              String   @id @default(cuid())
-  name            String
-  abbreviation    String?
-  logo_url        String?
-  color_primary   String?
-  color_secondary String?
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-  
-  assets          PartyAsset[]
-  
-  @@map("parties")
+model Delegate {
+  id                     String                       @id @default(uuid()) @db.Uuid
+  email                  String                       @db.Text
+  phone                  String?                      @db.Text
+  full_name              String                       @db.Text
+  document_number        String                       @db.Text
+  role                   String                       @db.Text @default("testigo_electoral")
+  department             String                       @db.Text
+  municipality           String                       @db.Text
+  zone                   String?                      @db.Text
+  address                String?                      @db.Text
+  polling_station_code   String?                      @db.Text
+  polling_station_number Int?                         @db.Integer
+  supervisor_id          String?                      @db.Uuid
+  created_at             DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                     @default(now()) @db.Timestamptz(6)
+  department_code        String?                      @db.Text
+  municipality_code      String?                      @db.Text
+  department_ref         Department?                  @relation("DepartmentDelegates", fields: [department_code], references: [code])
+  municipality_ref       Municipality?                @relation(fields: [municipality_code], references: [code])
+  supervisor             Delegate?                    @relation("DelegateSupervisor", fields: [supervisor_id], references: [id], onDelete: SetNull)
+  subordinates           Delegate[]                   @relation("DelegateSupervisor")
+  user                   User?                        @relation("UserDelegate")
+  assignments            DelegatePollingAssignment[]
+  vote_reports           VoteReport[]
+  team_profile           TeamProfile?
+
+  @@map("delegates")
+  @@unique([document_number])
+  @@unique([email])
 }
 
-model PartyAsset {
-  id         String   @id @default(cuid())
-  party_id   String
-  type       String   // logo | banner | document
-  url        String
-  name       String?
-  created_at DateTime @default(now())
-  
-  party      Party    @relation(fields: [party_id], references: [id], onDelete: Cascade)
-  
-  @@map("party_assets")
+model User {
+  id                 String        @id @default(uuid()) @db.Uuid
+  email              String        @db.Text
+  password_hash      String        @db.Text
+  role               String        @db.Text
+  delegate_id        String?       @unique @db.Uuid
+  is_active          Boolean       @default(true)
+  last_login_at      DateTime?     @db.Timestamptz(6)
+  created_at         DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime      @default(now()) @db.Timestamptz(6)
+  must_reset_password Boolean      @default(false)
+  delegate           Delegate?     @relation("UserDelegate", fields: [delegate_id], references: [id], onDelete: SetNull)
+  sessions           AuthSession[]
+
+  @@map("users")
+  @@unique([email])
+}
+
+model AuthSession {
+  id           String   @id @default(uuid()) @db.Uuid
+  user_id      String   @db.Uuid
+  token        String   @db.Text
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  expires_at   DateTime @db.Timestamptz(6)
+  last_used_at DateTime @default(now()) @db.Timestamptz(6)
+  user         User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("auth_sessions")
+  @@unique([token])
+  @@index([token])
+  @@index([user_id])
+}
+
+model DivipoleLocation {
+  id           BigInt   @id @default(autoincrement()) @db.BigInt
+  dd           String   @db.Text
+  mm           String   @db.Text
+  zz           String   @db.Text
+  pp           String   @db.Text
+  departamento String   @db.Text
+  municipio    String   @db.Text
+  puesto       String   @db.Text
+  direccion    String?  @db.Text
+  comuna       String?  @db.Text
+  mujeres      Int      @default(0) @db.Integer
+  hombres      Int      @default(0) @db.Integer
+  total        Int      @default(0) @db.Integer
+  mesas        Int      @default(0) @db.Integer
+  latitud      Float?   @db.DoublePrecision
+  longitud     Float?   @db.DoublePrecision
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @default(now()) @db.Timestamptz(6)
+  assignments  DelegatePollingAssignment[]
+
+  @@map("divipole_locations")
+  @@unique([dd, mm, zz, pp])
 }
 
 model DelegatePollingAssignment {
-  id           String   @id @default(cuid())
-  user_id      String
-  location_id  String
-  assigned_at  DateTime @default(now())
-  status       String   @default("assigned") // assigned | confirmed | active | completed
-  notes        String?
-  
-  location     DivipoleLocation @relation(fields: [location_id], references: [id], onDelete: Cascade)
-  
+  id                     String             @id @default(uuid()) @db.Uuid
+  delegate_id            String             @db.Uuid
+  polling_station        String?            @db.Text
+  polling_station_number Int?               @db.Integer
+  divipole_location_id   BigInt?            @db.BigInt
+  created_at             DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime           @default(now()) @db.Timestamptz(6)
+  delegate               Delegate           @relation(fields: [delegate_id], references: [id], onDelete: Cascade)
+  location               DivipoleLocation?  @relation(fields: [divipole_location_id], references: [id], onDelete: SetNull)
+  vote_reports           VoteReport[]
+  assignments            Assignment[]
+
   @@map("delegate_polling_assignments")
+  @@unique([delegate_id, polling_station, polling_station_number])
+  @@index([delegate_id])
 }
 
-model VoteRecord {
-  id            String   @id @default(cuid())
-  location_id   String
-  candidate_id  String
-  mesa_number   Int
-  votes         Int
-  evidence_url  String?
-  reported_by   String?
-  verified      Boolean  @default(false)
-  verified_by   String?
-  verified_at   DateTime?
-  notes         String?
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
-  
-  location      DivipoleLocation @relation(fields: [location_id], references: [id], onDelete: Cascade)
-  candidate     Candidate        @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
-  
-  @@map("vote_records")
+model VoteReport {
+  id                     String                     @id @default(uuid()) @db.Uuid
+  delegate_id            String?                    @db.Uuid
+  delegate_assignment_id String?                    @db.Uuid
+  polling_station_code   String?                    @db.Text
+  department             String                     @db.Text
+  municipality           String                     @db.Text
+  address                String?                    @db.Text
+  notes                  String?                    @db.Text
+  photo_url              String?                    @db.Text
+  total_votes            Int                        @db.Integer
+  reported_at            DateTime                   @db.Timestamptz(6)
+  created_at             DateTime                   @default(now()) @db.Timestamptz(6)
+  delegate               Delegate?                  @relation(fields: [delegate_id], references: [id], onDelete: SetNull)
+  assignment             DelegatePollingAssignment? @relation(fields: [delegate_assignment_id], references: [id], onDelete: SetNull)
+  vote_details           VoteDetail[]
+  vote_party_details     VotePartyDetail[]
+  evidences              Evidence[]
+
+  @@map("vote_reports")
+  @@unique([delegate_assignment_id])
+  @@index([delegate_id])
+  @@index([delegate_assignment_id])
 }
 
-model Supporter {
-  id            String   @id @default(cuid())
-  name          String
-  email         String?
-  phone         String?
-  cedula        String?
-  department    String?
-  municipality  String?
-  address       String?
-  latitud       Float?
-  longitud      Float?
-  support_level String   @default("potential") // potential | committed | active | leader
-  notes         String?
-  tags          String[] @default([])
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
-  
-  activities    SupporterActivity[]
-  
-  @@map("supporters")
+model VoteDetail {
+  id                 String     @id @default(uuid()) @db.Uuid
+  vote_report_id     String     @db.Uuid
+  candidate_id       String     @db.Uuid
+  votes              Int        @db.Integer
+  created_at         DateTime   @default(now()) @db.Timestamptz(6)
+  vote_report        VoteReport @relation(fields: [vote_report_id], references: [id], onDelete: Cascade)
+  candidate          Candidate  @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+
+  @@map("vote_details")
+  @@unique([vote_report_id, candidate_id])
+  @@index([candidate_id])
 }
 
-model SupporterActivity {
-  id           String   @id @default(cuid())
-  supporter_id String
-  type         String   // call | visit | event | donation | volunteer
-  description  String?
-  date         DateTime @default(now())
-  created_by   String?
-  
-  supporter    Supporter @relation(fields: [supporter_id], references: [id], onDelete: Cascade)
-  
-  @@map("supporter_activities")
+model VotePartyDetail {
+  id             String     @id @default(uuid()) @db.Uuid
+  vote_report_id String     @db.Uuid
+  position       String     @db.Text
+  party          String     @db.Text
+  votes          Int        @db.Integer
+  created_at     DateTime   @default(now()) @db.Timestamptz(6)
+  vote_report    VoteReport @relation(fields: [vote_report_id], references: [id], onDelete: Cascade)
+
+  @@map("vote_party_details")
+  @@unique([vote_report_id, position, party])
+  @@index([vote_report_id])
 }
 
-model Event {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  type        String?  // rally | meeting | door_to_door | training
-  location    String?
-  latitud     Float?
-  longitud    Float?
-  start_date  DateTime
-  end_date    DateTime?
-  status      String   @default("planned") // planned | active | completed | cancelled
-  created_by  String?
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-  
-  attendees   EventAttendee[]
-  
-  @@map("events")
+model TeamProfile {
+  id                        String    @id @default(uuid()) @db.Uuid
+  delegate_id               String    @unique @db.Uuid
+  role                      String    @db.Text
+  status                    String    @db.Text
+  zone                      String?   @db.Text
+  municipality              String?   @db.Text
+  assigned_polling_stations Int       @default(0)
+  reports_submitted         Int       @default(0)
+  last_active_at            DateTime? @db.Timestamptz(6)
+  avatar_url                String?   @db.Text
+  created_at                DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime  @default(now()) @db.Timestamptz(6)
+  delegate                  Delegate  @relation(fields: [delegate_id], references: [id], onDelete: Cascade)
+
+  @@map("team_profiles")
 }
 
-model EventAttendee {
-  id         String   @id @default(cuid())
-  event_id   String
-  user_id    String?
-  name       String?
-  email      String?
-  phone      String?
-  status     String   @default("registered") // registered | confirmed | attended | no_show
-  created_at DateTime @default(now())
-  
-  event      Event    @relation(fields: [event_id], references: [id], onDelete: Cascade)
-  
-  @@map("event_attendees")
+model Assignment {
+  id                        String                     @id @default(uuid()) @db.Uuid
+  title                     String                     @db.Text
+  assignee_id               String?                    @db.Uuid
+  delegate_assignment_id    String?                    @db.Uuid
+  municipality              String?                    @db.Text
+  zone                      String?                    @db.Text
+  due_date                  DateTime?                  @db.Timestamptz(6)
+  priority                  String                     @db.Text
+  status                    String                     @db.Text
+  progress                  Int                        @default(0)
+  tasks_count               Int                        @default(0)
+  created_at                DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                   @default(now()) @db.Timestamptz(6)
+  assignee                  Delegate?                  @relation(fields: [assignee_id], references: [id], onDelete: SetNull)
+  delegate_assignment       DelegatePollingAssignment? @relation(fields: [delegate_assignment_id], references: [id], onDelete: SetNull)
+  tasks                     Task[]
+
+  @@map("assignments")
+  @@index([assignee_id])
+  @@index([delegate_assignment_id])
 }
 
 model Task {
-  id          String    @id @default(cuid())
-  title       String
-  description String?
-  status      String    @default("todo") // todo | in_progress | done
-  priority    String    @default("medium") // low | medium | high | urgent
-  assigned_to String?
-  due_date    DateTime?
-  created_by  String?
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
-  
+  id             String      @id @default(uuid()) @db.Uuid
+  assignment_id  String?     @db.Uuid
+  title          String      @db.Text
+  owner          String      @db.Text
+  place          String?     @db.Text
+  status         String      @db.Text
+  priority       String      @db.Text
+  progress       Int         @default(0)
+  due_at         DateTime?   @db.Timestamptz(6)
+  created_at     DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime    @default(now()) @db.Timestamptz(6)
+  assignment     Assignment? @relation(fields: [assignment_id], references: [id], onDelete: SetNull)
+
   @@map("tasks")
+  @@index([assignment_id])
 }
 
-model GamificationPoint {
-  id         String   @id @default(cuid())
-  user_id    String
-  points     Int
-  reason     String
-  type       String   // vote_report | event_attendance | supporter_added | task_completed
-  created_at DateTime @default(now())
-  
-  @@map("gamification_points")
+model Supporter {
+  id                String    @id @default(uuid()) @db.Uuid
+  full_name         String    @db.Text
+  municipality_code String?   @db.Text
+  zone              String?   @db.Text
+  phone             String?   @db.Text
+  email             String?   @db.Text
+  commitment        Int       @default(0)
+  status            String    @db.Text
+  channel           String    @db.Text
+  tags              String[]  @db.Text[]
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @default(now()) @db.Timestamptz(6)
+  municipality      Municipality? @relation(fields: [municipality_code], references: [code], onDelete: SetNull)
+
+  @@map("supporters")
+  @@index([municipality_code])
 }
 
-model TerritoryZone {
-  id          String   @id @default(cuid())
-  name        String
-  type        String   // department | municipality | zone | custom
-  geojson     String?  // GeoJSON polygon data
-  color       String?
-  assigned_to String?
-  meta        String?  // JSON metadata
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-  
-  @@map("territory_zones")
+model Event {
+  id          String    @id @default(uuid()) @db.Uuid
+  title       String    @db.Text
+  date        DateTime? @db.Timestamptz(6)
+  hour        String?   @db.Text
+  place       String?   @db.Text
+  type        String    @db.Text
+  attendance  Int       @default(0)
+  lead        String?   @db.Text
+  status      String    @db.Text
+  description String?   @db.Text
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@map("events")
+}
+
+model Evidence {
+  id               String      @id @default(uuid()) @db.Uuid
+  type             String      @db.Text
+  title            String      @db.Text
+  description      String?     @db.Text
+  municipality     String?     @db.Text
+  polling_station  String?     @db.Text
+  uploaded_by_id   String?     @db.Uuid
+  uploaded_at      DateTime    @default(now()) @db.Timestamptz(6)
+  status           String      @db.Text
+  url              String      @db.Text
+  tags             String[]    @db.Text[]
+  vote_report_id   String?     @db.Uuid
+  created_at       DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime    @default(now()) @db.Timestamptz(6)
+  uploaded_by      Delegate?   @relation(fields: [uploaded_by_id], references: [id], onDelete: SetNull)
+  vote_report      VoteReport? @relation(fields: [vote_report_id], references: [id], onDelete: SetNull)
+
+  @@map("evidences")
+  @@index([uploaded_by_id])
+  @@index([vote_report_id])
+}
+
+model CommunicationMessage {
+  id         String    @id @default(uuid()) @db.Uuid
+  sender     String    @db.Text
+  channel    String    @db.Text
+  preview    String    @db.Text
+  content    String?   @db.Text
+  received_at DateTime @db.Timestamptz(6)
+  unread     Boolean   @default(true)
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@map("communication_messages")
+  @@index([channel])
+}
+
+model Broadcast {
+  id           String    @id @default(uuid()) @db.Uuid
+  title        String    @db.Text
+  channel      String    @db.Text
+  reach        Int       @default(0)
+  status       String    @db.Text
+  scheduled_at DateTime? @db.Timestamptz(6)
+  content      String?   @db.Text
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@map("broadcasts")
+  @@index([channel])
 }
 
 model Alert {
-  id          String   @id @default(cuid())
-  type        String   // coverage | anomaly | incident | system
-  severity    String   @default("medium") // low | medium | high | critical
-  title       String
-  message     String?
-  location_id String?
-  resolved    Boolean  @default(false)
-  resolved_by String?
-  resolved_at DateTime?
-  created_at  DateTime @default(now())
-  
+  id           String    @id @default(uuid()) @db.Uuid
+  title        String    @db.Text
+  level        String    @db.Text
+  category     String    @db.Text
+  municipality String?   @db.Text
+  detail       String?   @db.Text
+  status       String    @db.Text
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime  @default(now()) @db.Timestamptz(6)
+  resolved_at  DateTime? @db.Timestamptz(6)
+
   @@map("alerts")
+  @@index([level])
+  @@index([status])
+}
+
+model KpiMetric {
+  id          String    @id @default(uuid()) @db.Uuid
+  title       String    @db.Text
+  value       String    @db.Text
+  target      String    @db.Text
+  progress    Int       @default(0)
+  detail      String?   @db.Text
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@map("kpi_metrics")
+}
+
+model Milestone {
+  id         String    @id @default(uuid()) @db.Uuid
+  title      String    @db.Text
+  date       DateTime  @db.Timestamptz(6)
+  progress   Int       @default(0)
+  tag        String    @db.Text
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@map("milestones")
 }

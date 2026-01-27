@@ -1,66 +1,34 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, Clock, CheckCircle, AlertTriangle, MapPin, Users } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-const tasks = [
-  {
-    id: "TSK-4501",
-    title: "Validar actas de cierre zona norte",
-    owner: "Equipo jurídico",
-    place: "Barranquilla",
-    status: "pendiente",
-    priority: "alta",
-    progress: 12,
-    due: "Hoy 18:00",
-  },
-  {
-    id: "TSK-4502",
-    title: "Confirmar transporte testigos",
-    owner: "Logística",
-    place: "Soledad",
-    status: "en curso",
-    priority: "media",
-    progress: 54,
-    due: "Mañana",
-  },
-  {
-    id: "TSK-4503",
-    title: "Publicar resumen de incidencias",
-    owner: "Comunicaciones",
-    place: "Canales digitales",
-    status: "en curso",
-    priority: "alta",
-    progress: 73,
-    due: "Hoy 17:00",
-  },
-  {
-    id: "TSK-4504",
-    title: "Capacitar equipo rural",
-    owner: "Formación",
-    place: "Malambo",
-    status: "pendiente",
-    priority: "media",
-    progress: 0,
-    due: "21 Ene",
-  },
-  {
-    id: "TSK-4505",
-    title: "Cargar evidencia multimedia",
-    owner: "Operaciones",
-    place: "Puerto Colombia",
-    status: "listo",
-    priority: "baja",
-    progress: 100,
-    due: "Completado",
-  },
-];
+type TaskItem = {
+  id: string
+  title: string
+  owner: string
+  place: string | null
+  status: string
+  priority: string
+  progress: number
+  due: string | null
+}
 
 const columns = [
   { key: "pendiente", title: "Pendiente", icon: Clock },
@@ -75,18 +43,73 @@ const priorityColor: Record<string, string> = {
 };
 
 export default function TareasPage() {
+  const [tasks, setTasks] = useState<TaskItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState({
+    title: "",
+    owner: "",
+    place: "",
+    priority: "media",
+    status: "pendiente",
+    progress: 0,
+    due: "",
+  })
+
   const grouped = useMemo(() => {
     return columns.map((col) => ({
       ...col,
       items: tasks.filter((t) => t.status === col.key),
-    }));
-  }, []);
+    }))
+  }, [tasks])
 
-  const notify = () =>
-    toast({
-      title: "Nueva tarea",
-      description: "Función de creación pendiente de integrar",
-    });
+  const createTask = () => {
+    if (!form.title || !form.owner) {
+      toast({ title: "Faltan datos", description: "Título y responsable son obligatorios" })
+      return
+    }
+    const newTask: TaskItem = {
+      id: `T-${Date.now()}`,
+      title: form.title,
+      owner: form.owner,
+      place: form.place || null,
+      status: form.status,
+      priority: form.priority,
+      progress: Number(form.progress) || 0,
+      due: form.due || null,
+    }
+    setTasks((prev) => [newTask, ...prev])
+    setOpen(false)
+    setForm({ title: "", owner: "", place: "", priority: "media", status: "pendiente", progress: 0, due: "" })
+    toast({ title: "Tarea creada", description: newTask.title })
+  }
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/tasks", { cache: "no-store" })
+        if (!res.ok) throw new Error(`Error ${res.status}`)
+        const data = await res.json()
+        if (!active) return
+        setTasks(data.items ?? [])
+      } catch (err) {
+        console.error(err)
+        if (!active) return
+        setError("No se pudieron cargar las tareas")
+        setTasks([])
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      active = false
+    }
+  }, [])
 
   return (
     <div className="space-y-6 pb-20 lg:pb-6">
@@ -103,12 +126,93 @@ export default function TareasPage() {
           <Badge className="bg-cyan-500/20 text-cyan-300">En curso</Badge>
           <Badge className="bg-zinc-700/50 text-zinc-100">Backlog</Badge>
         </div>
-        <Button size="sm" className="bg-cyan-600 hover:bg-cyan-700" onClick={notify}>
-          <Plus className="h-4 w-4 mr-2" /> Nueva tarea
-        </Button>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" className="bg-cyan-600 hover:bg-cyan-700">
+              <Plus className="h-4 w-4 mr-2" /> Nueva tarea
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="bg-zinc-900 border-zinc-800">
+            <DialogHeader>
+              <DialogTitle>Crear tarea</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-3">
+              <Input
+                placeholder="Título"
+                value={form.title}
+                onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))}
+                className="bg-zinc-800/50 border-zinc-700"
+              />
+              <Input
+                placeholder="Responsable"
+                value={form.owner}
+                onChange={(e) => setForm((p) => ({ ...p, owner: e.target.value }))}
+                className="bg-zinc-800/50 border-zinc-700"
+              />
+              <Input
+                placeholder="Lugar"
+                value={form.place}
+                onChange={(e) => setForm((p) => ({ ...p, place: e.target.value }))}
+                className="bg-zinc-800/50 border-zinc-700"
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <Select value={form.priority} onValueChange={(v) => setForm((p) => ({ ...p, priority: v }))}>
+                  <SelectTrigger className="bg-zinc-800/50 border-zinc-700">
+                    <SelectValue placeholder="Prioridad" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="alta">Alta</SelectItem>
+                    <SelectItem value="media">Media</SelectItem>
+                    <SelectItem value="baja">Baja</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={form.status} onValueChange={(v) => setForm((p) => ({ ...p, status: v }))}>
+                  <SelectTrigger className="bg-zinc-800/50 border-zinc-700">
+                    <SelectValue placeholder="Estado" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pendiente">Pendiente</SelectItem>
+                    <SelectItem value="en curso">En curso</SelectItem>
+                    <SelectItem value="listo">Listo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  placeholder="Progreso %"
+                  value={form.progress}
+                  onChange={(e) => setForm((p) => ({ ...p, progress: Number(e.target.value) }))}
+                  className="bg-zinc-800/50 border-zinc-700"
+                />
+                <Input
+                  placeholder="Vence (texto libre)"
+                  value={form.due}
+                  onChange={(e) => setForm((p) => ({ ...p, due: e.target.value }))}
+                  className="bg-zinc-800/50 border-zinc-700"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button onClick={createTask} className="bg-cyan-600 hover:bg-cyan-700">Guardar</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {loading && (
+          <Card className="bg-zinc-900/50 border-zinc-800 md:col-span-3">
+            <CardContent className="p-4 text-sm text-muted-foreground">Cargando tareas...</CardContent>
+          </Card>
+        )}
+        {error && !loading && (
+          <Card className="bg-zinc-900/50 border-red-900/60 border md:col-span-3">
+            <CardContent className="p-4 text-sm text-red-300">{error}</CardContent>
+          </Card>
+        )}
         {grouped.map((column) => (
           <Card key={column.key} className="bg-zinc-900/60 border-zinc-800">
             <CardHeader className="pb-2">

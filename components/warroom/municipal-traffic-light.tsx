@@ -1,21 +1,8 @@
 "use client"
 
 import { motion } from "framer-motion"
-
-const municipalities = [
-  { name: "Bogotá D.C.", coverage: 92, status: "green" },
-  { name: "Medellín", coverage: 88, status: "green" },
-  { name: "Cali", coverage: 76, status: "yellow" },
-  { name: "Barranquilla", coverage: 85, status: "green" },
-  { name: "Cartagena", coverage: 72, status: "yellow" },
-  { name: "Bucaramanga", coverage: 45, status: "red" },
-  { name: "Pereira", coverage: 68, status: "yellow" },
-  { name: "Manizales", coverage: 91, status: "green" },
-  { name: "Cúcuta", coverage: 52, status: "yellow" },
-  { name: "Santa Marta", coverage: 38, status: "red" },
-  { name: "Ibagué", coverage: 87, status: "green" },
-  { name: "Pasto", coverage: 82, status: "yellow" },
-]
+import { useMemo } from "react"
+import { useWarRoomData } from "./warroom-data-provider"
 
 const statusColors = {
   green: "bg-neon-green",
@@ -30,11 +17,13 @@ const statusBg = {
 }
 
 export function MunicipalTrafficLight() {
-  const grouped = {
-    green: municipalities.filter(m => m.status === "green"),
-    yellow: municipalities.filter(m => m.status === "yellow"),
-    red: municipalities.filter(m => m.status === "red"),
-  }
+  const { data, loading, error } = useWarRoomData()
+  const municipalities = data?.municipalities ?? []
+  const grouped = useMemo(() => ({
+    green: municipalities.filter((m) => m.status === "green"),
+    yellow: municipalities.filter((m) => m.status === "yellow"),
+    red: municipalities.filter((m) => m.status === "red"),
+  }), [municipalities])
 
   return (
     <div className="glass rounded-xl border border-border/50 p-4">
@@ -62,7 +51,9 @@ export function MunicipalTrafficLight() {
 
       {/* Grid of municipalities */}
       <div className="grid grid-cols-3 lg:grid-cols-4 gap-2">
-        {municipalities.map((municipality, index) => (
+        {error && <p className="text-xs text-destructive col-span-3">{error}</p>}
+        {loading && <div className="col-span-3 h-16 rounded-lg bg-secondary/50 animate-pulse" />}
+        {!loading && municipalities.map((municipality, index) => (
           <motion.div
             key={municipality.name}
             initial={{ opacity: 0, scale: 0.9 }}

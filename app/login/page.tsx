@@ -18,16 +18,10 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
 
-  // Collage images expected in public/collage; cycles every 3.5s.
+  // Collage images from public/; cycles every 3.5s.
   const collageImages = [
-    "/Screenshot_20260118_165858_TikTok[1].jpg",
-    "/Screenshot_20260118_165904_TikTok[1].jpg",
-    "/Screenshot_20260118_165909_TikTok[1].jpg",
-    "/Screenshot_20260118_165914_TikTok[1].jpg",
-    "/Screenshot_20260118_165920_TikTok[1].jpg",
-    "/Screenshot_20260118_165924_TikTok[1].jpg",
-    "/Screenshot_20260118_165928_TikTok[1].jpg",
-    "/Screenshot_20260118_165931_TikTok[1].jpg",
+    "/abelardo.jpg",
+    "/abelardo1.jpg",
   ]
   const [active, setActive] = useState(0)
 

@@ -3,10 +3,12 @@
 import { motion } from "framer-motion"
 import { Radio, Clock, Users, CheckCircle } from "lucide-react"
 import { useEffect, useState } from "react"
+import { useWarRoomData } from "./warroom-data-provider"
 
 export function WarRoomHeader() {
   // Defer real time render to client to prevent SSR/client hydration mismatches.
   const [time, setTime] = useState<Date | null>(null)
+  const { data, loading } = useWarRoomData()
 
   useEffect(() => {
     setTime(new Date())
@@ -15,9 +17,9 @@ export function WarRoomHeader() {
   }, [])
 
   const stats = [
-    { label: "Reportes Hoy", value: "1,247", icon: CheckCircle },
-    { label: "Testigos Activos", value: "892", icon: Users },
-    { label: "Cobertura", value: "87%", icon: Radio },
+    { label: "Reportes Hoy", value: data?.stats.reports ?? 0, icon: CheckCircle },
+    { label: "Testigos Activos", value: data?.stats.activeDelegates ?? 0, icon: Users },
+    { label: "Cobertura", value: data?.stats.coverage ?? 0, icon: Radio },
   ]
 
   return (
@@ -58,7 +60,9 @@ export function WarRoomHeader() {
                 <stat.icon className="w-4 h-4 text-primary" />
               </div>
               <div>
-                <p className="text-lg font-bold text-foreground">{stat.value}</p>
+                <p className="text-lg font-bold text-foreground">
+                  {loading ? "--" : stat.label === "Cobertura" ? `${stat.value}%` : Number(stat.value).toLocaleString("es-CO")}
+                </p>
                 <p className="text-[10px] text-muted-foreground">{stat.label}</p>
               </div>
             </div>
