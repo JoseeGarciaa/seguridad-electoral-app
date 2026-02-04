@@ -2,12 +2,36 @@ import crypto from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { assertPositiveInt, requireSession } from "@/lib/auth"
 import { pool } from "@/lib/pg"
+import { uploadFile } from "@/lib/storage"
 
 let hasDivipoleColumn: boolean | null = null
 let hasVotePartyDetails: boolean | null = null
 let hasAssignmentDivipole: boolean | null = null
 let candidateHasPosition: boolean | null = null
 let candidateHasParty: boolean | null = null
+let hasEvidencesTable: boolean | null = null
+
+const dataUrlRegex = /^data:(?<mime>[^;]+);base64,(?<data>.+)$/i
+
+function parseDataUrl(dataUrl: string): { buffer: Buffer; mime: string; ext: string } | null {
+  const match = dataUrlRegex.exec(dataUrl)
+  if (!match?.groups?.data || !match.groups.mime) return null
+  const buffer = Buffer.from(match.groups.data, "base64")
+  const mime = match.groups.mime
+  const ext = mime.split("/")[1] || "bin"
+  return { buffer, mime, ext }
+}
+
+function sanitizeFilename(input: string) {
+  return input.replace(/[^a-zA-Z0-9_-]/g, "_") || "e14"
+}
+
+async function ensureEvidencesTable(): Promise<boolean> {
+  if (hasEvidencesTable !== null) return hasEvidencesTable
+  const res = await pool!.query(`SELECT to_regclass('public.evidences') AS oid`)
+  hasEvidencesTable = Boolean(res.rows[0]?.oid)
+  return hasEvidencesTable
+}
 
 async function ensureDivipoleColumn(): Promise<boolean> {
   if (hasDivipoleColumn !== null) return hasDivipoleColumn
@@ -72,10 +96,17 @@ export async function POST(req: NextRequest) {
     if (auth.error) return auth.error
 
     const delegateId = auth.user!.delegateId
-    const { delegate_assignment_id, divipole_location_id, notes, details } = await req.json()
+    const { delegate_assignment_id, divipole_location_id, notes, details, photos } = await req.json()
 
     if (!delegate_assignment_id || !Array.isArray(details) || details.length === 0) {
       return NextResponse.json({ error: "delegate_assignment_id y details requeridos" }, { status: 400 })
+    }
+
+    if (!Array.isArray(photos) || photos.length === 0) {
+      return NextResponse.json({ error: "Debe incluir al menos una foto del E14" }, { status: 400 })
+    }
+    if (photos.length > 4) {
+      return NextResponse.json({ error: "Máximo 4 fotos por mesa" }, { status: 400 })
     }
 
     if (!isUuid(delegate_assignment_id)) {
@@ -328,10 +359,60 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const hasEvidences = await ensureEvidencesTable()
+    if (!hasEvidences) {
+      await client.query("ROLLBACK")
+      return NextResponse.json({ error: "Tabla de evidencias no disponible" }, { status: 500 })
+    }
+
+    await client.query(`DELETE FROM evidences WHERE vote_report_id = $1`, [reportId])
+
+    const uploadedUrls: string[] = []
+    for (const [index, photo] of photos.entries()) {
+      if (typeof photo !== "string" || !photo.startsWith("data:")) {
+        await client.query("ROLLBACK")
+        return NextResponse.json({ error: "Formato de foto inválido" }, { status: 400 })
+      }
+      const parsed = parseDataUrl(photo)
+      if (!parsed || !parsed.mime.startsWith("image/")) {
+        await client.query("ROLLBACK")
+        return NextResponse.json({ error: "Formato de imagen inválido" }, { status: 400 })
+      }
+
+      const baseName = sanitizeFilename(resolvedPollingStation ?? "mesa")
+      const filename = `${baseName}-${index + 1}.${parsed.ext}`
+      const uploaded = await uploadFile(parsed.buffer, filename, `vote-reports/${reportId}`)
+      uploadedUrls.push(uploaded.url)
+
+      const evidenceId = crypto.randomUUID()
+      await client.query(
+        `INSERT INTO evidences (
+           id, type, title, description, municipality, polling_station, uploaded_by_id,
+           status, url, tags, vote_report_id
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [
+          evidenceId,
+          "image",
+          `E14 ${resolvedPollingStation ?? "Mesa"} ${index + 1}`,
+          null,
+          resolvedMunicipality,
+          resolvedPollingStation,
+          delegateId,
+          "pending",
+          uploaded.url,
+          ["e14"],
+          reportId,
+        ],
+      )
+    }
+
     await client.query(`UPDATE vote_reports SET total_votes = $1 WHERE id = $2`, [total, reportId])
+    if (uploadedUrls[0]) {
+      await client.query(`UPDATE vote_reports SET photo_url = $1 WHERE id = $2`, [uploadedUrls[0], reportId])
+    }
     await client.query("COMMIT")
 
-    return NextResponse.json({ report_id: reportId, total_votes: total })
+    return NextResponse.json({ report_id: reportId, total_votes: total, photos: uploadedUrls })
   } catch (error: any) {
     if (client) {
       try {

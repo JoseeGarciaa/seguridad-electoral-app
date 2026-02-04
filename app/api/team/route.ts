@@ -58,7 +58,11 @@ export async function GET(req: NextRequest) {
           FROM delegates d
           ${hasTeamProfiles ? "LEFT JOIN team_profiles tp ON tp.delegate_id = d.id" : ""}
           LEFT JOIN (
-            SELECT delegate_id, COUNT(*) AS assigned_count
+            SELECT
+              delegate_id,
+              COUNT(*) AS assigned_count,
+              ARRAY_AGG(DISTINCT polling_station) FILTER (WHERE polling_station IS NOT NULL) AS polling_codes,
+              ARRAY_AGG(polling_station_number ORDER BY polling_station_number) FILTER (WHERE polling_station_number IS NOT NULL) AS polling_nums
             FROM delegate_polling_assignments
             GROUP BY delegate_id
           ) a ON a.delegate_id = d.id

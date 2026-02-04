@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Users, UserCheck, UserX, Shield, RefreshCw, MapPin, Mail, Phone, Edit, Trash2 } from "lucide-react";
+import { Users, UserCheck, UserX, Shield, RefreshCw, MapPin, Mail, Phone, Edit, Trash2, Table } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 
 type TeamMember = {
@@ -1147,6 +1147,12 @@ function EquipoInner() {
               className="bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 transition-colors"
             >
               <CardContent className="p-4">
+                {(() => {
+                  const mesasAsignadas = member.pollingStationNumbers?.length
+                    ? member.pollingStationNumbers.join(", ")
+                    : null
+                  const puestoAsignado = member.pollingStationCode ?? null
+                  return (
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <Avatar className="h-12 w-12 border-2 border-zinc-700">
@@ -1184,6 +1190,13 @@ function EquipoInner() {
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Mail className="h-4 w-4" />
                     <span className="truncate">{member.email}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Table className="h-4 w-4" />
+                    <span>
+                      {puestoAsignado ? `Puesto ${puestoAsignado}` : "Sin puesto"}
+                      {mesasAsignadas ? ` · Mesas ${mesasAsignadas}` : ""}
+                    </span>
                   </div>
                 </div>
 
@@ -1256,6 +1269,8 @@ function EquipoInner() {
                     Eliminar
                   </Button>
                 </div>
+                  )
+                })()}
               </CardContent>
             </Card>
           ))}

@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   Smartphone,
   Table,
+  X,
 } from "lucide-react"
 import {
   Select,
@@ -40,6 +41,8 @@ type Candidate = {
   color: string | null
   region: string | null
 }
+
+type PhotoItem = { file: File; preview: string }
 
 interface Mesa {
   id: string
@@ -72,13 +75,14 @@ export default function TestigoElectoralPage() {
   const [error, setError] = useState<string | null>(null)
   const [savingState, setSavingState] = useState<"idle" | "saving" | "saved">("idle")
   const [focusedCandidate, setFocusedCandidate] = useState<string | null>(null)
-  const [photoFile, setPhotoFile] = useState<File | null>(null)
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const [photos, setPhotos] = useState<PhotoItem[]>([])
   const [draftVotes, setDraftVotes] = useState<Record<string, number>>({})
   const [note, setNote] = useState("")
   const [completedMesas, setCompletedMesas] = useState<CompletedMesa[]>([])
   const [reportsMap, setReportsMap] = useState<Record<string, { id: string; total: number }>>({})
   const keypadRef = useRef<HTMLDivElement | null>(null)
+
+  const maxPhotos = 4
 
   const currentMesa = mesas[mesaIndex]
   const mesasTotal = mesas.length
@@ -198,7 +202,6 @@ export default function TestigoElectoralPage() {
     if (stored) {
       const parsed = JSON.parse(stored)
       setDraftVotes(parsed.votes || {})
-      setPhotoPreview(parsed.photoPreview || null)
       setNote(parsed.note || "")
     } else {
       const zeros: Record<string, number> = {}
@@ -206,10 +209,12 @@ export default function TestigoElectoralPage() {
         zeros[c.id] = 0
       })
       setDraftVotes(zeros)
-      setPhotoPreview(null)
       setNote("")
     }
-    setPhotoFile(null)
+    setPhotos((prev) => {
+      prev.forEach((p) => URL.revokeObjectURL(p.preview))
+      return []
+    })
     setFocusedCandidate(candidates[0]?.id || null)
   }, [mesaIndex, currentMesa?.id, candidates])
 
@@ -217,10 +222,9 @@ export default function TestigoElectoralPage() {
     if (!currentMesa) return
     localStorage.setItem(localKey(currentMesa.id), JSON.stringify({
       votes: draftVotes,
-      photoPreview,
       note,
     }))
-  }, [draftVotes, photoPreview, note, currentMesa?.id])
+  }, [draftVotes, note, currentMesa?.id])
 
   const totalVotos = useMemo(
     () => Object.values(draftVotes).reduce((acc, n) => acc + (isNaN(n) ? 0 : n), 0),
@@ -259,17 +263,48 @@ export default function TestigoElectoralPage() {
     setFocusedCandidate(id)
   }
 
+  const clearPhotos = () => {
+    setPhotos((prev) => {
+      prev.forEach((p) => URL.revokeObjectURL(p.preview))
+      return []
+    })
+  }
+
+  const removePhoto = (index: number) => {
+    setPhotos((prev) => {
+      const next = [...prev]
+      const removed = next.splice(index, 1)[0]
+      if (removed?.preview) URL.revokeObjectURL(removed.preview)
+      return next
+    })
+  }
+
   const handlePhoto = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-    if (!file.type.startsWith("image/")) {
+    const files = Array.from(event.target.files ?? [])
+    if (!files.length) return
+
+    const validFiles = files.filter((file) => file.type.startsWith("image/"))
+    if (validFiles.length !== files.length) {
       toast({ title: "Formato no permitido", description: "Solo fotos del E14." })
-      return
     }
-    if (photoPreview) URL.revokeObjectURL(photoPreview)
-    const preview = URL.createObjectURL(file)
-    setPhotoFile(file)
-    setPhotoPreview(preview)
+
+    setPhotos((prev) => {
+      const remaining = maxPhotos - prev.length
+      if (remaining <= 0) {
+        toast({ title: "Límite de fotos", description: `Máximo ${maxPhotos} imágenes por mesa.` })
+        return prev
+      }
+      const toAdd = validFiles.slice(0, remaining).map((file) => ({
+        file,
+        preview: URL.createObjectURL(file),
+      }))
+      if (validFiles.length > remaining) {
+        toast({ title: "Límite de fotos", description: `Solo puedes subir ${maxPhotos} imágenes.` })
+      }
+      return [...prev, ...toAdd]
+    })
+
+    event.currentTarget.value = ""
     vibrate(15)
   }
 
@@ -279,24 +314,41 @@ export default function TestigoElectoralPage() {
   }
 
   const goToConfirm = () => {
-    if (!photoPreview) {
-      toast({ title: "Falta foto E14", description: "No puedes continuar sin foto." })
+    if (photos.length === 0) {
+      toast({ title: "Falta foto E14", description: "No puedes continuar sin al menos 1 foto." })
       vibrate([30, 40, 30])
       return
     }
     setStep("confirm")
   }
 
+  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(new Error("No se pudo leer la imagen"))
+    reader.readAsDataURL(file)
+  })
+
   const handleConfirm = async () => {
     if (!currentMesa) return
     setSavingState("saving")
     vibrate(20)
     try {
+      if (photos.length === 0) {
+        throw new Error("Debes subir al menos una foto del E14")
+      }
+      if (photos.length > maxPhotos) {
+        throw new Error(`Solo se permiten ${maxPhotos} fotos por mesa`)
+      }
+
+      const photoPayloads = await Promise.all(photos.map((p) => fileToDataUrl(p.file)))
+
       const payload = {
         delegate_assignment_id: currentMesa.id,
         divipole_location_id: null,
         notes: note || null,
         details: candidates.map((c) => ({ candidate_id: c.id, votes: draftVotes[c.id] ?? 0 })),
+        photos: photoPayloads,
       }
 
       const res = await fetch("/api/my/vote-report", {
@@ -332,8 +384,7 @@ export default function TestigoElectoralPage() {
     if (mesaIndex < mesasTotal - 1) {
       setMesaIndex((prev) => prev + 1)
       setSavingState("idle")
-      setPhotoFile(null)
-      setPhotoPreview(null)
+      clearPhotos()
       setStep("votos")
     }
   }
@@ -347,9 +398,7 @@ export default function TestigoElectoralPage() {
     })
     setDraftVotes(zeros)
     setNote("")
-    setPhotoFile(null)
-    if (photoPreview) URL.revokeObjectURL(photoPreview)
-    setPhotoPreview(null)
+    clearPhotos()
     setStep("home")
     localStorage.removeItem(localKey(currentMesa.id))
     toast({ title: "Registro cancelado", description: `${currentMesa.label} reiniciada` })
@@ -435,7 +484,7 @@ export default function TestigoElectoralPage() {
             <div className="flex items-center gap-2 text-xs flex-wrap">
               <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" />
               <span className="font-medium">{statusLabel}</span>
-              <span className={statusColor}>{step === "done" ? "✔️ E14 cargado" : photoPreview ? "E14 listo" : "E14 pendiente"}</span>
+              <span className={statusColor}>{step === "done" ? "✔️ E14 cargado" : photos.length > 0 ? "E14 listo" : "E14 pendiente"}</span>
               <span className="text-muted-foreground">Solo ves tus mesas asignadas</span>
             </div>
           </div>
@@ -637,35 +686,48 @@ export default function TestigoElectoralPage() {
                 <Camera className="h-5 w-5" />
                 Paso 2 · Foto E14 (obligatorio)
               </CardTitle>
-              <p className="text-sm text-muted-foreground">Sin foto no puedes avanzar.</p>
+              <p className="text-sm text-muted-foreground">Sube entre 1 y {maxPhotos} fotos del E14.</p>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="rounded-2xl border-2 border-dashed border-border/70 bg-muted/30 p-4 flex flex-col items-center gap-3 text-center">
-                {photoPreview ? (
-                  <div className="w-full rounded-xl overflow-hidden border border-border/60 bg-black/40">
-                    <img src={photoPreview} alt="E14" className="w-full object-contain" />
+                {photos.length > 0 ? (
+                  <div className="w-full grid gap-2 sm:grid-cols-2">
+                    {photos.map((photo, idx) => (
+                      <div key={`${photo.preview}-${idx}`} className="relative rounded-xl overflow-hidden border border-border/60 bg-black/40">
+                        <img src={photo.preview} alt={`E14 ${idx + 1}`} className="w-full object-contain" />
+                        <button
+                          type="button"
+                          className="absolute top-2 right-2 rounded-full bg-black/70 text-white p-1"
+                          onClick={() => removePhoto(idx)}
+                          aria-label="Eliminar foto"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <div className="p-4 rounded-full bg-muted/30">
                     <FileImage className="h-10 w-10 text-muted-foreground" />
                   </div>
                 )}
-                <p className="text-sm font-semibold">Toma la foto del E14</p>
+                <p className="text-sm font-semibold">Sube fotos del E14 ({photos.length}/{maxPhotos})</p>
                 <input
                   type="file"
                   accept="image/*"
                   capture="environment"
+                  multiple
                   onChange={handlePhoto}
                   className="w-full rounded-lg border border-border/60 bg-background/80 text-sm file:mr-2 file:rounded-md file:border-0 file:bg-emerald-600 file:px-3 file:py-2 file:text-white"
                 />
                 <div className="flex w-full gap-2">
-                  <Button variant="outline" className="flex-1 h-12" onClick={() => setPhotoPreview(null)} disabled={!photoPreview}>
-                    Repetir foto
+                  <Button variant="outline" className="flex-1 h-12" onClick={clearPhotos} disabled={photos.length === 0}>
+                    Limpiar fotos
                   </Button>
                   <Button
                     className="flex-1 h-12 bg-emerald-600 hover:bg-emerald-700"
                     onClick={goToConfirm}
-                    disabled={!photoPreview}
+                    disabled={photos.length === 0}
                   >
                     Confirmar foto <CheckCircle2 className="h-5 w-5 ml-2" />
                   </Button>
@@ -700,7 +762,7 @@ export default function TestigoElectoralPage() {
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Foto E14</span>
-                  <span className="font-semibold text-emerald-400">✔️ lista</span>
+                  <span className="font-semibold text-emerald-400">{photos.length} cargadas</span>
                 </div>
                 <Separator className="my-2" />
                 <div className="space-y-2">

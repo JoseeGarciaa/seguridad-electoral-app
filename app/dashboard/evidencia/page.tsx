@@ -201,6 +201,8 @@ const steps: Array<{ key: keyof VoteFlowState | "confirm"; title: string; descri
   { key: "confirm", title: "Confirmar", description: "Revisa y envia" },
 ]
 
+const maxPhotos = 4
+
 const chipFilters = [
   { key: "all", label: "Todos" },
   { key: "image", label: "Imagenes" },
@@ -460,11 +462,11 @@ export default function EvidenciaPage() {
         .map((file) => ({ file, preview: URL.createObjectURL(file) }))
 
       if (nextFiles.length === 0) {
-        notify("Limite de 5 fotos", "Elimina alguna para adjuntar mas")
+        notify(`Limite de ${maxPhotos} fotos`, "Elimina alguna para adjuntar mas")
         return prev
       }
 
-      const merged = [...current, ...nextFiles].slice(0, 5)
+      const merged = [...current, ...nextFiles].slice(0, maxPhotos)
       const first = merged[0]
 
       return {
@@ -499,11 +501,23 @@ export default function EvidenciaPage() {
 
         const details = voteEntries.map(([candidate_id, votes]) => ({ candidate_id, votes }))
 
+        const photosToSend = payload.photos?.length ? payload.photos : payload.photo ? [{ file: payload.photo, preview: payload.photoPreview ?? "" }] : []
+        const toDataUrl = (file: File) =>
+          new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result))
+            reader.onerror = reject
+            reader.readAsDataURL(file)
+          })
+
+        const photoPayloads = await Promise.all(photosToSend.slice(0, maxPhotos).map((slot) => toDataUrl(slot.file)))
+
         const voteBody = {
           delegate_assignment_id: payload.mesaId,
           divipole_location_id: null,
           notes: null,
           details,
+          photos: photoPayloads,
         }
 
         const voteRes = await fetch("/api/my/vote-report", {
@@ -519,66 +533,6 @@ export default function EvidenciaPage() {
           const reason = (voteJson as any)?.error || rawVoteText || `Error en votos (status ${voteRes.status})`
           console.error("vote-report error", { status: voteRes.status, detail: (voteJson as any)?.detail, body: rawVoteText })
           throw new Error(reason)
-        }
-
-        const voteReportId = (voteJson as any)?.report_id ?? null
-
-        const photosToSend = payload.photos?.length ? payload.photos : payload.photo ? [{ file: payload.photo, preview: payload.photoPreview ?? "" }] : []
-        const toDataUrl = (file: File) =>
-          new Promise<string>((resolve, reject) => {
-            const reader = new FileReader()
-            reader.onload = () => resolve(String(reader.result))
-            reader.onerror = reject
-            reader.readAsDataURL(file)
-          })
-
-        for (const [idx, slot] of photosToSend.slice(0, 5).entries()) {
-          try {
-            const dataUrl = await toDataUrl(slot.file)
-            const res = await fetch("/api/evidences", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                type: "image",
-                title: `E14 mesa ${payload.mesaId} foto ${idx + 1}`,
-                description: null,
-                municipality: null,
-                pollingStation: payload.mesaId ?? null,
-                status: "pending",
-                url: dataUrl,
-                tags: [],
-                voteReportId,
-              }),
-            })
-
-            // Optimistic add to evidences list so "Ver" muestra la foto recien subida
-            setItems((prev) => [
-              {
-                id: `local-${Date.now()}-${idx}`,
-                type: "image",
-                title: `E14 mesa ${payload.mesaId} foto ${idx + 1}`,
-                description: null,
-                municipality: null,
-                pollingStation: payload.mesaId ?? null,
-                uploadedBy: "Tú",
-                uploadedById: null,
-                uploadedAt: new Date().toISOString(),
-                status: "pending",
-                url: dataUrl,
-                localPreview: dataUrl,
-                tags: [],
-                voteReportId: voteReportId ?? null,
-              },
-              ...prev,
-            ])
-
-            if (res.ok) {
-              // Refresh stats and server data after successful upload to replace dataUrl with URL subida
-              preload()
-            }
-          } catch (err) {
-            console.warn("Foto no se pudo subir", err)
-          }
         }
 
         if (showToast) notify("Registro enviado", "Se guardo la votacion y las fotos")
@@ -602,11 +556,11 @@ export default function EvidenciaPage() {
       return
     }
     if ((flow.photos?.length ?? 0) === 0) {
-      notify("Falta la foto obligatoria", "Sube al menos 1 foto (max 5)")
+      notify("Falta la foto obligatoria", `Sube al menos 1 foto (max ${maxPhotos})`)
       return
     }
-    if ((flow.photos?.length ?? 0) > 5) {
-      notify("Solo 5 fotos permitidas")
+    if ((flow.photos?.length ?? 0) > maxPhotos) {
+      notify(`Solo ${maxPhotos} fotos permitidas`)
       return
     }
 
@@ -718,7 +672,7 @@ export default function EvidenciaPage() {
                     Registrar votos + Foto E14
                   </div>
                   <p className="text-sm text-muted-foreground leading-snug">
-                    Usa tu mesa asignada, ingresa votos y sube hasta 5 fotos (1 obligatoria). Flujo guiado y consistente.
+                    Usa tu mesa asignada, ingresa votos y sube hasta 4 fotos (1 obligatoria). Flujo guiado y consistente.
                   </p>
                   <div className="flex items-center gap-2 text-xs text-emerald-400">
                     <span className="h-2 w-2 rounded-full bg-emerald-400" /> Listo para enviar
@@ -771,10 +725,10 @@ export default function EvidenciaPage() {
               <div>
                 <p className="text-xs uppercase text-muted-foreground">Captura rapida</p>
                 <p className="text-xl font-semibold">Votos + Evidencias del puesto</p>
-                <p className="text-sm text-muted-foreground">Elige tu mesa asignada, ingresa votos y adjunta hasta 5 fotos (1 obligatoria).</p>
+                <p className="text-sm text-muted-foreground">Elige tu mesa asignada, ingresa votos y adjunta hasta 4 fotos (1 obligatoria).</p>
               </div>
               <div className="flex flex-wrap gap-2 text-xs">
-                <Badge className="bg-zinc-800 border-zinc-700">{flow.photos.length}/5 fotos</Badge>
+                <Badge className="bg-zinc-800 border-zinc-700">{flow.photos.length}/4 fotos</Badge>
                 <Badge className="bg-zinc-800 border-zinc-700">{Object.values(flow.candidateVotes).filter((v) => v > 0).length} candidatos con votos</Badge>
                 <Badge className="bg-zinc-800 border-zinc-700">Mesa: {selectedMesaLabel ?? "sin seleccionar"}</Badge>
               </div>

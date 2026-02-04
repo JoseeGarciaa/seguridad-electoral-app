@@ -2,11 +2,27 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser, DELEGATE_ROLE } from "@/lib/auth"
 import { pool } from "@/lib/pg"
 
+let hasAssignmentDivipole: boolean | null = null
+
+async function ensureAssignmentDivipoleColumn(): Promise<boolean> {
+  if (hasAssignmentDivipole !== null) return hasAssignmentDivipole
+  const res = await pool!.query(
+    `SELECT 1
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'delegate_polling_assignments'
+        AND column_name = 'divipole_location_id'
+      LIMIT 1`,
+  )
+  hasAssignmentDivipole = Boolean(res.rowCount)
+  return hasAssignmentDivipole
+}
+
 const fallbackData = {
   items: [
-    { id: "DEMO-ASSIGN-1", label: "PU-12 · Mesa 3", municipio: "Bogotá" },
-    { id: "DEMO-ASSIGN-2", label: "PU-12 · Mesa 4", municipio: "Bogotá" },
-  ] as Array<{ id: string; label: string; municipio?: string | null }>,
+    { id: "DEMO-ASSIGN-1", label: "PU-12 · Mesa 3", municipio: "Bogotá", total_voters: 0 },
+    { id: "DEMO-ASSIGN-2", label: "PU-12 · Mesa 4", municipio: "Bogotá", total_voters: 0 },
+  ] as Array<{ id: string; label: string; municipio?: string | null; total_voters?: number | null }>,
 }
 
 export async function GET(req: NextRequest) {
@@ -25,12 +41,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ...fallbackData, warning: "DB no disponible, usando datos de respaldo" })
   }
 
-  const query = `
-    SELECT id, polling_station, polling_station_number, NULL::text AS municipality
-    FROM delegate_polling_assignments
-    WHERE delegate_id = $1
-    ORDER BY polling_station, polling_station_number
-  `
+  const includeDivipole = await ensureAssignmentDivipoleColumn()
+  const query = includeDivipole
+    ? `
+      SELECT
+        a.id,
+        COALESCE(a.polling_station, dl.puesto) AS polling_station,
+        a.polling_station_number,
+        dl.municipio AS municipality,
+        dl.total AS total_voters,
+        dl.direccion AS address
+      FROM delegate_polling_assignments a
+      LEFT JOIN divipole_locations dl ON dl.id = a.divipole_location_id
+      WHERE a.delegate_id = $1
+      ORDER BY COALESCE(a.polling_station, dl.puesto), a.polling_station_number
+    `
+    : `
+      SELECT id, polling_station, polling_station_number, NULL::text AS municipality, NULL::int AS total_voters, NULL::text AS address
+      FROM delegate_polling_assignments
+      WHERE delegate_id = $1
+      ORDER BY polling_station, polling_station_number
+    `
 
   const client = await pool.connect()
   try {
@@ -45,6 +76,8 @@ export async function GET(req: NextRequest) {
         id: String(row.id),
         label,
         municipio: (row.municipality as string | null) ?? null,
+        total_voters: (row.total_voters as number | null) ?? null,
+        address: (row.address as string | null) ?? null,
       }
     })
 

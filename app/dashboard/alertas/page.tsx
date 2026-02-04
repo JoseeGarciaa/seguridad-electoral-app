@@ -1,11 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -14,14 +12,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
   AlertTriangle,
   Bell,
   CheckCircle,
@@ -29,52 +19,29 @@ import {
   Shield,
   Clock,
   Filter,
-  Activity,
 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 
-const initialAlerts = [
-  {
-    id: "ALR-8801",
-    title: "Posible compra de votos",
-    level: "crítica",
-    category: "irregularidad",
-    municipality: "Soledad",
-    time: "Hace 6 min",
-    status: "en análisis",
-    detail: "Se reporta entrega de bonos a la salida del puesto 012.",
-  },
-  {
-    id: "ALR-8802",
-    title: "Acta ilegible",
-    level: "media",
-    category: "documental",
-    municipality: "Barranquilla",
-    time: "Hace 14 min",
-    status: "abierta",
-    detail: "Acta mesa 045 presenta manchas y tachones.",
-  },
-  {
-    id: "ALR-8803",
-    title: "Ausencia de jurados",
-    level: "alta",
-    category: "operativa",
-    municipality: "Malambo",
-    time: "Hace 22 min",
-    status: "enviada",
-    detail: "Solo 2 jurados en mesa 033, se requiere relevo.",
-  },
-  {
-    id: "ALR-8804",
-    title: "Manifestación cercana",
-    level: "media",
-    category: "orden público",
-    municipality: "Galapa",
-    time: "Hace 30 min",
-    status: "abierta",
-    detail: "Marcha a 200m del puesto 018, sin afectación por ahora.",
-  },
-];
+type ComplianceItem = {
+  id: string
+  name: string
+  municipality: string | null
+  assigned: number
+  reported: number
+  missing: number
+  lastReportedAt: string | null
+}
+
+type AlertItem = {
+  id: string
+  title: string
+  level: "crítica" | "alta" | "media"
+  category: string
+  municipality: string
+  time: string
+  status: "abierta" | "en análisis" | "enviada"
+  detail: string
+}
 
 const levelColor: Record<string, string> = {
   crítica: "bg-red-500/20 text-red-300",
@@ -89,17 +56,53 @@ const statusColor: Record<string, string> = {
 };
 
 export default function AlertasPage() {
-  const [data, setData] = useState(initialAlerts)
-  const [search, setSearch] = useState("");
-  const [level, setLevel] = useState("todas");
-  const [open, setOpen] = useState(false)
-  const [form, setForm] = useState({
-    title: "",
-    municipality: "",
-    level: "crítica",
-    category: "operativa",
-    detail: "",
-  })
+  const [data, setData] = useState<AlertItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState("")
+  const [level, setLevel] = useState("todas")
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      setLoading(true)
+      try {
+        const res = await fetch("/api/compliance", { cache: "no-store" })
+        if (!res.ok) throw new Error("No se pudo cargar cumplimiento")
+        const json = await res.json()
+        if (cancelled) return
+
+        const items: ComplianceItem[] = Array.isArray(json.items) ? json.items : []
+        const alerts: AlertItem[] = items
+          .filter((item) => item.missing > 0)
+          .map((item) => {
+            const level = item.missing >= 3 ? "crítica" : item.missing >= 1 ? "alta" : "media"
+            const time = item.lastReportedAt
+              ? new Date(item.lastReportedAt).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" })
+              : "Sin reporte"
+            return {
+              id: item.id,
+              title: item.name,
+              level,
+              category: "incumplimiento",
+              municipality: item.municipality ?? "Sin municipio",
+              time,
+              status: "abierta",
+              detail: `Mesas asignadas ${item.assigned}, reportadas ${item.reported}, faltantes ${item.missing}.`,
+            }
+          })
+        setData(alerts)
+      } catch (err: any) {
+        console.error(err)
+        toast({ title: "Alertas", description: err?.message ?? "No se pudo cargar" })
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filtered = useMemo(() => {
     return data.filter((a) => {
@@ -117,33 +120,12 @@ export default function AlertasPage() {
     return { total: data.length, criticas, abiertas };
   }, [data]);
 
-  const addAlert = () => {
-    if (!form.title || !form.municipality) {
-      toast({ title: "Faltan datos", description: "Título y municipio son obligatorios" })
-      return
-    }
-    const newAlert = {
-      id: `ALR-${Date.now()}`,
-      title: form.title,
-      level: form.level,
-      category: form.category,
-      municipality: form.municipality,
-      time: "Hace 1 min",
-      status: "abierta",
-      detail: form.detail || "Sin detalle",
-    }
-    setData((prev) => [newAlert, ...prev])
-    setOpen(false)
-    setForm({ title: "", municipality: "", level: "crítica", category: "operativa", detail: "" })
-    toast({ title: "Alerta creada", description: newAlert.title })
-  }
-
   return (
     <div className="space-y-6 pb-20 lg:pb-6">
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-bold text-foreground">Alertas</h1>
         <p className="text-sm text-muted-foreground">
-          Panel de alertas y trazabilidad visual. No modifica el modelo actual.
+          Alertas de incumplimiento de testigos electorales (mesas asignadas vs reportadas).
         </p>
       </div>
 
@@ -194,8 +176,8 @@ export default function AlertasPage() {
                 <CheckCircle className="h-5 w-5 text-emerald-400" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-foreground">12</p>
-                <p className="text-xs text-muted-foreground">Resueltas (mock)</p>
+                <p className="text-2xl font-bold text-foreground">0</p>
+                <p className="text-xs text-muted-foreground">Resueltas</p>
               </div>
             </div>
           </CardContent>
@@ -204,72 +186,13 @@ export default function AlertasPage() {
 
       <Card className="bg-zinc-900/50 border-zinc-800">
         <CardHeader className="pb-2">
-          <CardTitle className="flex items-center justify-between text-base">
-            <span className="flex items-center gap-2"><Filter className="h-4 w-4" /> Filtros</span>
-            <Dialog open={open} onOpenChange={setOpen}>
-              <DialogTrigger asChild>
-                <Button
-                  size="sm"
-                  className="bg-cyan-600 hover:bg-cyan-700"
-                >
-                  Agregar alerta (UI)
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="bg-zinc-900 border-zinc-800">
-                <DialogHeader>
-                  <DialogTitle>Registrar alerta</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-3">
-                  <Input
-                    placeholder="Título"
-                    value={form.title}
-                    onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
-                    className="bg-zinc-800/50 border-zinc-700"
-                  />
-                  <Input
-                    placeholder="Municipio"
-                    value={form.municipality}
-                    onChange={(e) => setForm((prev) => ({ ...prev, municipality: e.target.value }))}
-                    className="bg-zinc-800/50 border-zinc-700"
-                  />
-                  <Select value={form.level} onValueChange={(v) => setForm((prev) => ({ ...prev, level: v }))}>
-                    <SelectTrigger className="bg-zinc-800/50 border-zinc-700">
-                      <SelectValue placeholder="Nivel" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="crítica">Crítica</SelectItem>
-                      <SelectItem value="alta">Alta</SelectItem>
-                      <SelectItem value="media">Media</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select value={form.category} onValueChange={(v) => setForm((prev) => ({ ...prev, category: v }))}>
-                    <SelectTrigger className="bg-zinc-800/50 border-zinc-700">
-                      <SelectValue placeholder="Categoría" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="operativa">Operativa</SelectItem>
-                      <SelectItem value="irregularidad">Irregularidad</SelectItem>
-                      <SelectItem value="orden público">Orden público</SelectItem>
-                      <SelectItem value="documental">Documental</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Textarea
-                    placeholder="Detalle"
-                    value={form.detail}
-                    onChange={(e) => setForm((prev) => ({ ...prev, detail: e.target.value }))}
-                    className="bg-zinc-800/50 border-zinc-700"
-                  />
-                </div>
-                <DialogFooter>
-                  <Button onClick={addAlert} className="bg-cyan-600 hover:bg-cyan-700">Guardar</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Filter className="h-4 w-4" /> Filtros
           </CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <CardContent className="grid gap-4 md:grid-cols-3">
           <Input
-            placeholder="Buscar por título o municipio"
+            placeholder="Buscar por nombre o municipio"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="bg-zinc-800/50 border-zinc-700 md:col-span-2"
@@ -288,61 +211,38 @@ export default function AlertasPage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <Card className="xl:col-span-2 bg-zinc-900/60 border-zinc-800">
-          <CardHeader>
-            <CardTitle className="text-base">Cronología</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {filtered.map((alert) => (
-              <div key={alert.id} className="p-4 rounded-lg bg-zinc-800/50 border border-zinc-800 space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <Badge className={levelColor[alert.level]}>{alert.level}</Badge>
-                    <p className="text-sm font-medium text-foreground">{alert.title}</p>
+      <div className="space-y-4">
+        {loading && (
+          <Card className="bg-zinc-900/50 border-zinc-800">
+            <CardContent className="p-4 text-sm text-muted-foreground">Cargando alertas...</CardContent>
+          </Card>
+        )}
+        {!loading && filtered.length === 0 && (
+          <Card className="bg-zinc-900/50 border-zinc-800">
+            <CardContent className="p-4 text-sm text-muted-foreground">Sin alertas de incumplimiento.</CardContent>
+          </Card>
+        )}
+        {!loading && filtered.map((alerta) => (
+          <Card key={alerta.id} className="bg-zinc-900/50 border-zinc-800">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="font-semibold text-foreground">{alerta.title}</h3>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <MapPin className="h-3 w-3" /> {alerta.municipality}
+                    <Clock className="h-3 w-3" /> {alerta.time}
                   </div>
-                  <Badge className={statusColor[alert.status]}>{alert.status}</Badge>
                 </div>
-                <p className="text-xs text-muted-foreground">{alert.id} · {alert.category}</p>
-                <p className="text-sm text-foreground">{alert.detail}</p>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {alert.municipality}</span>
-                  <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {alert.time}</span>
-                </div>
+                <Badge className={levelColor[alerta.level] ?? "bg-zinc-700"}>{alerta.level}</Badge>
               </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card className="bg-zinc-900/60 border-zinc-800">
-          <CardHeader>
-            <CardTitle className="text-base">Indicadores rápidos</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {["Recepción", "Análisis", "Escalamiento"].map((label, i) => {
-              const value = [76, 54, 23][i];
-              const total = [90, 80, 60][i];
-              return (
-                <div key={label} className="space-y-1">
-                  <div className="flex items-center justify-between text-sm text-foreground">
-                    <span>{label}</span>
-                    <span className="text-muted-foreground">{value}/{total}</span>
-                  </div>
-                  <div className="h-2 rounded bg-zinc-800 overflow-hidden">
-                    <div
-                      className="h-full bg-cyan-500"
-                      style={{ width: `${Math.min(100, Math.round((value / total) * 100))}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-            <div className="p-3 rounded-lg bg-zinc-800/50 border border-zinc-800 text-xs text-muted-foreground flex items-center gap-2">
-              <Activity className="h-4 w-4" />
-              Diseño de métricas ilustrativas sin impacto en datos.
-            </div>
-          </CardContent>
-        </Card>
+              <p className="text-sm text-muted-foreground">{alerta.detail}</p>
+              <div className="flex items-center justify-between text-xs">
+                <Badge className="bg-zinc-800/80 border-zinc-700">{alerta.category}</Badge>
+                <Badge className={statusColor[alerta.status] ?? "bg-zinc-700"}>{alerta.status}</Badge>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
     </div>
   );

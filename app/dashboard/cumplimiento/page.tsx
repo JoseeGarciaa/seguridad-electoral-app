@@ -1,35 +1,12 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, Target, TrendingUp, Shield, MapPin, Calendar } from "lucide-react";
+import { CheckCircle, Target, TrendingUp, Shield, Calendar } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
-
-const kpis = [
-  {
-    title: "Cobertura de mesas",
-    value: "82%",
-    target: "90%",
-    progress: 82,
-    detail: "Mesas con testigo confirmado",
-  },
-  {
-    title: "Entrega de actas",
-    value: "68%",
-    target: "95%",
-    progress: 68,
-    detail: "Actas cargadas vs. esperadas",
-  },
-  {
-    title: "Tiempo de respuesta",
-    value: "14min",
-    target: "<10min",
-    progress: 72,
-    detail: "Promedio en atender alertas críticas",
-  },
-];
 
 const milestones = [
   {
@@ -53,10 +30,65 @@ const milestones = [
 ];
 
 export default function CumplimientoPage() {
+  const [summary, setSummary] = useState({ assigned: 0, reported: 0, missing: 0, coveragePct: 0 })
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const res = await fetch("/api/compliance", { cache: "no-store" })
+        if (!res.ok) throw new Error("No se pudo cargar cumplimiento")
+        const json = await res.json()
+        if (cancelled) return
+        const next = json?.summary ?? {}
+        setSummary({
+          assigned: Number(next.assigned ?? 0),
+          reported: Number(next.reported ?? 0),
+          missing: Number(next.missing ?? 0),
+          coveragePct: Number(next.coveragePct ?? 0),
+        })
+      } catch (err: any) {
+        console.error(err)
+        toast({ title: "Cumplimiento", description: err?.message ?? "No se pudo cargar" })
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const coverageProgress = summary.assigned === 0 ? 0 : Math.round((summary.reported / summary.assigned) * 100)
+  const missingProgress = summary.assigned === 0 ? 0 : Math.round((summary.missing / summary.assigned) * 100)
+
+  const kpis = useMemo(() => [
+    {
+      title: "Cobertura de mesas",
+      value: `${summary.coveragePct}%`,
+      target: "100%",
+      progress: coverageProgress,
+      detail: `${summary.reported} reportadas de ${summary.assigned}`,
+    },
+    {
+      title: "Mesas reportadas",
+      value: `${summary.reported}`,
+      target: `${summary.assigned}`,
+      progress: coverageProgress,
+      detail: "Reportes enviados por testigos",
+    },
+    {
+      title: "Mesas faltantes",
+      value: `${summary.missing}`,
+      target: "0",
+      progress: missingProgress,
+      detail: "Pendientes por reportar",
+    },
+  ], [summary.assigned, summary.coveragePct, summary.missing, summary.reported, coverageProgress, missingProgress])
+
   const notify = () =>
     toast({
       title: "Registrar avance",
-      description: "Acción simulada; integración pendiente",
+      description: "Acción pendiente de integración",
     });
 
   return (
@@ -64,7 +96,7 @@ export default function CumplimientoPage() {
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-bold text-foreground">Cumplimiento</h1>
         <p className="text-sm text-muted-foreground">
-          Seguimiento visual a KPIs operativos. Interfaz de demo, sin afectar el modelo.
+          Seguimiento visual a KPIs operativos basados en mesas asignadas y reportadas.
         </p>
       </div>
 
