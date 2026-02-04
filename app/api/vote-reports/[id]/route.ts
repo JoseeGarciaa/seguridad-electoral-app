@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { requireSession } from "@/lib/auth"
+import { getCurrentUser } from "@/lib/auth"
 import { pool } from "@/lib/pg"
 
 function isUuid(value: string): boolean {
@@ -16,16 +16,24 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: "id invalido" }, { status: 400 })
   }
 
-  const session = await requireSession(req, ["delegate", "admin", "leader"])
-  if (session.error) return session.error
+  const user = await getCurrentUser()
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
 
-  const user = session.user!
-  if (user.role === "delegate" && !user.delegateId) {
+  let delegateId = user.delegateId
+  if ((user.role === "delegate" || user.role === "witness") && !delegateId && user.email) {
+    const fallback = await pool.query(`SELECT id FROM delegates WHERE LOWER(email) = LOWER($1) LIMIT 1`, [user.email])
+    delegateId = (fallback.rows[0]?.id as string | undefined) ?? null
+  }
+
+  if ((user.role === "delegate" || user.role === "witness") && !delegateId) {
     return NextResponse.json({ error: "Perfil de testigo incompleto" }, { status: 403 })
   }
 
-  const where = user.role === "delegate" ? "vr.id = $1 AND vr.delegate_id = $2" : "vr.id = $1"
-  const values = user.role === "delegate" ? [reportId, user.delegateId] : [reportId]
+  const isWitness = user.role === "delegate" || user.role === "witness"
+  const where = isWitness ? "vr.id = $1 AND vr.delegate_id = $2" : "vr.id = $1"
+  const values = isWitness ? [reportId, delegateId] : [reportId]
 
   try {
     const reportRes = await pool.query(
@@ -51,15 +59,20 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       [reportId],
     )
 
-    const photosRes = await pool.query(
-      `SELECT e.id, e.title, e.url, e.status, e.uploaded_at, e.municipality, e.polling_station,
-              e.uploaded_by_id, COALESCE(d.full_name, 'Delegado') AS uploaded_by
-         FROM evidences e
-         LEFT JOIN delegates d ON d.id = e.uploaded_by_id
-        WHERE e.vote_report_id = $1
-        ORDER BY e.uploaded_at DESC`,
-      [reportId],
-    )
+    let photosRes = { rows: [] as any[] }
+    try {
+      photosRes = await pool.query(
+        `SELECT e.id, e.title, e.url, e.status, e.uploaded_at, e.municipality, e.polling_station,
+                e.uploaded_by_id, COALESCE(d.full_name, 'Delegado') AS uploaded_by
+           FROM evidences e
+           LEFT JOIN delegates d ON d.id = e.uploaded_by_id
+          WHERE e.vote_report_id = $1
+          ORDER BY e.uploaded_at DESC`,
+        [reportId],
+      )
+    } catch (err: any) {
+      if (err?.code !== "42P01") throw err
+    }
 
     const row = reportRes.rows[0]
 
@@ -81,7 +94,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         ballotNumber: r.ballot_number === null || r.ballot_number === undefined ? null : Number(r.ballot_number),
         color: (r.color as string) ?? null,
       })),
-      photos: photosRes.rows.map((r) => ({
+      photos: (photosRes.rows.length ? photosRes.rows.map((r) => ({
         id: r.id as string,
         title: (r.title as string) ?? "Foto",
         url: r.url as string,
@@ -91,7 +104,17 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         pollingStation: (r.polling_station as string) ?? null,
         uploadedBy: (r.uploaded_by as string) ?? null,
         uploadedById: (r.uploaded_by_id as string) ?? null,
-      })),
+      })) : (row.photo_url ? [{
+        id: row.id as string,
+        title: "E14",
+        url: row.photo_url as string,
+        status: "pending",
+        uploadedAt: row.reported_at as string,
+        municipality: (row.municipality as string) ?? null,
+        pollingStation: (row.polling_station_code as string) ?? null,
+        uploadedBy: null,
+        uploadedById: null,
+      }] : [])),
     })
   } catch (error: any) {
     console.error("vote-report detail error", error)
