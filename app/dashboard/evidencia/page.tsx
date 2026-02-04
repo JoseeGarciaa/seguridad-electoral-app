@@ -950,6 +950,13 @@ export default function EvidenciaPage() {
                           <p className="text-foreground font-semibold">{dateFormatter.format(new Date(detailItem.uploadedAt))}</p>
                         </div>
                       </div>
+                      <div className="grid grid-cols-2 gap-2 items-center">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <User className="h-3 w-3" />
+                          <span className="text-foreground font-medium truncate">{detailItem.uploadedBy ?? "Desconocido"}</span>
+                        </div>
+                        <div className="text-right text-[11px] uppercase text-zinc-500">Autor del reporte</div>
+                      </div>
                       <div>
                         <p className="text-[11px] uppercase text-zinc-500">Subido por</p>
                         <p className="text-foreground font-semibold">{detailItem.uploadedBy ?? "Sin dato"}</p>
@@ -1482,7 +1489,7 @@ function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter }: { ite
           ))}
         </div>
 
-        <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
+        <div className="flex items-center justify-between pt-2 border-t border-zinc-800 gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -1491,7 +1498,7 @@ function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter }: { ite
           >
             <Eye className="h-4 w-4 mr-2" /> Ver
           </Button>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap justify-end">
             <Button
               variant="outline"
               size="sm"
@@ -1503,7 +1510,7 @@ function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter }: { ite
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="h-9 w-9 min-w-[36px]"
               onClick={() => window.open(item.url || item.localPreview, "_blank")}
             >
               <Download className="h-4 w-4" />
@@ -1511,7 +1518,7 @@ function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter }: { ite
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 text-red-400"
+              className="h-9 w-9 min-w-[36px] text-red-400"
               onClick={onDelete}
             >
               <Trash2 className="h-4 w-4" />

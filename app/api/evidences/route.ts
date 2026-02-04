@@ -99,13 +99,15 @@ export async function GET(req: NextRequest) {
            vr.municipality AS vr_municipality,
            vr.department AS vr_department,
            vr.address AS vr_address,
-           COALESCE(d.full_name, dv.full_name, u.email, uv.email, 'Testigo electoral') AS uploaded_by
+           COALESCE(d.full_name, dv.full_name, da.full_name, u.email, uv.email, 'Testigo electoral') AS uploaded_by
     FROM evidences e
     LEFT JOIN vote_reports vr ON vr.id = e.vote_report_id
     LEFT JOIN delegates d ON d.id = e.uploaded_by_id
     LEFT JOIN users u ON u.delegate_id = e.uploaded_by_id
     LEFT JOIN delegates dv ON dv.id = vr.delegate_id
     LEFT JOIN users uv ON uv.delegate_id = vr.delegate_id
+    LEFT JOIN delegate_polling_assignments dpa ON dpa.id = vr.delegate_assignment_id
+    LEFT JOIN delegates da ON da.id = dpa.delegate_id
     ${where}
     ORDER BY e.uploaded_at DESC
     LIMIT ${limit}
