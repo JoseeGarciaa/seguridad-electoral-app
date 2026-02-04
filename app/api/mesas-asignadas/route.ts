@@ -31,8 +31,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const delegateId = user.delegateId
+  let delegateId = user.delegateId
   // Allow any session that has a delegateId (some environments store role as "witness")
+  if (!delegateId && pool && user.email) {
+    const fallback = await pool.query(`SELECT id FROM delegates WHERE LOWER(email) = LOWER($1) LIMIT 1`, [user.email])
+    delegateId = (fallback.rows[0]?.id as string | undefined) ?? null
+  }
   if (!delegateId) {
     return NextResponse.json({ error: "Perfil de testigo electoral incompleto" }, { status: 403 })
   }

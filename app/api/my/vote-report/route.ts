@@ -99,7 +99,11 @@ export async function POST(req: NextRequest) {
     if (user.role !== "delegate" && user.role !== "witness") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
-    const delegateId = user.delegateId
+    let delegateId = user.delegateId
+    if (!delegateId && pool && user.email) {
+      const fallback = await pool.query(`SELECT id FROM delegates WHERE LOWER(email) = LOWER($1) LIMIT 1`, [user.email])
+      delegateId = (fallback.rows[0]?.id as string | undefined) ?? null
+    }
     if (!delegateId) {
       return NextResponse.json({ error: "Perfil de testigo incompleto" }, { status: 403 })
     }
@@ -367,14 +371,12 @@ export async function POST(req: NextRequest) {
     }
 
     const hasEvidences = await ensureEvidencesTable()
-    if (!hasEvidences) {
-      await client.query("ROLLBACK")
-      return NextResponse.json({ error: "Tabla de evidencias no disponible" }, { status: 500 })
+    const uploadedUrls: string[] = []
+
+    if (hasEvidences) {
+      await client.query(`DELETE FROM evidences WHERE vote_report_id = $1`, [reportId])
     }
 
-    await client.query(`DELETE FROM evidences WHERE vote_report_id = $1`, [reportId])
-
-    const uploadedUrls: string[] = []
     for (const [index, photo] of photos.entries()) {
       if (typeof photo !== "string" || !photo.startsWith("data:")) {
         await client.query("ROLLBACK")
@@ -391,26 +393,28 @@ export async function POST(req: NextRequest) {
       const uploaded = await uploadFile(parsed.buffer, filename, `vote-reports/${reportId}`)
       uploadedUrls.push(uploaded.url)
 
-      const evidenceId = crypto.randomUUID()
-      await client.query(
-        `INSERT INTO evidences (
-           id, type, title, description, municipality, polling_station, uploaded_by_id,
-           status, url, tags, vote_report_id
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-        [
-          evidenceId,
-          "image",
-          `E14 ${resolvedPollingStation ?? "Mesa"} ${index + 1}`,
-          null,
-          resolvedMunicipality,
-          resolvedPollingStation,
-          delegateId,
-          "pending",
-          uploaded.url,
-          ["e14"],
-          reportId,
-        ],
-      )
+      if (hasEvidences) {
+        const evidenceId = crypto.randomUUID()
+        await client.query(
+          `INSERT INTO evidences (
+             id, type, title, description, municipality, polling_station, uploaded_by_id,
+             status, url, tags, vote_report_id
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          [
+            evidenceId,
+            "image",
+            `E14 ${resolvedPollingStation ?? "Mesa"} ${index + 1}`,
+            null,
+            resolvedMunicipality,
+            resolvedPollingStation,
+            delegateId,
+            "pending",
+            uploaded.url,
+            ["e14"],
+            reportId,
+          ],
+        )
+      }
     }
 
     await client.query(`UPDATE vote_reports SET total_votes = $1 WHERE id = $2`, [total, reportId])
@@ -419,7 +423,7 @@ export async function POST(req: NextRequest) {
     }
     await client.query("COMMIT")
 
-    return NextResponse.json({ report_id: reportId, total_votes: total, photos: uploadedUrls })
+    return NextResponse.json({ report_id: reportId, total_votes: total, photos: uploadedUrls, evidencesSaved: hasEvidences })
   } catch (error: any) {
     if (client) {
       try {
