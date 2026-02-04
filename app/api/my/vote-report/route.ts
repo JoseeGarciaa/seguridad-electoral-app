@@ -1,6 +1,6 @@
 import crypto from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
-import { assertPositiveInt, requireSession } from "@/lib/auth"
+import { assertPositiveInt, getCurrentUser } from "@/lib/auth"
 import { pool } from "@/lib/pg"
 import { uploadFile } from "@/lib/storage"
 
@@ -92,10 +92,17 @@ export async function POST(req: NextRequest) {
   let client: any = null
 
   try {
-    const auth = await requireSession(req, ["delegate"])
-    if (auth.error) return auth.error
-
-    const delegateId = auth.user!.delegateId
+    const user = await getCurrentUser()
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (user.role !== "delegate" && user.role !== "witness") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+    const delegateId = user.delegateId
+    if (!delegateId) {
+      return NextResponse.json({ error: "Perfil de testigo incompleto" }, { status: 403 })
+    }
     const { delegate_assignment_id, divipole_location_id, notes, details, photos } = await req.json()
 
     if (!delegate_assignment_id || !Array.isArray(details) || details.length === 0) {
