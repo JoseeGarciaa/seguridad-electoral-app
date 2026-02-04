@@ -26,10 +26,9 @@ type Props = {
   onSearchChange: (v: string) => void
   selectedId?: string | null
   onSelect?: (id: string) => void
-  onAssign?: (id: string) => void
 }
 
-export function TerritoryTable({ features, search, onSearchChange, selectedId, onSelect, onAssign }: Props) {
+export function TerritoryTable({ features, search, onSearchChange, selectedId, onSelect }: Props) {
   const formatter = new Intl.NumberFormat("es-CO")
   const filtered = features.filter((p) => {
     const term = search.toLowerCase()
@@ -91,11 +90,7 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {puesto.properties.delegateAssigned ? (
-                      <CheckCircle className="w-4 h-4 text-neon-green" />
-                    ) : (
-                      <AlertTriangle className="w-4 h-4 text-neon-orange" />
-                    )}
+                    <CheckCircle className="w-4 h-4 text-neon-green" />
                     <ChevronRight
                       className={`w-4 h-4 text-muted-foreground transition-transform ${
                         selectedId === puesto.properties.id ? "rotate-90" : ""
@@ -123,13 +118,7 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
                       </div>
                       <div className="bg-secondary/50 rounded p-2">
                         <p className="text-[10px] text-muted-foreground">Estado</p>
-                        <p
-                          className={`text-sm font-semibold ${
-                            puesto.properties.delegateAssigned ? "text-neon-green" : "text-neon-orange"
-                          }`}
-                        >
-                          {puesto.properties.delegateAssigned ? "Asignado" : "Pendiente"}
-                        </p>
+                        <p className="text-sm font-semibold text-neon-green">Asignado</p>
                       </div>
                     </div>
                     <div className="flex gap-2">
@@ -144,16 +133,6 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
                       >
                         <MapPin className="w-3 h-3 mr-1" />
                         Ver en Mapa
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="flex-1 h-8 text-xs bg-primary text-primary-foreground"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onAssign?.(puesto.properties.id)
-                        }}
-                      >
-                        Asignar Testigo
                       </Button>
                     </div>
                   </motion.div>
@@ -171,13 +150,7 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
             <div className="flex items-center gap-1">
               <CheckCircle className="w-3 h-3 text-neon-green" />
               <span className="text-muted-foreground">
-                Asignados: {filtered.filter((p) => p.properties.delegateAssigned).length}
-              </span>
-            </div>
-            <div className="flex items-center gap-1">
-              <AlertTriangle className="w-3 h-3 text-neon-orange" />
-              <span className="text-muted-foreground">
-                Pendientes: {filtered.filter((p) => !p.properties.delegateAssigned).length}
+                Asignados: {filtered.length}
               </span>
             </div>
           </div>

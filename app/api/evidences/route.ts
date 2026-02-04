@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser, DELEGATE_ROLE } from "@/lib/auth"
 import { pool } from "@/lib/pg"
+import { uploadFile } from "@/lib/storage"
 
 const fallbackData = {
   items: [
@@ -11,7 +12,7 @@ const fallbackData = {
       description: "Foto legible",
       municipality: "Bogotá",
       pollingStation: "PU-12",
-      uploadedBy: "Delegado",
+      uploadedBy: "Testigo electoral",
       uploadedById: null,
       uploadedAt: new Date().toISOString(),
       status: "verified",
@@ -27,6 +28,21 @@ const fallbackData = {
     documents: 0,
     verified: 1,
   },
+}
+
+const dataUrlRegex = /^data:(?<mime>[^;]+);base64,(?<data>.+)$/i
+
+function parseDataUrl(dataUrl: string): { buffer: Buffer; mime: string; ext: string } | null {
+  const match = dataUrlRegex.exec(dataUrl)
+  if (!match?.groups?.data || !match.groups.mime) return null
+  const buffer = Buffer.from(match.groups.data, "base64")
+  const mime = match.groups.mime
+  const ext = mime.split("/")[1] || "bin"
+  return { buffer, mime, ext }
+}
+
+function sanitizeFilename(input: string) {
+  return input.replace(/[^a-zA-Z0-9_-]/g, "_") || "evidence"
 }
 
 // GET /api/evidences - list evidences with optional filters
@@ -78,9 +94,18 @@ export async function GET(req: NextRequest) {
   const listQuery = `
     SELECT e.id, e.type, e.title, e.description, e.municipality, e.polling_station,
            e.uploaded_at, e.status, e.url, e.tags, e.vote_report_id,
-           d.id AS uploaded_by_id, COALESCE(d.full_name, 'Delegado') AS uploaded_by
+           d.id AS uploaded_by_id,
+           vr.polling_station_code AS vr_polling_station_code,
+           vr.municipality AS vr_municipality,
+           vr.department AS vr_department,
+           vr.address AS vr_address,
+           COALESCE(d.full_name, dv.full_name, u.email, uv.email, 'Testigo electoral') AS uploaded_by
     FROM evidences e
+    LEFT JOIN vote_reports vr ON vr.id = e.vote_report_id
     LEFT JOIN delegates d ON d.id = e.uploaded_by_id
+    LEFT JOIN users u ON u.delegate_id = e.uploaded_by_id
+    LEFT JOIN delegates dv ON dv.id = vr.delegate_id
+    LEFT JOIN users uv ON uv.delegate_id = vr.delegate_id
     ${where}
     ORDER BY e.uploaded_at DESC
     LIMIT ${limit}
@@ -117,8 +142,8 @@ export async function GET(req: NextRequest) {
           type: row.type as string,
           title: row.title as string,
           description: row.description as string | null,
-          municipality: row.municipality as string | null,
-          pollingStation: row.polling_station as string | null,
+          municipality: (row.municipality as string | null) ?? (row.vr_municipality as string | null),
+          pollingStation: (row.polling_station as string | null) ?? (row.vr_polling_station_code as string | null),
           uploadedBy: row.uploaded_by as string,
           uploadedById: row.uploaded_by_id as string | null,
           uploadedAt: row.uploaded_at as string,
@@ -180,6 +205,7 @@ export async function POST(req: NextRequest) {
   } = body
 
   const enforcedUploadedById = isDelegate ? delegateId : uploadedById
+  let uploaderName: string | null = null
 
   if (!type || !title || !url || !status) {
     return NextResponse.json({ error: "type, title, url y status son requeridos" }, { status: 400 })
@@ -192,14 +218,34 @@ export async function POST(req: NextRequest) {
   try {
     const client = await pool.connect()
     try {
+      if (enforcedUploadedById) {
+        const nameRes = await client.query(`SELECT full_name FROM delegates WHERE id = $1 LIMIT 1`, [enforcedUploadedById])
+        uploaderName = (nameRes.rows[0]?.full_name as string | undefined) ?? null
+      }
+
+      let finalUrl = url as string
+
+      if (typeof url === "string" && url.startsWith("data:")) {
+        const parsed = parseDataUrl(url)
+        if (!parsed) {
+          return NextResponse.json({ error: "Formato de imagen invalido" }, { status: 400 })
+        }
+        const folder = voteReportId ? `vote-reports/${voteReportId}` : "evidences"
+        const filename = `${sanitizeFilename(title)}-${Date.now()}.${parsed.ext}`
+        const uploaded = await uploadFile(parsed.buffer, filename, folder)
+        finalUrl = uploaded.url
+      }
+
+      const evidenceId = crypto.randomUUID()
       const insertQuery = `
         INSERT INTO evidences (
-          type, title, description, municipality, polling_station, uploaded_by_id,
+          id, type, title, description, municipality, polling_station, uploaded_by_id,
           status, url, tags, vote_report_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING id, uploaded_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        RETURNING uploaded_at
       `
       const values = [
+        evidenceId,
         type,
         title,
         description,
@@ -207,23 +253,36 @@ export async function POST(req: NextRequest) {
         pollingStation,
         enforcedUploadedById,
         status,
-        url,
+        finalUrl,
         tags,
         voteReportId,
       ]
 
       const { rows } = await client.query(insertQuery, values)
+
+      const resolvedUploader = uploaderName ?? (isDelegate ? user.email : null)
+
+      if (voteReportId && type === "image" && finalUrl) {
+        await client.query(
+          `UPDATE vote_reports SET photo_url = $1 WHERE id = $2 AND (photo_url IS NULL OR photo_url = '')`,
+          [finalUrl, voteReportId],
+        )
+      }
+
       const row = rows[0]
 
       return NextResponse.json({
-        id: row.id as string,
+        id: evidenceId,
         uploadedAt: row.uploaded_at as string,
+        url: finalUrl,
+        uploadedBy: resolvedUploader,
       })
     } finally {
       client.release()
     }
   } catch (error) {
     console.error("Evidences POST error", error)
-    return NextResponse.json({ error: "Failed to create evidence" }, { status: 500 })
+    const message = (error as any)?.message ?? "Failed to create evidence"
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

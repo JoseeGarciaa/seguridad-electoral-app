@@ -20,18 +20,22 @@ export default function LoginPage() {
 
   // Collage images from public/; cycles every 3.5s.
   const collageImages = [
-    "/abelardo.jpg",
-    "/abelardo1.jpg",
+    "/k1.jpg",
+    "/k2.jpg",
+    "/k3.jpg",
+    "/k4.jpg",
+    "/k5.jpg",
+    "/k6.jpg",
   ]
   const [active, setActive] = useState(0)
 
   // Simple auto-advance for collage; pauses on empty list.
   useEffect(() => {
-    if (!collageImages.length) return
-    const timer = setInterval(() => {
-      setActive((prev) => (prev + 1) % collageImages.length)
+    if (collageImages.length <= 1) return
+    const id = setInterval(() => {
+      setActive((current) => (current + 1) % collageImages.length)
     }, 3500)
-    return () => clearInterval(timer)
+    return () => clearInterval(id)
   }, [collageImages.length])
 
   async function handleSubmit(formData: FormData) {

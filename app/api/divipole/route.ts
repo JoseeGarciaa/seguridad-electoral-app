@@ -238,9 +238,18 @@ export async function GET(request: Request) {
   const dept = searchParams.get("dept")?.trim() || null
   const muni = searchParams.get("muni")?.trim() || null
   const search = searchParams.get("search")?.trim() || null
+  const race = (searchParams.get("race")?.trim() || "all").toLowerCase()
   const limitParam = searchParams.get("limit")
 
   const limit = Math.min(Number(limitParam) || 2000, 5000)
+
+  const citrepSet = new Set(
+    (process.env.CITREP_MUN_CODES || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+  )
+  const citrepOnly = race === "citrep"
 
   let bboxParts: number[] | null = null
   if (bbox) {
@@ -251,22 +260,12 @@ export async function GET(request: Request) {
   }
 
   if (!pool) {
-    console.warn("DATABASE_URL not set; divipole route returning mock FeatureCollection")
-    const filtered = mockFeatures.filter((f) => {
-      if (dept && f.properties.dd !== dept) return false
-      if (muni && f.properties.mm !== muni) return false
-      if (search) {
-        const haystack = `${f.properties.puesto} ${f.properties.municipio} ${f.properties.departamento}`.toLowerCase()
-        if (!haystack.includes(search.toLowerCase())) return false
-      }
-      return true
-    })
-    return NextResponse.json({ type: "FeatureCollection", features: filtered })
+    return NextResponse.json({ error: "DATABASE_URL requerido para consultar puestos" }, { status: 500 })
   }
 
   try {
     const conditions: string[] = ["latitud IS NOT NULL", "longitud IS NOT NULL"]
-    const params: Array<string | number> = []
+    const params: Array<string | number | string[]> = []
     let idx = 1
 
     if (bboxParts) {
@@ -289,11 +288,30 @@ export async function GET(request: Request) {
       idx += 1
     }
 
+    if (citrepOnly) {
+      if (!citrepSet.size) {
+        return NextResponse.json({ type: "FeatureCollection", features: [] })
+      }
+      conditions.push(`(dd || mm) = ANY($${idx}::text[])`)
+      params.push(Array.from(citrepSet))
+      idx += 1
+    }
+
     if (search) {
       conditions.push(`(puesto ILIKE $${idx} OR municipio ILIKE $${idx})`)
       params.push(`%${search}%`)
       idx += 1
     }
+
+    const totalsQuery = await pool.query<{ total_puestos: string; total_mesas: string; with_coords: string }>(
+      `SELECT
+         COUNT(*) AS total_puestos,
+         COALESCE(SUM(mesas), 0) AS total_mesas,
+         COUNT(*) AS with_coords
+       FROM divipole_locations
+       WHERE ${conditions.join(" AND ")}`,
+      params,
+    )
 
     const { rows } = await pool.query<DivipoleRow>(
       `SELECT
@@ -340,7 +358,13 @@ export async function GET(request: Request) {
       },
     }))
 
-    return NextResponse.json({ type: "FeatureCollection", features })
+    const totals = {
+      total_puestos: Number(totalsQuery.rows[0]?.total_puestos ?? 0),
+      total_mesas: Number(totalsQuery.rows[0]?.total_mesas ?? 0),
+      with_coords: Number(totalsQuery.rows[0]?.with_coords ?? 0),
+    }
+
+    return NextResponse.json({ type: "FeatureCollection", features, totals })
   } catch (error) {
     console.error("divipole api error", error)
     return NextResponse.json({ error: "server error" }, { status: 500 })

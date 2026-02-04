@@ -20,6 +20,8 @@ type PuestoRow = {
   longitud: number | null
 }
 
+type AssignedRow = { polling_station: string; nums: number[] | null }
+
 export async function GET(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams
   const dept = searchParams.get("dept")?.trim() || null
@@ -52,9 +54,10 @@ export async function GET(req: NextRequest) {
         })
       }
 
+      // Puestos deben ser únicos por (dd, mm, pp); no agregamos ni mezclamos otros municipios/departamentos
       const { rows } = await client.query<PuestoRow>(
         `SELECT
-            MIN(id) AS id,
+            id,
             dd,
             mm,
             pp,
@@ -62,17 +65,31 @@ export async function GET(req: NextRequest) {
             municipio,
             puesto,
             direccion,
-            MAX(mesas) AS mesas,
-            MAX(total) AS total,
-            MAX(latitud) AS latitud,
-            MAX(longitud) AS longitud
+            mesas,
+            total,
+            latitud,
+            longitud
          FROM divipole_locations
          WHERE dd = $1 AND mm = $2
-         GROUP BY dd, mm, pp, departamento, municipio, puesto, direccion
-         ORDER BY puesto
-         LIMIT 1000`,
+         ORDER BY puesto` ,
         [dept, muni]
       )
+
+      const codes = rows.map((r) => r.pp).filter(Boolean)
+      let assigned: Record<string, number[]> = {}
+      if (codes.length) {
+        const assignedRes = await client.query<AssignedRow>(
+          `SELECT polling_station, array_agg(DISTINCT polling_station_number) AS nums
+           FROM delegate_polling_assignments
+           WHERE polling_station = ANY($1) AND polling_station_number IS NOT NULL
+           GROUP BY polling_station`,
+          [codes]
+        )
+        assigned = Object.fromEntries(
+          assignedRes.rows.map((r) => [r.polling_station, (r.nums ?? []).filter((n) => Number.isInteger(n))])
+        )
+      }
+
       return NextResponse.json({
         puestos: rows.map((r) => ({
           id: r.id,
@@ -87,6 +104,7 @@ export async function GET(req: NextRequest) {
           total: r.total,
           lat: r.latitud,
           lng: r.longitud,
+          takenTables: assigned[r.pp] ?? [],
         })),
       })
     } finally {

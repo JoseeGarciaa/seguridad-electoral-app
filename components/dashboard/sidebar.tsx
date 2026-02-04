@@ -99,7 +99,7 @@ export function DashboardSidebar({ user }: SidebarProps) {
               </div>
               {!collapsed && (
                 <span className="font-bold text-sm text-sidebar-foreground tracking-tight">
-                  SEGURIDAD ELECTORAL
+                  DEFENSA ELECTORAL
                 </span>
               )}
             </Link>

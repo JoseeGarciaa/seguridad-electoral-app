@@ -1,25 +1,21 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { MapPin, Users, Building2, CheckCircle } from "lucide-react"
+import { Building2, CheckCircle } from "lucide-react"
 
 type Props = {
-  total: number
-  withCoords: number
-  assigned: number
-  coveragePct: number
+  puestoLabel: string
+  mesas: number
 }
 
 const numberFormatter = new Intl.NumberFormat("es-CO")
 
 const formatNumber = (value: number) => numberFormatter.format(Math.max(0, Math.trunc(value)))
 
-export function TerritoryStats({ total, withCoords, assigned, coveragePct }: Props) {
+export function TerritoryStats({ puestoLabel, mesas }: Props) {
   const stats = [
-    { name: "Puestos Totales", value: formatNumber(total), icon: Building2 },
-    { name: "Con Coordenadas", value: formatNumber(withCoords), icon: MapPin },
-    { name: "Testigos Asignados", value: formatNumber(assigned), icon: Users },
-    { name: "Cobertura", value: `${Math.round(Math.max(0, coveragePct))}%`, icon: CheckCircle },
+    { name: "Puesto asignado", value: puestoLabel, icon: Building2 },
+    { name: "Mesas asignadas", value: formatNumber(mesas), icon: CheckCircle },
   ]
 
   return (

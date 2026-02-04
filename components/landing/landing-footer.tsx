@@ -10,7 +10,7 @@ export function LandingFooter() {
           <div className="md:col-span-2">
             <Link href="/" className="flex items-center gap-2 mb-4">
               <Shield className="w-6 h-6 text-primary" />
-              <span className="font-bold text-foreground">SEGURIDAD ELECTORAL</span>
+              <span className="font-bold text-foreground">DEFENSA ELECTORAL</span>
             </Link>
             <p className="text-sm text-muted-foreground max-w-md">
               War Room digital premium para campañas políticas en Colombia. 
@@ -66,7 +66,7 @@ export function LandingFooter() {
         {/* Bottom */}
         <div className="mt-12 pt-8 border-t border-border/50 flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-sm text-muted-foreground">
-            &copy; {new Date().getFullYear()} Seguridad Electoral. Todos los derechos reservados.
+            &copy; {new Date().getFullYear()} Defensa Electoral. Todos los derechos reservados.
           </p>
           <div className="flex items-center gap-4">
             <span className="text-xs text-muted-foreground">

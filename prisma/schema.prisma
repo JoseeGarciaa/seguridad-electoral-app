@@ -100,7 +100,7 @@ model Delegate {
   phone                  String?                      @db.Text
   full_name              String                       @db.Text
   document_number        String                       @db.Text
-  role                   String                       @db.Text @default("testigo_electoral")
+  role                   String                       @db.Text @default("witness")
   department             String                       @db.Text
   municipality           String                       @db.Text
   zone                   String?                      @db.Text

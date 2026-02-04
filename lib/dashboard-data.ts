@@ -39,7 +39,26 @@ export type ActivityItem = {
 
 const numberFormatter = new Intl.NumberFormat("es-CO")
 
+async function safeCount(query: string, params: any[] = [], fallback = 0): Promise<number> {
+  try {
+    const { rows } = await pool.query<{ c: string }>(query, params)
+    return Number(rows[0]?.c ?? fallback)
+  } catch (err: any) {
+    if (err?.code === "42P01") return fallback // tabla no existe
+    throw err
+  }
+}
+
 export async function getDashboardStats(): Promise<DashboardStat[]> {
+  if (!pool) {
+    return [
+      { name: "Puestos de Votación", value: "0", description: "Cobertura DIVIPOLE", change: null },
+      { name: "Asignaciones de Testigo", value: "0", description: "Asignaciones activas", change: null },
+      { name: "Reportes Verificados", value: "0", description: "Últimas 24h", change: null },
+      { name: "Alertas Activas", value: "0", description: "Requieren atención", change: null, changeType: "negative" },
+    ]
+  }
+
   const puestosPromise = pool.query<{ count: string }>("SELECT COUNT(*) AS count FROM divipole_locations")
   const assignmentsPromise = pool.query<{ count: string }>("SELECT COUNT(*) AS count FROM delegate_polling_assignments")
   const reportsPromise = pool.query<{ count: string }>("SELECT COUNT(*) AS count FROM vote_reports")
@@ -87,6 +106,10 @@ export async function getDashboardStats(): Promise<DashboardStat[]> {
 export async function getCoverageOverview(limit = 12): Promise<{ items: CoverageItem[]; summary: CoverageSummary }> {
   type CoverageRow = { departamento: string; puestos: string }
 
+  if (!pool) {
+    return { items: [], summary: { green: 0, yellow: 0, red: 0 } }
+  }
+
   const { rows } = await pool.query<CoverageRow>(
     `SELECT departamento, COUNT(*) AS puestos
      FROM divipole_locations
@@ -101,7 +124,7 @@ export async function getCoverageOverview(limit = 12): Promise<{ items: Coverage
     const puestos = Number(row.puestos)
     const assigned = 0
     const coverage = puestos === 0 ? 0 : Math.round((assigned / puestos) * 100)
-    const status = coverage >= 85 ? "green" : coverage >= 50 ? "yellow" : "red"
+    const status: CoverageItem["status"] = coverage >= 85 ? "green" : coverage >= 50 ? "yellow" : "red"
     return {
       name: row.departamento,
       coverage,
@@ -110,24 +133,108 @@ export async function getCoverageOverview(limit = 12): Promise<{ items: Coverage
     }
   })
 
-  const summary = items.reduce<CoverageSummary>(
-    (acc, item) => {
-      acc[item.status] += 1
-      return acc
-    },
-    { green: 0, yellow: 0, red: 0 }
-  )
+  const summary = items.reduce<CoverageSummary>((acc, item) => {
+    const key: keyof CoverageSummary = item.status
+    acc[key] += 1
+    return acc
+  }, { green: 0, yellow: 0, red: 0 })
 
   return { items, summary }
 }
 
-export async function getRecentAlerts(limit = 6): Promise<{ items: AlertItem[]; activeCount: number }> {
-  // No existe tabla alerts en el DDL; devolvemos vacío para evitar fallas
-  return { items: [], activeCount: 0 }
+export async function getRecentAlerts(
+  opts?: { delegateId?: string | null; limit?: number }
+): Promise<{ items: AlertItem[]; activeCount: number }> {
+  const limit = opts?.limit ?? 6
+  const delegateId = opts?.delegateId ?? null
+
+ 
+  async function safeCount(query: string, params: any[] = [], fallback = 0): Promise<number> {
+    try {
+      const { rows } = await pool.query<{ c: string }>(query, params)
+      return Number(rows[0]?.c ?? fallback)
+    } catch (err: any) {
+      if (err?.code === "42P01") return fallback // tabla no existe en esta instancia
+      throw err
+    }
+  }
+  if (!pool) {
+    return { items: [], activeCount: 0 }
+  }
+
+  const alertsQuery = delegateId
+    ? `SELECT id, title, description AS message, status AS severity, uploaded_at AS time
+       FROM evidences
+       WHERE uploaded_by_id = $1
+       ORDER BY uploaded_at DESC
+       LIMIT $2`
+    : `SELECT id, title, description AS message, status AS severity, uploaded_at AS time
+       FROM evidences
+       ORDER BY uploaded_at DESC
+       LIMIT $1`
+
+  const params = delegateId ? [delegateId, limit] : [limit]
+  try {
+    const { rows } = await pool.query(alertsQuery, params)
+
+    const mapped: AlertItem[] = rows.map((row) => ({
+      id: String(row.id),
+      severity: "medium",
+      title: (row.title as string) ?? "Alerta",
+      message: (row.message as string) ?? "",
+      time: (row.time as string) ?? "",
+    }))
+
+    const activeCount = delegateId
+      ? mapped.length
+      : await safeCount("SELECT COUNT(*) AS c FROM evidences WHERE status != 'verified'")
+
+    return { items: mapped, activeCount }
+  } catch (err: any) {
+    if (err?.code === "42P01") {
+      return { items: [], activeCount: 0 }
+    }
+    throw err
+  }
 }
 
 export async function getActivityFeed(limit = 8): Promise<ActivityItem[]> {
   // Como el DDL no define alerts ni vote_records, devolvemos feed vacío
   const events: ActivityItem[] = []
   return events.slice(0, limit)
+}
+
+export async function getWitnessDashboardStats(delegateId: string | null): Promise<DashboardStat[]> {
+  if (!delegateId || !pool) {
+    return [
+      { name: "Puestos asignados", value: "0", description: "Tus puestos de votación" },
+      { name: "Reportes enviados", value: "0", description: "Enviados por ti" },
+      { name: "Alertas activas", value: "0", description: "Generadas por tu gestión", changeType: "negative" },
+    ]
+  }
+
+  const puestosPromise = pool.query<{ c: string }>(
+    `SELECT COUNT(*) AS c FROM delegate_polling_assignments WHERE delegate_id = $1`,
+    [delegateId],
+  )
+  const reportesPromise = pool.query<{ c: string }>(
+    `SELECT COUNT(*) AS c FROM vote_reports WHERE delegate_id = $1`,
+    [delegateId],
+  )
+  const alertasPromise = safeCount(
+    `SELECT COUNT(*) AS c FROM evidences WHERE uploaded_by_id = $1 AND status != 'verified'`,
+    [delegateId],
+  )
+
+  const [puestosRes, reportesRes, alertasCount] = await Promise.all([puestosPromise, reportesPromise, alertasPromise])
+
+  const puestos = numberFormatter.format(Number(puestosRes.rows[0]?.c ?? 0))
+  const reportes = numberFormatter.format(Number(reportesRes.rows[0]?.c ?? 0))
+  const alertas = numberFormatter.format(alertasCount)
+
+  return [
+    { name: "Puestos asignados", value: puestos, description: "Tus puestos de votación" },
+    { name: "Reportes enviados", value: reportes, description: "Enviados por ti" },
+    { name: "Alertas activas", value: alertas, description: "Generadas por tu gestión", changeType: "negative" },
+  ]
 }

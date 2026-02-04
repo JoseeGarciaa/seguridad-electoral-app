@@ -20,7 +20,7 @@ export function LandingHeader() {
               <div className="absolute inset-0 blur-md bg-primary/30" />
             </div>
             <span className="font-bold text-base sm:text-lg tracking-tight text-foreground">
-              SEGURIDAD ELECTORAL
+              DEFENSA ELECTORAL
             </span>
           </Link>
 

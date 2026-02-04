@@ -8,7 +8,7 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'Seguridad Electoral | Centro de Comando',
+  title: 'Defensa Electoral | Centro de Comando',
   description: 'War Room digital premium para campañas políticas. Control total del territorio, evidencia en tiempo real, cero improvisación.',
   generator: 'v0.app',
   icons: {

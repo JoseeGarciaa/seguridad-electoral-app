@@ -24,6 +24,7 @@ import {
   MapPin,
   Clock,
   User,
+  Loader2,
   CheckCircle,
   Eye,
   Download,
@@ -38,10 +39,67 @@ import {
 } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 
-type Mesa = { id: string; label: string; municipio?: string }
+type Mesa = { id: string; label: string; municipio?: string; puesto?: string }
 type Cargo = { id: string; nombre: string }
 type Partido = { id: string; nombre: string; cargoId: string }
-type Candidato = { id: string; nombre: string; partidoId: string; cargoId: string }
+type Candidato = {
+  id: string
+  nombre: string
+  partidoId: string
+  cargoId: string
+  ballot_number?: number
+  full_name?: string
+  position?: string
+  region?: string
+  color?: string
+  department_code?: string
+  party?: string
+}
+
+function CandidateCatalogHint({ candidatos, cargoById, partyById }: { candidatos: Candidato[]; cargoById: Record<string, string>; partyById: Record<string, string> }) {
+  const sample = candidatos.slice(0, 12)
+
+  return (
+    <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-950/60 p-4 text-sm text-muted-foreground space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="font-semibold text-foreground">Catalogo de candidatos</p>
+          <p className="text-xs text-muted-foreground">Mostrando datos de public.candidates: numero de tarjeton, nombre completo, cargo/position, partido y region.</p>
+        </div>
+        <Badge className="bg-zinc-900 border-zinc-800 text-xs">{candidatos.length} registrados</Badge>
+      </div>
+
+      {sample.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No hay candidatos cargados en el catalogo.</p>
+      ) : (
+        <div className="grid max-h-72 gap-2 overflow-auto pr-1">
+          {sample.map((c) => (
+            <div key={c.id} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-semibold text-foreground leading-tight">{c.full_name ?? c.nombre}</div>
+                {c.ballot_number ? <Badge className="bg-zinc-800 border-zinc-700 text-xs">Tarjeton {c.ballot_number}</Badge> : null}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <span>{c.position ?? cargoById[c.cargoId] ?? "Cargo sin nombre"}</span>
+                <span className="text-zinc-500">•</span>
+                <span>{c.party ?? partyById[c.partidoId] ?? "Sin partido"}</span>
+                {c.region ? (
+                  <>
+                    <span className="text-zinc-500">•</span>
+                    <span>{c.region}</span>
+                  </>
+                ) : null}
+                {c.color ? <Badge className="bg-zinc-800 border-zinc-700 text-[10px]">Color {c.color}</Badge> : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+type PhotoSlot = { file: File; preview: string }
 
 type VoteFlowState = {
   mesaId?: string
@@ -51,6 +109,8 @@ type VoteFlowState = {
   votos: number
   photo?: File
   photoPreview?: string
+  photos: PhotoSlot[]
+  candidateVotes: Record<string, number>
 }
 
 type EvidenceItem = {
@@ -65,8 +125,42 @@ type EvidenceItem = {
   uploadedAt: string
   status: string
   url: string
+  localPreview?: string
   tags: string[]
   voteReportId: string | null
+}
+
+type VoteCandidateDetail = {
+  candidateId: string
+  votes: number
+  fullName: string | null
+  party: string | null
+  position: string | null
+  ballotNumber: number | null
+  color: string | null
+}
+
+type VoteReportDetail = {
+  id: string
+  pollingStation: string | null
+  municipality: string | null
+  department: string | null
+  address: string | null
+  totalVotes: number
+  reportedAt: string | null
+  notes: string | null
+  details: VoteCandidateDetail[]
+  photos: Array<{
+    id: string
+    title: string
+    url: string
+    status: string
+    uploadedAt: string
+    municipality: string | null
+    pollingStation: string | null
+    uploadedBy: string | null
+    uploadedById: string | null
+  }>
 }
 
 type EvidenceStats = {
@@ -117,7 +211,7 @@ const chipFilters = [
 
 export default function EvidenciaPage() {
   const [view, setView] = useState<"hub" | "wizard" | "evidencias">("hub")
-  const [flow, setFlow] = useState<VoteFlowState>({ votos: 0 })
+  const [flow, setFlow] = useState<VoteFlowState>({ votos: 0, photos: [], candidateVotes: {} })
   const [stepIndex, setStepIndex] = useState(0)
   const [mesas, setMesas] = useState<Mesa[]>([])
   const [cargos, setCargos] = useState<Cargo[]>([])
@@ -131,9 +225,16 @@ export default function EvidenciaPage() {
   const [typeFilter, setTypeFilter] = useState("all")
   const [typeChip, setTypeChip] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
-  const [isOffline, setIsOffline] = useState(!navigator?.onLine)
+  const [isOffline, setIsOffline] = useState(false)
   const [offlineQueue, setOfflineQueue] = useState<any[]>([])
   const [photoDialogOpen, setPhotoDialogOpen] = useState(false)
+  const [detailItem, setDetailItem] = useState<EvidenceItem | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [reportDetail, setReportDetail] = useState<VoteReportDetail | null>(null)
+  const dateFormatter = useMemo(
+    () => new Intl.DateTimeFormat("es-CO", { dateStyle: "short", timeStyle: "short", timeZone: "UTC" }),
+    []
+  )
 
   const notify = (message: string, description?: string) => toast({ title: message, description })
 
@@ -144,16 +245,17 @@ export default function EvidenciaPage() {
       const [mesasRes, catalogosRes, evidencesRes] = await Promise.all([
         fetch("/api/mesas-asignadas", { cache: "no-store" }),
         fetch("/api/catalogos", { cache: "no-store" }),
-        fetch("/api/evidencias", { cache: "no-store" }),
+        fetch("/api/evidences", { cache: "no-store" }),
       ])
 
-      if (!mesasRes.ok || !catalogosRes.ok || !evidencesRes.ok) {
+      // Mesas pueden fallar para perfiles admin; en ese caso continuamos con lista vacia.
+      if (!catalogosRes.ok || !evidencesRes.ok) {
         setError("No se pudo cargar evidencias y catalogos")
         notify("Error de carga", "Verifica conexion o API")
         return
       }
 
-      const mesasData = await mesasRes.json()
+      const mesasData = mesasRes.ok ? await mesasRes.json().catch(() => ({ items: [] })) : { items: [] }
       const catalogosData = await catalogosRes.json()
       const evidencesData = await evidencesRes.json()
 
@@ -176,6 +278,7 @@ export default function EvidenciaPage() {
   }, [preload])
 
   useEffect(() => {
+    setIsOffline(typeof navigator !== "undefined" ? !navigator.onLine : false)
     const handleOnline = () => setIsOffline(false)
     const handleOffline = () => setIsOffline(true)
     window.addEventListener("online", handleOnline)
@@ -213,8 +316,42 @@ export default function EvidenciaPage() {
     })
   }, [items, searchQuery, statusFilter, typeFilter])
 
+  const selectedMesaLabel = useMemo(
+    () => mesas.find((m) => m.id === flow.mesaId)?.label ?? flow.mesaId,
+    [flow.mesaId, mesas]
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    if (!detailItem?.voteReportId) {
+      setReportDetail(null)
+      setDetailLoading(false)
+      return
+    }
+
+    const fetchDetail = async () => {
+      setDetailLoading(true)
+      try {
+        const res = await fetch(`/api/vote-reports/${detailItem.voteReportId}`)
+        if (!res.ok) throw new Error("No se pudo obtener el reporte")
+        const data = (await res.json()) as VoteReportDetail
+        if (!cancelled) setReportDetail(data)
+      } catch (err) {
+        console.error(err)
+        if (!cancelled) notify("No se pudo cargar el reporte", "Intenta de nuevo")
+      } finally {
+        if (!cancelled) setDetailLoading(false)
+      }
+    }
+
+    fetchDetail()
+    return () => {
+      cancelled = true
+    }
+  }, [detailItem])
+
   const resetFlow = () => {
-    setFlow({ votos: 0 })
+    setFlow({ votos: 0, photos: [], candidateVotes: {} })
     setStepIndex(0)
   }
 
@@ -250,46 +387,159 @@ export default function EvidenciaPage() {
 
   const handlePhoto = (file?: File) => {
     if (!file) {
-      setFlow((prev) => ({ ...prev, photo: undefined, photoPreview: undefined }))
+      setFlow((prev) => ({ ...prev, photo: undefined, photoPreview: undefined, photos: [] }))
       return
     }
     const preview = URL.createObjectURL(file)
-    setFlow((prev) => ({ ...prev, photo: file, photoPreview: preview }))
+    setFlow((prev) => ({ ...prev, photo: file, photoPreview: preview, photos: [{ file, preview }] }))
     goNext()
+  }
+
+  const handleCandidateVote = (candidateId: string, value: number) => {
+    setFlow((prev) => ({
+      ...prev,
+      candidateVotes: {
+        ...prev.candidateVotes,
+        [candidateId]: Math.max(0, isNaN(value) ? 0 : value),
+      },
+    }))
+  }
+
+  const handleAddPhotos = (files?: FileList | null) => {
+    if (!files || files.length === 0) return
+
+    const selected = Array.from(files)
+
+    setFlow((prev) => {
+      const current = prev.photos ?? []
+      const remainingSlots = Math.max(0, 5 - current.length)
+      const nextFiles = selected
+        .slice(0, remainingSlots)
+        .map((file) => ({ file, preview: URL.createObjectURL(file) }))
+
+      if (nextFiles.length === 0) {
+        notify("Limite de 5 fotos", "Elimina alguna para adjuntar mas")
+        return prev
+      }
+
+      const merged = [...current, ...nextFiles].slice(0, 5)
+      const first = merged[0]
+
+      return {
+        ...prev,
+        photos: merged,
+        photo: first?.file,
+        photoPreview: first?.preview,
+      }
+    })
+
+    goNext()
+  }
+
+  const handleRemovePhoto = (index: number) => {
+    setFlow((prev) => {
+      const next = [...(prev.photos ?? [])]
+      next.splice(index, 1)
+      return { ...prev, photos: next, photo: next[0]?.file, photoPreview: next[0]?.preview }
+    })
   }
 
   const sendVote = useCallback(
     async (payload: VoteFlowState, showToast = true) => {
       try {
-        const voteBody = {
-          mesaId: payload.mesaId,
-          cargoId: payload.cargoId,
-          candidatoId: payload.candidatoId,
-          votos: payload.votos,
-          timestamp: Date.now(),
+        const candidateEntries = Object.entries(payload.candidateVotes ?? {}).filter(([, votos]) => votos > 0)
+        const legacyCandidate = payload.candidatoId && payload.votos > 0 ? [[payload.candidatoId, payload.votos]] : []
+        const voteEntries = candidateEntries.length > 0 ? candidateEntries : legacyCandidate
+
+        if (!payload.mesaId || voteEntries.length === 0) {
+          throw new Error("Datos incompletos para enviar")
         }
 
-        const voteRes = await fetch("/api/votos", {
+        const details = voteEntries.map(([candidate_id, votes]) => ({ candidate_id, votes }))
+
+        const voteBody = {
+          delegate_assignment_id: payload.mesaId,
+          divipole_location_id: null,
+          notes: null,
+          details,
+        }
+
+        const voteRes = await fetch("/api/my/vote-report", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(voteBody),
         })
 
-        if (!voteRes.ok) throw new Error("Error en votos")
+        const rawVoteText = await voteRes.text().catch(() => null)
+        const voteJson = rawVoteText ? (() => { try { return JSON.parse(rawVoteText) } catch { return null } })() : null
 
-        if (payload.photo) {
-          const formData = new FormData()
-          formData.append("file", payload.photo)
-          formData.append("mesaId", payload.mesaId || "")
-          formData.append("cargoId", payload.cargoId || "")
-          formData.append("candidatoId", payload.candidatoId || "")
-          await fetch("/api/evidencias", {
-            method: "POST",
-            body: formData,
-          })
+        if (!voteRes.ok) {
+          const reason = (voteJson as any)?.error || rawVoteText || `Error en votos (status ${voteRes.status})`
+          console.error("vote-report error", { status: voteRes.status, detail: (voteJson as any)?.detail, body: rawVoteText })
+          throw new Error(reason)
         }
 
-        if (showToast) notify("Registro enviado", "Se guardo la votacion y la foto")
+        const voteReportId = (voteJson as any)?.report_id ?? null
+
+        const photosToSend = payload.photos?.length ? payload.photos : payload.photo ? [{ file: payload.photo, preview: payload.photoPreview ?? "" }] : []
+        const toDataUrl = (file: File) =>
+          new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result))
+            reader.onerror = reject
+            reader.readAsDataURL(file)
+          })
+
+        for (const [idx, slot] of photosToSend.slice(0, 5).entries()) {
+          try {
+            const dataUrl = await toDataUrl(slot.file)
+            const res = await fetch("/api/evidences", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                type: "image",
+                title: `E14 mesa ${payload.mesaId} foto ${idx + 1}`,
+                description: null,
+                municipality: null,
+                pollingStation: payload.mesaId ?? null,
+                status: "pending",
+                url: dataUrl,
+                tags: [],
+                voteReportId,
+              }),
+            })
+
+            // Optimistic add to evidences list so "Ver" muestra la foto recien subida
+            setItems((prev) => [
+              {
+                id: `local-${Date.now()}-${idx}`,
+                type: "image",
+                title: `E14 mesa ${payload.mesaId} foto ${idx + 1}`,
+                description: null,
+                municipality: null,
+                pollingStation: payload.mesaId ?? null,
+                uploadedBy: "Tú",
+                uploadedById: null,
+                uploadedAt: new Date().toISOString(),
+                status: "pending",
+                url: dataUrl,
+                localPreview: dataUrl,
+                tags: [],
+                voteReportId: voteReportId ?? null,
+              },
+              ...prev,
+            ])
+
+            if (res.ok) {
+              // Refresh stats and server data after successful upload to replace dataUrl with URL subida
+              preload()
+            }
+          } catch (err) {
+            console.warn("Foto no se pudo subir", err)
+          }
+        }
+
+        if (showToast) notify("Registro enviado", "Se guardo la votacion y las fotos")
         resetFlow()
         preload()
       } catch (err) {
@@ -300,6 +550,24 @@ export default function EvidenciaPage() {
     [preload]
   )
   const handleSubmit = async () => {
+    const voteEntries = Object.entries(flow.candidateVotes ?? {}).filter(([, votos]) => votos > 0)
+    if (!flow.mesaId) {
+      notify("Selecciona la mesa asignada")
+      return
+    }
+    if (voteEntries.length === 0 && (!flow.candidatoId || flow.votos <= 0)) {
+      notify("Ingresa votos para al menos un candidato")
+      return
+    }
+    if ((flow.photos?.length ?? 0) === 0) {
+      notify("Falta la foto obligatoria", "Sube al menos 1 foto (max 5)")
+      return
+    }
+    if ((flow.photos?.length ?? 0) > 5) {
+      notify("Solo 5 fotos permitidas")
+      return
+    }
+
     if (isOffline) {
       setOfflineQueue((prev) => [...prev, flow])
       notify("Guardado en cola offline", "Se enviara al volver la conexion")
@@ -390,106 +658,127 @@ export default function EvidenciaPage() {
 
       {view === "hub" && (
         <div className="grid gap-4 lg:grid-cols-3">
-          <Card className="lg:col-span-2 bg-zinc-900/70 border-zinc-800">
-            <CardHeader>
-              <CardTitle className="text-xl">Centro de accion</CardTitle>
+          <Card className="lg:col-span-2 border-border/70 bg-card/60 backdrop-blur">
+            <CardHeader className="pb-2 space-y-2">
+              <CardTitle className="text-xl font-semibold tracking-tight">Centro de acción</CardTitle>
+              <p className="text-sm text-muted-foreground">Accesos directos pensados para testigo: reporta tu mesa con foto E14 y gestiona lo que ya enviaste.</p>
             </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2">
-              <Button
-                className="h-32 text-left flex-col items-start justify-between rounded-2xl bg-cyan-700 hover:bg-cyan-600"
+            <CardContent className="grid gap-3 md:grid-cols-2">
+              <button
                 onClick={() => setView("wizard")}
+                className="group w-full rounded-2xl border border-border/60 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-background p-4 text-left transition hover:border-emerald-500/60 hover:shadow-lg hover:shadow-emerald-500/10"
               >
-                <div className="flex items-center gap-3 text-lg font-semibold">
-                  <Camera className="h-6 w-6" /> Registrar votos + Foto E14
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center gap-3 text-base font-semibold text-foreground">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400">
+                      <Camera className="h-5 w-5" />
+                    </span>
+                    Registrar votos + Foto E14
+                  </div>
+                  <p className="text-sm text-muted-foreground leading-snug">
+                    Usa tu mesa asignada, ingresa votos y sube hasta 5 fotos (1 obligatoria). Flujo guiado y consistente.
+                  </p>
+                  <div className="flex items-center gap-2 text-xs text-emerald-400">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400" /> Listo para enviar
+                  </div>
                 </div>
-                <p className="text-base font-medium text-cyan-50/90">
-                  Flujo paso a paso tactil. Sin listas desplegables.
-                </p>
-              </Button>
+              </button>
 
-              <Button
-                className="h-32 text-left flex-col items-start justify-between rounded-2xl bg-zinc-800 hover:bg-zinc-700"
+              <button
                 onClick={() => setView("evidencias")}
+                className="group w-full rounded-2xl border border-border/60 bg-gradient-to-br from-zinc-800/60 via-zinc-900/40 to-background p-4 text-left transition hover:border-primary/40 hover:shadow-lg hover:shadow-primary/10"
               >
-                <div className="flex items-center gap-3 text-lg font-semibold">
-                  <ImageIcon className="h-6 w-6" /> Ver/Descargar evidencias
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center gap-3 text-base font-semibold text-foreground">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-800 text-muted-foreground">
+                      <ImageIcon className="h-5 w-5" />
+                    </span>
+                    Ver / descargar evidencias
+                  </div>
+                  <p className="text-sm text-muted-foreground leading-snug">
+                    Revisa lo enviado, descarga copias o marca verificado. Filtros rápidos por tipo y estado.
+                  </p>
+                  <div className="text-xs text-muted-foreground leading-snug">Mantén tus envíos ordenados y listos para auditoría.</div>
                 </div>
-                <p className="text-base font-medium text-muted-foreground">
-                  Revisa, descarga o marca verificado con gestos rapidos.
-                </p>
-              </Button>
+              </button>
             </CardContent>
           </Card>
 
-          <Card className="bg-zinc-900/70 border-zinc-800">
-            <CardHeader>
+          <Card className="border-border/70 bg-card/60 backdrop-blur">
+            <CardHeader className="pb-2">
               <CardTitle className="text-sm text-muted-foreground">Estado del sistema</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center gap-2 text-sm">
+            <CardContent className="space-y-3 text-sm">
+              <div className="flex items-center gap-2">
                 {isOffline ? <WifiOff className="h-4 w-4 text-amber-400" /> : <Wifi className="h-4 w-4 text-emerald-400" />}
-                <span>{isOffline ? "Offline" : "Online"}</span>
+                <span className="font-semibold text-foreground">{isOffline ? "Offline" : "Online"}</span>
               </div>
-              <div className="text-xs text-muted-foreground">
-                Datos pre-cargados: mesas, cargos, partidos y candidatos. Sincroniza en segundo plano.
+              <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground leading-relaxed">
+                Datos listos: mesas asignadas, cargos, partidos, candidatos y evidencias. Sincroniza en segundo plano.
               </div>
+              <div className="text-xs text-muted-foreground">Si pierdes conexión, sigue capturando; enviaremos tus envíos al volver en línea.</div>
             </CardContent>
           </Card>
         </div>
       )}
 
       {view === "wizard" && (
-        <Card className="bg-zinc-900/70 border-zinc-800 relative">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center justify-between">
+        <Card className="bg-zinc-900/70 border-zinc-800">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <p className="text-xs uppercase text-muted-foreground">Paso {stepIndex + 1} de {steps.length}</p>
-                <p className="text-xl font-semibold">{stepTitle?.title}</p>
-                <p className="text-sm text-muted-foreground">{stepTitle?.description}</p>
+                <p className="text-xs uppercase text-muted-foreground">Captura rapida</p>
+                <p className="text-xl font-semibold">Votos + Evidencias del puesto</p>
+                <p className="text-sm text-muted-foreground">Elige tu mesa asignada, ingresa votos y adjunta hasta 5 fotos (1 obligatoria).</p>
               </div>
-              <Badge className="bg-zinc-800 border-zinc-700 text-xs">Tactil / Sin dropdowns</Badge>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <Badge className="bg-zinc-800 border-zinc-700">{flow.photos.length}/5 fotos</Badge>
+                <Badge className="bg-zinc-800 border-zinc-700">{Object.values(flow.candidateVotes).filter((v) => v > 0).length} candidatos con votos</Badge>
+                <Badge className="bg-zinc-800 border-zinc-700">Mesa: {selectedMesaLabel ?? "sin seleccionar"}</Badge>
+              </div>
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 pb-20">
-            {stepTitle?.key === "mesaId" && (
-              <MesaPicker mesas={mesas} onPick={(id) => handlePick("mesaId", id)} />
-            )}
-            {stepTitle?.key === "cargoId" && (
-              <GridPicker
-                items={cargos.map((c) => ({ id: c.id, label: c.nombre }))}
-                selectedId={flow.cargoId}
-                onPick={(id) => handlePick("cargoId", id)}
-              />
-            )}
-            {stepTitle?.key === "partidoId" && (
-              <GridPicker
-                items={partidos
-                  .filter((p) => !flow.cargoId || p.cargoId === flow.cargoId)
-                  .map((p) => ({ id: p.id, label: p.nombre }))}
-                selectedId={flow.partidoId}
-                onPick={(id) => handlePick("partidoId", id)}
-              />
-            )}
-            {stepTitle?.key === "candidatoId" && (
-              <GridPicker
-                items={candidatos
-                  .filter((c) => (!flow.partidoId || c.partidoId === flow.partidoId) && (!flow.cargoId || c.cargoId === flow.cargoId))
-                  .map((c) => ({ id: c.id, label: c.nombre }))}
-                selectedId={flow.candidatoId}
-                onPick={(id) => handlePick("candidatoId", id)}
-              />
-            )}
-            {stepTitle?.key === "votos" && (
-              <VotePad votos={flow.votos} onInput={handleVoteInput} />
-            )}
-            {stepTitle?.key === "photo" && (
-              <PhotoStep flow={flow} onPhoto={handlePhoto} />
-            )}
-            {stepTitle?.key === "confirm" && (
-              <ConfirmStep flow={flow} onSubmit={handleSubmit} />
-            )}
+
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 lg:grid-cols-3">
+              <AssignedMesasPanel mesas={mesas} selectedMesaId={flow.mesaId} onPick={(id) => setFlow((prev) => ({ ...prev, mesaId: id }))} />
+
+              <div className="lg:col-span-2 space-y-4">
+                <CandidateVotesPanel
+                  cargos={cargos}
+                  partidos={partidos}
+                  candidatos={candidatos}
+                  selectedCargoId={flow.cargoId}
+                  selectedPartidoId={flow.partidoId}
+                  candidateVotes={flow.candidateVotes}
+                  onCargoChange={(id) => setFlow((prev) => ({ ...prev, cargoId: id, partidoId: undefined }))}
+                  onPartidoChange={(id) => setFlow((prev) => ({ ...prev, partidoId: id }))}
+                  onVoteChange={handleCandidateVote}
+                  onResetVotes={() => setFlow((prev) => ({ ...prev, candidateVotes: {} }))}
+                />
+
+                <PhotoStack photos={flow.photos} onAdd={handleAddPhotos} onRemove={handleRemovePhoto} />
+
+                <div className="flex flex-col gap-3 border-t border-zinc-800 pt-4 md:flex-row md:items-center md:justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    Debes tener una mesa seleccionada, al menos un candidato con votos y minimo una foto.
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" className="bg-zinc-800/60 border-zinc-700" onClick={() => setView("hub")}>
+                      Cancelar
+                    </Button>
+                    <Button
+                      className="bg-cyan-600 hover:bg-cyan-700"
+                      disabled={!flow.mesaId || (flow.photos?.length ?? 0) === 0 || (Object.values(flow.candidateVotes).filter((v) => v > 0).length === 0 && (!flow.candidatoId || flow.votos <= 0))}
+                      onClick={handleSubmit}
+                    >
+                      Enviar evidencias
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </CardContent>
-          {wizardControls}
         </Card>
       )}
 
@@ -574,10 +863,149 @@ export default function EvidenciaPage() {
           {!loading && !error && (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {filteredItems.map((item) => (
-                <EvidenceCard key={item.id} item={item} onVerify={() => notify("Marcado verificado")}></EvidenceCard>
+                <EvidenceCard
+                  key={item.id}
+                  item={item}
+                  dateFormatter={dateFormatter}
+                  onVerify={() => notify("Marcado verificado")}
+                  onView={() => setDetailItem(item)}
+                ></EvidenceCard>
               ))}
             </div>
           )}
+
+          <Dialog open={Boolean(detailItem)} onOpenChange={(open) => { if (!open) setDetailItem(null) }}>
+            <DialogContent className="bg-zinc-900 border-zinc-800 sm:max-w-3xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+              <DialogHeader>
+                <DialogTitle>{detailItem?.title ?? "Evidencia"}</DialogTitle>
+              </DialogHeader>
+              {detailItem && (
+                <div className="grid gap-4 md:grid-cols-[2fr,1fr]">
+                  <div className="rounded-xl border border-zinc-800 overflow-hidden bg-zinc-950/50">
+                    <img
+                      src={detailItem.url || detailItem.localPreview || ""}
+                      alt={detailItem.title}
+                      className="w-full h-[320px] md:h-[420px] object-contain bg-black"
+                    />
+                  </div>
+                  <div className="space-y-4 text-sm text-muted-foreground">
+                    <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-zinc-500">Mesa reportada</p>
+                          <p className="text-foreground font-semibold">{detailItem.pollingStation ?? "Sin dato"}</p>
+                        </div>
+                        <Badge className="bg-zinc-800 border-zinc-700 text-xs">{detailItem.status}</Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <p className="text-[11px] uppercase text-zinc-500">Municipio</p>
+                          <p className="text-foreground font-semibold">{detailItem.municipality ?? "Sin dato"}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[11px] uppercase text-zinc-500">Subido</p>
+                          <p className="text-foreground font-semibold">{dateFormatter.format(new Date(detailItem.uploadedAt))}</p>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase text-zinc-500">Subido por</p>
+                        <p className="text-foreground font-semibold">{detailItem.uploadedBy ?? "Sin dato"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase text-zinc-500">Descripcion</p>
+                        <p className="text-foreground leading-snug">{detailItem.description ?? "Sin descripcion"}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {detailItem.tags.map((tag) => (
+                          <Badge key={`${detailItem.id}-detail-${tag}`} variant="outline" className="bg-zinc-800/50 border-zinc-700 text-xs">
+                            {tag}
+                          </Badge>
+                        ))}
+                        {detailItem.tags.length === 0 && <p className="text-xs text-muted-foreground">Sin etiquetas</p>}
+                      </div>
+                    </div>
+
+                    {detailLoading && (
+                      <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-xs">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Cargando votos y fotos de la mesa...
+                      </div>
+                    )}
+
+                    {reportDetail && (
+                      <div className="space-y-3">
+                        <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Total votos</span>
+                            <span className="text-foreground font-semibold">{reportDetail.totalVotes}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Mesa</span>
+                            <span className="text-foreground font-semibold">{reportDetail.pollingStation ?? detailItem.pollingStation ?? "Sin dato"}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Municipio</span>
+                            <span className="text-foreground font-semibold">{reportDetail.municipality ?? detailItem.municipality ?? "Sin dato"}</span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <p className="text-xs uppercase tracking-wide text-zinc-500">Votos reportados</p>
+                          <div className="grid gap-2">
+                            {reportDetail.details.map((detail) => (
+                              <div key={detail.candidateId} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div>
+                                    <p className="font-semibold text-foreground leading-tight">{detail.fullName ?? "Candidato"}</p>
+                                    <p className="text-[11px] text-muted-foreground flex flex-wrap gap-1">
+                                      {detail.position ? <span>{detail.position}</span> : null}
+                                      {detail.party ? <span>• {detail.party}</span> : null}
+                                      {detail.ballotNumber ? <Badge className="bg-zinc-800 border-zinc-700">Tarjeton {detail.ballotNumber}</Badge> : null}
+                                    </p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-lg font-bold text-foreground">{detail.votes}</p>
+                                    <p className="text-[11px] text-muted-foreground">votos</p>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                            {reportDetail.details.length === 0 && (
+                              <p className="text-xs text-muted-foreground">Sin votos asociados al reporte.</p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <p className="text-xs uppercase tracking-wide text-zinc-500">Fotos de esta mesa</p>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {reportDetail.photos.map((photo) => (
+                              <div key={photo.id} className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/40">
+                                <img src={photo.url} alt={photo.title} className="h-32 w-full object-cover bg-black" />
+                                <div className="p-2 text-xs">
+                                  <p className="font-semibold text-foreground line-clamp-1">{photo.title}</p>
+                                  <p className="text-muted-foreground">{dateFormatter.format(new Date(photo.uploadedAt))}</p>
+                                </div>
+                              </div>
+                            ))}
+                            {reportDetail.photos.length === 0 && (
+                              <p className="text-xs text-muted-foreground">Sin fotos asociadas a esta mesa.</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2 pt-1">
+                      <Button variant="outline" className="bg-zinc-800/60 border-zinc-700" onClick={() => window.open(detailItem.url, "_blank")}>
+                        Descargar
+                      </Button>
+                      <Button variant="ghost" className="text-emerald-400" onClick={() => setDetailItem(null)}>Cerrar</Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
 
           {!loading && filteredItems.length === 0 && (
             <Card className="bg-zinc-900/70 border-zinc-800">
@@ -591,6 +1019,212 @@ export default function EvidenciaPage() {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function AssignedMesasPanel({ mesas, selectedMesaId, onPick }: { mesas: Mesa[]; selectedMesaId?: string; onPick: (id: string) => void }) {
+  const selectedMesa = mesas.find((m) => m.id === selectedMesaId)
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <MapPin className="h-4 w-4" /> Mesas asignadas
+        </div>
+        <Badge className="bg-zinc-800 border-zinc-700 text-xs">{mesas.length} mesas</Badge>
+      </div>
+
+      {mesas.length === 0 && <p className="text-sm text-muted-foreground">Sin mesas asignadas para este testigo.</p>}
+
+      <div className="grid gap-2">
+        {mesas.map((mesa) => {
+          const active = mesa.id === selectedMesaId
+          return (
+            <button
+              key={mesa.id}
+              onClick={() => onPick(mesa.id)}
+              className={`flex w-full flex-col rounded-xl border px-3 py-2 text-left transition ${active ? "border-cyan-500 bg-cyan-500/10" : "border-zinc-800 bg-zinc-900"}`}
+            >
+              <div className="flex items-center justify-between text-sm font-semibold">
+                <span>Mesa {mesa.label}</span>
+                <Badge className={active ? "bg-cyan-600" : "bg-zinc-800 border-zinc-700"}>{active ? "Actual" : "Elegir"}</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">{mesa.puesto || mesa.municipio || "Puesto por definir"}</p>
+            </button>
+          )
+        })}
+      </div>
+
+      {selectedMesa && (
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-sm">
+          <p className="font-semibold">Mesa {selectedMesa.label}</p>
+          <p className="text-muted-foreground">{selectedMesa.puesto || selectedMesa.municipio || "Sin informacion"}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CandidateVotesPanel({
+  cargos,
+  partidos,
+  candidatos,
+  selectedCargoId,
+  selectedPartidoId,
+  candidateVotes,
+  onCargoChange,
+  onPartidoChange,
+  onVoteChange,
+  onResetVotes,
+}: {
+  cargos: Cargo[]
+  partidos: Partido[]
+  candidatos: Candidato[]
+  selectedCargoId?: string
+  selectedPartidoId?: string
+  candidateVotes: Record<string, number>
+  onCargoChange: (id: string) => void
+  onPartidoChange: (id?: string) => void
+  onVoteChange: (candidateId: string, value: number) => void
+  onResetVotes: () => void
+}) {
+  const cargoById = useMemo(() => Object.fromEntries(cargos.map((c) => [c.id, c.nombre])), [cargos])
+  const partyById = useMemo(() => Object.fromEntries(partidos.map((p) => [p.id, p.nombre])), [partidos])
+
+  const filteredPartidos = partidos.filter((p) => !selectedCargoId || p.cargoId === selectedCargoId)
+  const filteredCandidatos = candidatos.filter((c) => (!selectedCargoId || c.cargoId === selectedCargoId) && (!selectedPartidoId || c.partidoId === selectedPartidoId))
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold">Votos por candidato</p>
+          <p className="text-xs text-muted-foreground">Escribe la cantidad manualmente, ej: 10 para Maria, 23 para Jose.</p>
+        </div>
+        <Button variant="ghost" size="sm" className="text-xs" onClick={onResetVotes}>
+          Limpiar votos
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {cargos.map((cargo) => (
+          <Button
+            key={cargo.id}
+            variant={cargo.id === selectedCargoId ? "default" : "outline"}
+            className={`${cargo.id === selectedCargoId ? "bg-cyan-600" : "bg-zinc-800/60 border-zinc-700"} rounded-full px-4 text-xs`}
+            onClick={() => onCargoChange(cargo.id)}
+          >
+            {cargo.nombre}
+          </Button>
+        ))}
+      </div>
+
+      {filteredPartidos.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <Badge className="bg-zinc-800 border-zinc-700 text-xs">Filtrar por partido</Badge>
+          {filteredPartidos.map((partido) => (
+            <Button
+              key={partido.id}
+              variant={partido.id === selectedPartidoId ? "default" : "outline"}
+              className={`${partido.id === selectedPartidoId ? "bg-emerald-600" : "bg-zinc-800/60 border-zinc-700"} rounded-full px-4 text-xs`}
+              onClick={() => onPartidoChange(partido.id)}
+            >
+              {partido.nombre}
+            </Button>
+          ))}
+          {selectedPartidoId && (
+            <Button variant="ghost" size="sm" className="text-xs" onClick={() => onPartidoChange(undefined)}>
+              Quitar filtro
+            </Button>
+          )}
+        </div>
+      )}
+
+      {filteredCandidatos.length === 0 && (
+        <CandidateCatalogHint candidatos={candidatos} cargoById={cargoById} partyById={partyById} />
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        {filteredCandidatos.map((candidato) => (
+          <div key={candidato.id} className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2">
+            <div>
+              <p className="font-semibold leading-tight">{candidato.full_name ?? candidato.nombre}</p>
+              <p className="text-xs text-muted-foreground flex flex-wrap gap-1">
+                <span>{partyById[candidato.partidoId] ?? candidato.party ?? "Sin partido"}</span>
+                {candidato.ballot_number ? <Badge className="bg-zinc-800 border-zinc-700">Tarjeton {candidato.ballot_number}</Badge> : null}
+              </p>
+            </div>
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              className="w-24 bg-zinc-900 border-zinc-800 text-right"
+              value={candidateVotes[candidato.id] ?? ""}
+              placeholder="0"
+              onChange={(e) => onVoteChange(candidato.id, Number(e.target.value))}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function PhotoStack({ photos, onAdd, onRemove }: { photos: PhotoSlot[]; onAdd: (files: FileList | null) => void; onRemove: (index: number) => void }) {
+  const remaining = Math.max(0, 5 - (photos?.length ?? 0))
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold">Fotos del E14</p>
+          <p className="text-xs text-muted-foreground">Minimo una foto obligatoria. Maximo 5 por envio.</p>
+        </div>
+        <Badge className="bg-zinc-800 border-zinc-700 text-xs">{photos.length}/5</Badge>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <label className={`flex h-32 cursor-pointer items-center justify-center rounded-xl border border-dashed ${remaining === 0 ? "border-zinc-800 bg-zinc-950 text-muted-foreground" : "border-cyan-600/60 bg-cyan-600/10 text-cyan-50"}`}>
+          <div className="flex flex-col items-center gap-1 text-sm font-semibold">
+            <Camera className="h-5 w-5" /> {remaining === 0 ? "Limite alcanzado" : "Tomar / subir foto"}
+            <span className="text-xs text-muted-foreground">{remaining} lugares libres</span>
+          </div>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            capture="environment"
+            className="hidden"
+            disabled={remaining === 0}
+            onClick={(e) => {
+              // Ensure the same photo can be selected again without needing a double pick
+              ;(e.currentTarget as HTMLInputElement).value = ""
+            }}
+            onChange={(e) => {
+              const files = e.target.files
+              onAdd(files)
+              e.target.value = ""
+            }}
+          />
+        </label>
+
+        {photos.map((slot, index) => (
+          <div key={`${slot.preview}-${index}`} className="relative h-32 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950">
+            <img src={slot.preview} alt="Foto subida" className="h-full w-full object-cover" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute right-2 top-2 h-7 w-7 bg-zinc-900/80"
+              onClick={() => onRemove(index)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-xs text-muted-foreground">Revisa que la foto sea legible. Si tomas varias, prioriza las que muestren firmas y totales.</p>
     </div>
   )
 }
@@ -758,7 +1392,7 @@ function ConfirmStep({ flow, onSubmit }: { flow: VoteFlowState; onSubmit: () => 
   )
 }
 
-function EvidenceCard({ item, onVerify }: { item: EvidenceItem; onVerify: () => void }) {
+function EvidenceCard({ item, onVerify, onView, dateFormatter }: { item: EvidenceItem; onVerify: () => void; onView: () => void; dateFormatter: Intl.DateTimeFormat }) {
   return (
     <Card className="bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 transition-colors">
       <CardContent className="p-4 space-y-3">
@@ -779,6 +1413,12 @@ function EvidenceCard({ item, onVerify }: { item: EvidenceItem; onVerify: () => 
 
         <p className="text-sm text-muted-foreground line-clamp-2">{item.description}</p>
 
+        <div className="flex flex-wrap gap-2">
+          {item.pollingStation && <Badge className="bg-zinc-800 border-zinc-700 text-xs">Mesa/Puesto: {item.pollingStation}</Badge>}
+          {item.municipality && <Badge className="bg-zinc-800 border-zinc-700 text-xs">{item.municipality}</Badge>}
+          {item.voteReportId && <Badge className="bg-emerald-600/30 border-emerald-700 text-emerald-100 text-xs">Con votos</Badge>}
+        </div>
+
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
           {item.pollingStation && (
             <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {item.pollingStation}</span>
@@ -787,7 +1427,7 @@ function EvidenceCard({ item, onVerify }: { item: EvidenceItem; onVerify: () => 
             <span className="flex items-center gap-1"><User className="h-3 w-3" /> {item.uploadedBy}</span>
           )}
           {item.uploadedAt && (
-            <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {new Date(item.uploadedAt).toLocaleString()}</span>
+            <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {dateFormatter.format(new Date(item.uploadedAt))}</span>
           )}
         </div>
 
@@ -804,7 +1444,7 @@ function EvidenceCard({ item, onVerify }: { item: EvidenceItem; onVerify: () => 
             variant="outline"
             size="sm"
             className="bg-zinc-800/60 border-zinc-700"
-            onClick={() => window.open(item.url, "_blank")}
+            onClick={onView}
           >
             <Eye className="h-4 w-4 mr-2" /> Ver
           </Button>
@@ -821,7 +1461,7 @@ function EvidenceCard({ item, onVerify }: { item: EvidenceItem; onVerify: () => 
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              onClick={() => window.open(item.url, "_blank")}
+              onClick={() => window.open(item.url || item.localPreview, "_blank")}
             >
               <Download className="h-4 w-4" />
             </Button>
@@ -872,7 +1512,7 @@ function QuickUpload({ onDone }: { onDone: () => void }) {
           .map((t) => t.trim())
           .filter(Boolean),
       }
-      const res = await fetch("/api/evidencias", {
+      const res = await fetch("/api/evidences", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

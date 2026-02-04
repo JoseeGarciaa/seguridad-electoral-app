@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser, DELEGATE_ROLE } from "@/lib/auth"
 import { pool } from "@/lib/pg"
 
-const fallbackData = { items: [] as Array<{ id: string; label: string; municipio?: string | null }> }
+const fallbackData = {
+  items: [
+    { id: "DEMO-ASSIGN-1", label: "PU-12 · Mesa 3", municipio: "Bogotá" },
+    { id: "DEMO-ASSIGN-2", label: "PU-12 · Mesa 4", municipio: "Bogotá" },
+  ] as Array<{ id: string; label: string; municipio?: string | null }>,
+}
 
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser()
@@ -10,11 +15,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const isDelegate = user.role === DELEGATE_ROLE
-  const delegateId = isDelegate ? user.delegateId : null
-  if (!isDelegate) {
-    return NextResponse.json({ error: "Solo testigos electorales pueden ver mesas asignadas" }, { status: 403 })
-  }
+  const delegateId = user.delegateId
+  // Allow any session that has a delegateId (some environments store role as "witness")
   if (!delegateId) {
     return NextResponse.json({ error: "Perfil de testigo electoral incompleto" }, { status: 403 })
   }

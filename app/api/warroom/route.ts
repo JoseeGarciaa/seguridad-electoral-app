@@ -2,39 +2,72 @@ import { NextResponse } from "next/server"
 import { pool } from "@/lib/pg"
 import { getCurrentUser } from "@/lib/auth"
 
-const fallbackData = {
-  stats: {
-    reports: 12,
-    activeDelegates: 4,
-    totalLocations: 20,
-    reportedLocations: 8,
-    coverage: 40,
+function buildDemoWarRoom() {
+  const now = Date.now()
+  const rand = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min
+
+  const stats = {
+    reports: rand(12, 120),
+    activeDelegates: rand(8, 42),
+    totalLocations: rand(40, 80),
+    reportedLocations: rand(12, 60),
+    coverage: rand(35, 85),
     lastUpdated: new Date().toISOString(),
-  },
-  candidates: [
-    { id: "C1", name: "Candidato A", party: "P1", votes: 1200, percentage: 55, color: "#0ea5e9" },
-    { id: "C2", name: "Candidato B", party: "P2", votes: 950, percentage: 45, color: "#f97316" },
-  ],
-  feed: [
-    { id: "F1", user: "Delegado", action: "Acta subida", location: "Puesto 12 · Centro", reportedAt: new Date().toISOString(), type: "evidence" as const },
-  ],
-  alerts: [
-    { id: "WR-AL-1", severity: "warning" as const, title: "Cobertura baja", message: "Zona norte al 40%", time: new Date().toISOString() },
-  ],
-  municipalities: [
-    { name: "Bogotá", coverage: 60, reported: 6, total: 10, status: "yellow" as const },
-  ],
-  evidences: [
-    {
-      id: "EV-1",
-      puesto: "Puesto 12",
-      mesa: "Mesa 1",
-      user: "Delegado",
-      time: new Date().toISOString(),
-      status: "verified" as const,
-      photoUrl: null,
-    },
-  ],
+  }
+
+  const candidateNames = [
+    { id: "C1", name: "Alianza Ciudadana", party: "AC", color: "#0ea5e9" },
+    { id: "C2", name: "Fuerza Popular", party: "FP", color: "#f97316" },
+    { id: "C3", name: "Renovación", party: "RN", color: "#22c55e" },
+  ]
+  const votesBase = rand(1200, 3200)
+  const candidates = candidateNames.map((c, idx) => {
+    const votes = votesBase - idx * rand(120, 240)
+    return {
+      id: c.id,
+      name: c.name,
+      party: c.party,
+      votes,
+      percentage: Math.max(10, Math.min(90, Math.round((votes / (votesBase * candidateNames.length)) * 100))),
+      color: c.color,
+    }
+  })
+
+  const feed = Array.from({ length: 6 }).map((_, i) => ({
+    id: `F-${i}`,
+    user: i % 2 === 0 ? "Coordinador" : "Delegado",
+    action: i % 3 === 0 ? "Acta subida" : i % 3 === 1 ? "Llegó al puesto" : "Foto de mesa",
+    location: `Puesto ${rand(1, 50)} · Zona ${rand(1, 9)}`,
+    reportedAt: new Date(now - rand(1, 30) * 60 * 1000).toISOString(),
+    type: (i % 3 === 0 ? "evidence" : i % 3 === 1 ? "checkin" : "verification") as const,
+  }))
+
+  const alerts = [
+    { id: "AL-1", severity: "critical" as const, title: "Cobertura critica", message: "Timaná con 12% de cobertura (6/50)", time: new Date(now - 8 * 60 * 1000).toISOString() },
+    { id: "AL-2", severity: "warning" as const, title: "Faltan fotos", message: "14 reportes sin evidencia", time: new Date(now - 15 * 60 * 1000).toISOString() },
+    { id: "AL-3", severity: "info" as const, title: "Nuevas actas", message: "7 actas pendientes de verificación", time: new Date(now - 4 * 60 * 1000).toISOString() },
+  ]
+
+  const muniNames = ["Timaná", "Sibaté", "Tota", "La Salina", "Dabeiba", "Ayapel", "Ventaquemada", "Alban"]
+  const municipalities = muniNames.map((name, idx) => {
+    const total = rand(10, 80)
+    const reported = rand(0, Math.floor(total * 0.7))
+    const coverage = total === 0 ? 0 : Math.round((reported / total) * 100)
+    const status: "green" | "yellow" | "red" = coverage >= 85 ? "green" : coverage >= 50 ? "yellow" : "red"
+    return { name, coverage, reported, total, status }
+  })
+
+  const evidences = Array.from({ length: 9 }).map((_, i) => ({
+    id: `EV-${i}`,
+    puesto: `Puesto ${rand(1, 60)}`,
+    mesa: `Mesa ${rand(1, 20)}`,
+    user: i % 2 === 0 ? "Laura R." : "Carlos M.",
+    time: new Date(now - rand(2, 40) * 60 * 1000).toISOString(),
+    status: (i % 3 === 0 ? "verified" : i % 3 === 1 ? "pending" : "issue") as const,
+    photoUrl: null,
+  }))
+
+  return { stats, candidates, feed, alerts, municipalities, evidences }
 }
 
 export async function GET() {
@@ -44,8 +77,8 @@ export async function GET() {
   }
 
   if (!pool) {
-    console.warn("DATABASE_URL not set; serving warroom fallback data")
-    return NextResponse.json(fallbackData)
+    console.warn("DATABASE_URL not set; serving warroom demo data")
+    return NextResponse.json(buildDemoWarRoom())
   }
 
   const delegateId = user.role === "delegate" ? user.delegateId : null
@@ -299,6 +332,18 @@ export async function GET() {
 
     const alerts = [...lowCoverageAlerts, ...warningCoverageAlerts, ...photoAlerts].slice(0, 10)
 
+    const shouldServeDemo =
+      Number(statsPayload.reports ?? 0) === 0 ||
+      Number(statsPayload.coverage ?? 0) === 0 ||
+      candidates.length === 0 ||
+      feed.length === 0 ||
+      municipalities.length === 0 ||
+      evidences.length === 0
+
+    if (shouldServeDemo) {
+      return NextResponse.json(buildDemoWarRoom())
+    }
+
     return NextResponse.json({
       stats: statsPayload,
       candidates,
@@ -309,7 +354,7 @@ export async function GET() {
     })
   } catch (error) {
     console.error("WarRoom API error", error)
-    return NextResponse.json({ ...fallbackData, warning: "DB no disponible, usando datos de respaldo" })
+    return NextResponse.json({ ...buildDemoWarRoom(), warning: "DB no disponible, usando datos de respaldo" })
   } finally {
     client.release()
   }

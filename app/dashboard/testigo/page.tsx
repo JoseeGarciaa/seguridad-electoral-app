@@ -7,71 +7,46 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { toast } from "@/components/ui/use-toast"
 import {
+  AlertTriangle,
   Camera,
   CheckCircle2,
   ChevronRight,
   CircleCheck,
   FileImage,
   Loader2,
+  MapPin,
   Minus,
   Plus,
   ShieldCheck,
   Smartphone,
+  Table,
 } from "lucide-react"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 type Step = "home" | "votos" | "foto" | "confirm" | "done"
 
-interface Candidate {
+type Candidate = {
   id: string
-  name: string
+  fullName: string
+  ballotNumber: number | null
+  position: string | null
+  party: string | null
+  color: string | null
+  region: string | null
 }
 
 interface Mesa {
   id: string
   label: string
-  puesto: string
-  totalVoters: number
-  candidates: Candidate[]
+  municipality?: string | null
+  totalVoters?: number | null
 }
-
-const assignedMesas: Mesa[] = [
-  {
-    id: "mesa-023",
-    label: "Mesa 023",
-    puesto: "Colegio Distrital Las Flores",
-    totalVoters: 320,
-    candidates: [
-      { id: "cand-1", name: "Alcaldía - Equipo Unido" },
-      { id: "cand-2", name: "Concejo - Lista 1" },
-      { id: "cand-3", name: "Concejo - Lista 2" },
-      { id: "cand-4", name: "Gobernación - Aliado" },
-    ],
-  },
-  {
-    id: "mesa-024",
-    label: "Mesa 024",
-    puesto: "Colegio Distrital Las Flores",
-    totalVoters: 305,
-    candidates: [
-      { id: "cand-1", name: "Alcaldía - Equipo Unido" },
-      { id: "cand-2", name: "Concejo - Lista 1" },
-      { id: "cand-3", name: "Concejo - Lista 2" },
-      { id: "cand-4", name: "Gobernación - Aliado" },
-    ],
-  },
-  {
-    id: "mesa-045",
-    label: "Mesa 045",
-    puesto: "IED Barrio Abajo",
-    totalVoters: 298,
-    candidates: [
-      { id: "cand-1", name: "Alcaldía - Equipo Unido" },
-      { id: "cand-2", name: "Concejo - Lista 1" },
-      { id: "cand-3", name: "Concejo - Lista 2" },
-      { id: "cand-4", name: "Gobernación - Aliado" },
-    ],
-  },
-]
 
 const vibrate = (pattern: number | number[]) => {
   if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
@@ -89,8 +64,12 @@ interface CompletedMesa {
 }
 
 export default function TestigoElectoralPage() {
+  const [mesas, setMesas] = useState<Mesa[]>([])
+  const [candidates, setCandidates] = useState<Candidate[]>([])
   const [mesaIndex, setMesaIndex] = useState(0)
-  const [step, setStep] = useState<Step>("votos")
+  const [step, setStep] = useState<Step>("home")
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [savingState, setSavingState] = useState<"idle" | "saving" | "saved">("idle")
   const [focusedCandidate, setFocusedCandidate] = useState<string | null>(null)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
@@ -98,13 +77,123 @@ export default function TestigoElectoralPage() {
   const [draftVotes, setDraftVotes] = useState<Record<string, number>>({})
   const [note, setNote] = useState("")
   const [completedMesas, setCompletedMesas] = useState<CompletedMesa[]>([])
+  const [reportsMap, setReportsMap] = useState<Record<string, { id: string; total: number }>>({})
   const keypadRef = useRef<HTMLDivElement | null>(null)
 
-  const currentMesa = assignedMesas[mesaIndex]
-  const mesasTotal = assignedMesas.length
-  const mesaProgress = mesaIndex + 1
+  const currentMesa = mesas[mesaIndex]
+  const mesasTotal = mesas.length
+  const mesaProgress = mesasTotal ? mesaIndex + 1 : 0
 
   useEffect(() => {
+    let cancelled = false
+
+    const loadData = async () => {
+      setLoading(true)
+      setError(null)
+
+      try {
+        const [mesasRes, catalogosRes] = await Promise.all([
+          fetch("/api/mesas-asignadas"),
+          fetch("/api/catalogos"),
+        ])
+
+        if (!mesasRes.ok) {
+          throw new Error("No pudimos cargar tus mesas asignadas")
+        }
+        if (!catalogosRes.ok) {
+          throw new Error("No pudimos cargar la lista de candidatos")
+        }
+
+        const mesasJson = await mesasRes.json().catch(() => ({ items: [] }))
+        const catalogosJson = await catalogosRes.json().catch(() => ({ candidatos: [] }))
+
+        if (cancelled) return
+
+        const mappedMesas: Mesa[] = Array.isArray(mesasJson.items)
+          ? mesasJson.items.map((item: any) => ({
+              id: String(item.id),
+              label: item.label ?? "Mesa asignada",
+              municipality: item.municipio ?? item.municipality ?? null,
+              totalVoters: item.total_voters ?? null,
+            }))
+          : []
+
+        const mappedCandidates: Candidate[] = Array.isArray(catalogosJson.candidatos)
+          ? catalogosJson.candidatos.map((c: any) => ({
+              id: String(c.id),
+              fullName: c.full_name ?? c.nombre ?? "Candidato",
+              ballotNumber: typeof c.ballot_number === "number" ? c.ballot_number : null,
+              position: c.position ?? c.cargo ?? null,
+              party: c.party ?? c.partido ?? null,
+              color: c.color ?? null,
+              region: c.region ?? null,
+            }))
+          : []
+
+        setMesas(mappedMesas)
+        setCandidates(mappedCandidates)
+        setMesaIndex(0)
+        setStep("home")
+        setFocusedCandidate(mappedCandidates[0]?.id ?? null)
+        // Reset completados mientras llega el estado real
+        setCompletedMesas([])
+        setReportsMap({})
+      } catch (err: any) {
+        if (cancelled) return
+        const message = err?.message ?? "Error al cargar datos"
+        setError(message)
+        toast({ title: "Error", description: message })
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    }
+
+    loadData()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const fetchReports = async () => {
+      if (mesas.length === 0) return
+      try {
+        const res = await fetch("/api/my/vote-report")
+        if (!res.ok) throw new Error("No pudimos cargar tus reportes enviados")
+        const json = await res.json()
+        if (cancelled) return
+        const map: Record<string, { id: string; total: number }> = {}
+        if (Array.isArray(json.items)) {
+          json.items.forEach((item: any) => {
+            map[String(item.delegate_assignment_id)] = {
+              id: String(item.id),
+              total: Number(item.total_votes) || 0,
+            }
+          })
+        }
+        setReportsMap(map)
+        const completed = mesas
+          .filter((m) => map[m.id])
+          .map((m) => ({ id: m.id, label: m.label, totalVotos: map[m.id].total, note: "" }))
+        setCompletedMesas(completed)
+      } catch (err: any) {
+        if (cancelled) return
+        setError(err?.message ?? "Error cargando reportes")
+      }
+    }
+
+    fetchReports()
+    return () => {
+      cancelled = true
+    }
+  }, [mesas])
+
+  useEffect(() => {
+    if (!currentMesa || candidates.length === 0) return
+
     const stored = localStorage.getItem(localKey(currentMesa.id))
     if (stored) {
       const parsed = JSON.parse(stored)
@@ -113,7 +202,7 @@ export default function TestigoElectoralPage() {
       setNote(parsed.note || "")
     } else {
       const zeros: Record<string, number> = {}
-      currentMesa.candidates.forEach((c) => {
+      candidates.forEach((c) => {
         zeros[c.id] = 0
       })
       setDraftVotes(zeros)
@@ -121,24 +210,25 @@ export default function TestigoElectoralPage() {
       setNote("")
     }
     setPhotoFile(null)
-    setStep("votos")
-    setFocusedCandidate(currentMesa.candidates[0]?.id || null)
-  }, [mesaIndex, currentMesa.id, currentMesa.candidates])
+    setFocusedCandidate(candidates[0]?.id || null)
+  }, [mesaIndex, currentMesa?.id, candidates])
 
   useEffect(() => {
+    if (!currentMesa) return
     localStorage.setItem(localKey(currentMesa.id), JSON.stringify({
       votes: draftVotes,
       photoPreview,
       note,
     }))
-  }, [draftVotes, photoPreview, note, currentMesa.id])
+  }, [draftVotes, photoPreview, note, currentMesa?.id])
 
   const totalVotos = useMemo(
     () => Object.values(draftVotes).reduce((acc, n) => acc + (isNaN(n) ? 0 : n), 0),
     [draftVotes]
   )
 
-  const warningOver = totalVotos > currentMesa.totalVoters
+  const mesaCapacity = currentMesa?.totalVoters ?? null
+  const warningOver = mesaCapacity !== null && totalVotos > mesaCapacity
 
   const handleKeypad = (value: string) => {
     if (!focusedCandidate) return
@@ -198,16 +288,44 @@ export default function TestigoElectoralPage() {
   }
 
   const handleConfirm = async () => {
+    if (!currentMesa) return
     setSavingState("saving")
     vibrate(20)
-    await new Promise((res) => setTimeout(res, 500))
-    setSavingState("saved")
-    toast({ title: "Mesa guardada correctamente", description: currentMesa.label })
-    setCompletedMesas((prev) => {
-      const filtered = prev.filter((m) => m.id !== currentMesa.id)
-      return [...filtered, { id: currentMesa.id, label: currentMesa.label, totalVotos, note }]
-    })
-    setStep("done")
+    try {
+      const payload = {
+        delegate_assignment_id: currentMesa.id,
+        divipole_location_id: null,
+        notes: note || null,
+        details: candidates.map((c) => ({ candidate_id: c.id, votes: draftVotes[c.id] ?? 0 })),
+      }
+
+      const res = await fetch("/api/my/vote-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+
+      if (!res.ok) {
+        const json = await res.json().catch(() => null)
+        const message = json?.error ?? "No se pudo guardar la mesa"
+        throw new Error(message)
+      }
+
+      const json = await res.json()
+      const reportId = json.report_id as string | null
+      setSavingState("saved")
+      toast({ title: "Mesa guardada correctamente", description: currentMesa.label })
+      setReportsMap((prev) => ({ ...prev, [currentMesa.id]: { id: reportId ?? currentMesa.id, total: totalVotos } }))
+      setCompletedMesas((prev) => {
+        const filtered = prev.filter((m) => m.id !== currentMesa.id)
+        return [...filtered, { id: currentMesa.id, label: currentMesa.label, totalVotos, note }]
+      })
+      setStep("done")
+    } catch (err: any) {
+      const message = err?.message ?? "Error al guardar"
+      setSavingState("idle")
+      toast({ title: "Error", description: message })
+    }
   }
 
   const goNextMesa = () => {
@@ -221,9 +339,10 @@ export default function TestigoElectoralPage() {
   }
 
   const cancelCurrentMesa = () => {
+    if (!currentMesa) return
     vibrate([10, 20])
     const zeros: Record<string, number> = {}
-    currentMesa.candidates.forEach((c) => {
+    candidates.forEach((c) => {
       zeros[c.id] = 0
     })
     setDraftVotes(zeros)
@@ -237,7 +356,7 @@ export default function TestigoElectoralPage() {
   }
 
   const editMesa = (mesaId: string) => {
-    const index = assignedMesas.findIndex((m) => m.id === mesaId)
+    const index = mesas.findIndex((m) => m.id === mesaId)
     if (index >= 0) {
       setMesaIndex(index)
       setStep("votos")
@@ -246,9 +365,9 @@ export default function TestigoElectoralPage() {
 
   const nextPendingMesaIndex = useMemo(() => {
     const completedIds = new Set(completedMesas.map((m) => m.id))
-    const idx = assignedMesas.findIndex((m) => !completedIds.has(m.id))
+    const idx = mesas.findIndex((m) => !completedIds.has(m.id))
     return idx === -1 ? 0 : idx
-  }, [completedMesas])
+  }, [completedMesas, mesas])
 
   const openMesa = (index: number) => {
     setMesaIndex(index)
@@ -259,42 +378,110 @@ export default function TestigoElectoralPage() {
 
   const statusLabel = step === "done" ? "Confirmado" : savingState === "saving" ? "Enviando" : "Guardado"
   const statusColor = step === "done" ? "text-emerald-400" : savingState === "saving" ? "text-amber-300" : "text-muted-foreground"
+  const completedCount = completedMesas.length
+  const pendingCount = Math.max(mesasTotal - completedCount, 0)
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-background to-black/40 text-foreground flex items-center justify-center px-4">
+        <Card className="max-w-md w-full border-border/60">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Cargando tu puesto y candidatos
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Preparando tu vista personal de testigo electoral.
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (!currentMesa) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-background to-black/40 text-foreground flex items-center justify-center px-4">
+        <Card className="max-w-md w-full border-border/60 text-center space-y-3">
+          <CardHeader>
+            <CardTitle className="text-lg">No tienes mesas asignadas</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">Revisa con tu líder para asignarte un puesto. Aquí solo verás tus propias mesas.</p>
+            <Button onClick={() => window.location.reload()} className="w-full">Reintentar</Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-black/40 text-foreground">
       {/* Sticky header */}
       <div className="sticky top-0 z-30 border-b border-border/60 bg-background/95 backdrop-blur">
-        <div className="px-4 py-3 flex items-center justify-between gap-3">
+        <div className="px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-col gap-1">
-            <p className="text-xs text-muted-foreground">{currentMesa.puesto}</p>
-            <div className="flex items-center gap-2">
+            <p className="text-xs text-muted-foreground flex items-center gap-1">
+              <MapPin className="h-3.5 w-3.5" />
+              Puesto asignado
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
               <Badge variant="secondary" className="text-sm px-3 py-1">{currentMesa.label}</Badge>
-              <span className="text-xs text-muted-foreground">Mesa {mesaProgress} de {mesasTotal} asignadas</span>
+              {currentMesa.municipality && (
+                <Badge variant="outline" className="text-xs px-2 py-1">{currentMesa.municipality}</Badge>
+              )}
+              <span className="text-xs text-muted-foreground">Mesa {mesaProgress} de {mesasTotal}</span>
             </div>
-            <div className="flex items-center gap-2 text-xs">
+            <div className="flex items-center gap-2 text-xs flex-wrap">
               <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" />
               <span className="font-medium">{statusLabel}</span>
               <span className={statusColor}>{step === "done" ? "✔️ E14 cargado" : photoPreview ? "E14 listo" : "E14 pendiente"}</span>
+              <span className="text-muted-foreground">Solo ves tus mesas asignadas</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-6 w-6 text-emerald-400" />
-            <Badge variant="outline" className="text-xs">Modo Testigo</Badge>
+            <Badge variant="outline" className="text-xs">Perfil Testigo</Badge>
           </div>
         </div>
       </div>
 
       <div className="px-4 pb-8 space-y-4 max-w-2xl mx-auto">
+        <Card className="bg-card/80 border-border/60 shadow-md">
+          <CardContent className="py-4">
+            <div className="grid grid-cols-2 gap-4 text-center">
+              <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                <p className="text-xs text-muted-foreground">Mesas subidas</p>
+                <p className="text-2xl font-bold text-emerald-400">{completedCount}/{mesasTotal}</p>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-muted/10 p-3">
+                <p className="text-xs text-muted-foreground">Faltantes</p>
+                <p className="text-2xl font-bold text-amber-300">{pendingCount}</p>
+              </div>
+            </div>
+            <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+              <Table className="h-4 w-4" />
+              Selecciona la mesa, escoge el candidato y reporta los votos del E14.
+            </div>
+          </CardContent>
+        </Card>
+
+        {error && (
+          <div className="rounded-xl border border-border/60 bg-destructive/10 text-destructive px-3 py-2 text-sm">
+            {error}
+          </div>
+        )}
+
         {/* Resumen inicial */}
         {step === "home" && (
           <Card className="bg-card border-border/60 shadow-lg">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg">Mesas asignadas</CardTitle>
-              <p className="text-sm text-muted-foreground">Reanuda o abre la siguiente mesa pendiente.</p>
+              <p className="text-sm text-muted-foreground">Solo ves tu propio puesto y mesas. Retoma la pendiente o abre una nueva.</p>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2">
-                {assignedMesas.map((m, idx) => {
+                {mesas.map((m, idx) => {
                   const completed = completedMesas.find((c) => c.id === m.id)
                   const isPending = !completed
                   const statusLabel = completed ? "Completada" : "Pendiente"
@@ -303,7 +490,7 @@ export default function TestigoElectoralPage() {
                     <div key={m.id} className="rounded-lg border border-border/60 bg-muted/20 p-3 flex items-center justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold truncate">{m.label}</p>
-                        <p className="text-xs text-muted-foreground truncate">{m.puesto}</p>
+                        <p className="text-xs text-muted-foreground truncate">{m.municipality ?? "Puesto asignado"}</p>
                         <p className={`text-xs ${statusTone}`}>{statusLabel}</p>
                       </div>
                       <Button size="sm" className="min-w-[120px]" onClick={() => openMesa(idx)}>
@@ -318,7 +505,7 @@ export default function TestigoElectoralPage() {
                 className="w-full h-12 text-lg bg-emerald-600 hover:bg-emerald-700"
                 onClick={() => openMesa(nextPendingMesaIndex)}
               >
-                Reanudar {assignedMesas[nextPendingMesaIndex]?.label}
+                Reanudar {mesas[nextPendingMesaIndex]?.label}
               </Button>
             </CardContent>
           </Card>
@@ -335,7 +522,31 @@ export default function TestigoElectoralPage() {
               <p className="text-sm text-muted-foreground">Registra rápido. Sin scroll, un valor por candidato.</p>
             </CardHeader>
             <CardContent className="space-y-3">
-              {currentMesa.candidates.map((candidate) => {
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Selecciona la mesa que vas a reportar</p>
+                <Select value={currentMesa.id} onValueChange={(value) => {
+                  const idx = mesas.findIndex((m) => m.id === value)
+                  if (idx >= 0) {
+                    setMesaIndex(idx)
+                    setStep("votos")
+                  }
+                }}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Mesa asignada" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {mesas.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="rounded-xl border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-300" />
+                  Solo puedes ver y reportar tus mesas asignadas.
+                </div>
+              </div>
+
+              {candidates.map((candidate) => {
                 const value = draftVotes[candidate.id] ?? 0
                 const isFocused = focusedCandidate === candidate.id
                 return (
@@ -345,8 +556,14 @@ export default function TestigoElectoralPage() {
                     onClick={() => setFocusedCandidate(candidate.id)}
                   >
                     <div className="flex-1">
-                      <p className="text-sm font-semibold leading-tight">{candidate.name}</p>
-                      <p className="text-[11px] text-muted-foreground">Toque para enfocar y usar keypad</p>
+                      <div className="flex items-center gap-2">
+                        {candidate.color && <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: candidate.color }} />}
+                        <p className="text-sm font-semibold leading-tight truncate">{candidate.fullName}</p>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        {candidate.position ? `${candidate.position} · ` : ""}{candidate.party ?? "Independiente"}
+                        {candidate.ballotNumber !== null ? ` · Tarjetón ${candidate.ballotNumber}` : ""}
+                      </p>
                     </div>
                     <div className="flex items-center gap-2">
                       <Button size="icon" variant="outline" className="h-12 w-12" onClick={() => decrement(candidate.id)} aria-label="Restar">
@@ -364,13 +581,19 @@ export default function TestigoElectoralPage() {
                 )
               })}
 
+              {candidates.length === 0 && (
+                <div className="rounded-xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+                  No hay candidatos cargados desde el sistema. Consulta con soporte.
+                </div>
+              )}
+
               <div className="rounded-2xl border border-border/60 bg-background/70 p-3 flex items-center justify-between">
                 <div>
                   <p className="text-sm font-semibold">Total reportado</p>
                   <p className={`text-xl font-bold ${warningOver ? "text-amber-300" : "text-emerald-300"}`}>{totalVotos} votos</p>
-                  <p className="text-xs text-muted-foreground">Capacidad mesa: {currentMesa.totalVoters}</p>
+                  <p className="text-xs text-muted-foreground">Capacidad mesa: {mesaCapacity ?? "No disponible"}</p>
                 </div>
-                {warningOver && <span className="text-xs text-amber-300">Supera total de votantes</span>}
+                {warningOver && mesaCapacity !== null && <span className="text-xs text-amber-300">Supera total de votantes</span>}
               </div>
 
               <div className="rounded-2xl border border-border/60 bg-muted/40 p-3">
@@ -491,9 +714,9 @@ export default function TestigoElectoralPage() {
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  {currentMesa.candidates.map((c) => (
+                  {candidates.map((c) => (
                     <div key={c.id} className="flex items-center justify-between bg-background/60 rounded-lg px-3 py-2">
-                      <span className="truncate mr-2">{c.name}</span>
+                      <span className="truncate mr-2">{c.fullName}</span>
                       <span className="font-semibold">{draftVotes[c.id] ?? 0}</span>
                     </div>
                   ))}
@@ -536,7 +759,7 @@ export default function TestigoElectoralPage() {
                 onClick={goNextMesa}
                 disabled={mesaIndex >= mesasTotal - 1}
               >
-                Ir a {mesaIndex < mesasTotal - 1 ? assignedMesas[mesaIndex + 1].label : "fin"}
+                Ir a {mesaIndex < mesasTotal - 1 ? mesas[mesaIndex + 1].label : "fin"}
               </Button>
               {mesaIndex >= mesasTotal - 1 && (
                 <p className="text-sm text-muted-foreground">No hay más mesas asignadas.</p>

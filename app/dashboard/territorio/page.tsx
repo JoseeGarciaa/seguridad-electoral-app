@@ -29,9 +29,10 @@ type Feature = {
 export default function TerritorioPage() {
   const [viewMode, setViewMode] = useState<"circle" | "heatmap" | "3d">("circle")
   const [search, setSearch] = useState("")
-  const [department, setDepartment] = useState("all")
-  const [municipality, setMunicipality] = useState("all")
   const [features, setFeatures] = useState<Feature[]>([])
+  const [totals, setTotals] = useState<{ total_puestos: number; total_mesas: number; with_coords: number }>(
+    { total_puestos: 0, total_mesas: 0, with_coords: 0 }
+  )
   const [loading, setLoading] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectionVersion, setSelectionVersion] = useState(0)
@@ -41,17 +42,20 @@ export default function TerritorioPage() {
     const fetchData = async () => {
       setLoading(true)
       try {
-        const params = new URLSearchParams()
-        params.set("limit", "2000")
-        if (department !== "all") params.set("dept", department)
-        if (municipality !== "all") params.set("muni", municipality)
-        if (search) params.set("search", search)
-        const res = await fetch(`/api/divipole?${params.toString()}`, {
+        const res = await fetch(`/api/my/territory`, {
           signal: controller.signal,
         })
         if (!res.ok) return
-        const data = (await res.json()) as { features?: Feature[] }
+        const data = (await res.json()) as {
+          features?: Feature[]
+          totals?: { total_puestos?: number; total_mesas?: number; with_coords?: number }
+        }
         setFeatures(Array.isArray(data.features) ? data.features : [])
+        setTotals({
+          total_puestos: Number(data.totals?.total_puestos ?? 0),
+          total_mesas: Number(data.totals?.total_mesas ?? 0),
+          with_coords: Number(data.totals?.with_coords ?? 0),
+        })
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           console.error("Error loading divipole data", error)
@@ -63,7 +67,7 @@ export default function TerritorioPage() {
 
     fetchData()
     return () => controller.abort()
-  }, [department, municipality, search])
+  }, [])
 
   useEffect(() => {
     if (selectedId && !features.some((f) => f.properties.id === selectedId)) {
@@ -76,28 +80,12 @@ export default function TerritorioPage() {
     setSelectionVersion((v) => v + 1)
   }
 
-  const handleAssign = (id: string) => {
-    setFeatures((prev) =>
-      prev.map((f) =>
-        f.properties.id === id
-          ? { ...f, properties: { ...f.properties, delegateAssigned: true } }
-          : f
-      )
-    )
-    handleSelect(id)
-  }
-
   const stats = useMemo(() => {
-    const total = features.length
-    const withCoords = features.filter((f) =>
-      Array.isArray(f.geometry.coordinates) &&
-      f.geometry.coordinates.length === 2 &&
-      f.geometry.coordinates.every((v) => typeof v === "number" && Number.isFinite(v))
-    ).length
-    const assigned = features.filter((f) => f.properties.delegateAssigned).length
-    const coveragePct = total > 0 ? (assigned / total) * 100 : 0
-    return { total, withCoords, assigned, coveragePct }
-  }, [features])
+    const mesas = totals.total_mesas
+    const puestos = Array.from(new Set(features.map((f) => f.properties.puesto).filter(Boolean)))
+    const puestoLabel = puestos.length === 0 ? "Sin puesto asignado" : puestos.length === 1 ? puestos[0] : `${puestos[0]} +${puestos.length - 1} más`
+    return { mesas, puestoLabel }
+  }, [features, totals])
 
   return (
     <div className="space-y-4 pb-20 lg:pb-6">
@@ -105,22 +93,13 @@ export default function TerritorioPage() {
       {loading ? (
         <div className="h-20 animate-pulse bg-secondary/50 rounded-xl" />
       ) : (
-        <TerritoryStats
-          total={stats.total}
-          withCoords={stats.withCoords}
-          assigned={stats.assigned}
-          coveragePct={stats.coveragePct}
-        />
+        <TerritoryStats puestoLabel={stats.puestoLabel} mesas={stats.mesas} />
       )}
 
       {/* Filters */}
       <TerritoryFilters
         search={search}
         onSearchChange={setSearch}
-        department={department}
-        onDepartmentChange={setDepartment}
-        municipality={municipality}
-        onMunicipalityChange={setMunicipality}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
       />
@@ -154,7 +133,6 @@ export default function TerritorioPage() {
               onSearchChange={setSearch}
               selectedId={selectedId}
               onSelect={handleSelect}
-              onAssign={handleAssign}
             />
           )}
         </div>
