@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -101,9 +101,64 @@ const reportTypes = [
   },
 ];
 
+type VoteDetail = {
+  candidateId: string
+  fullName: string | null
+  party: string | null
+  position: string | null
+  ballotNumber: number | null
+  color: string | null
+  votes: number
+}
+
+type VoteReportItem = {
+  id: string
+  pollingStation: string | null
+  department: string | null
+  municipality: string | null
+  address: string | null
+  totalVotes: number
+  reportedAt: string | null
+  notes: string | null
+  details: VoteDetail[]
+}
+
 export default function ReportesPage() {
   const [dateRange, setDateRange] = useState("today");
   const [municipalityFilter, setMunicipalityFilter] = useState("all");
+  const [voteReports, setVoteReports] = useState<VoteReportItem[]>([])
+  const [loadingVotes, setLoadingVotes] = useState(false)
+  const [votesError, setVotesError] = useState<string | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const loadVotes = async () => {
+      setLoadingVotes(true)
+      setVotesError(null)
+      try {
+        const res = await fetch("/api/vote-reports", { cache: "no-store" })
+        if (!res.ok) throw new Error("No se pudieron cargar los votos")
+        const json = await res.json()
+        if (cancelled) return
+        setVoteReports(Array.isArray(json.items) ? json.items : [])
+      } catch (err: any) {
+        if (cancelled) return
+        setVotesError(err?.message ?? "No se pudieron cargar los votos")
+      } finally {
+        if (!cancelled) setLoadingVotes(false)
+      }
+    }
+    loadVotes()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const filteredVotes = useMemo(() => {
+    if (municipalityFilter === "all") return voteReports
+    return voteReports.filter((r) => (r.municipality ?? "").toLowerCase().includes(municipalityFilter))
+  }, [municipalityFilter, voteReports])
 
   const notify = (action: string) =>
     toast({
@@ -216,6 +271,70 @@ export default function ReportesPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Votos por mesa */}
+      <Card className="bg-zinc-900/50 border-zinc-800">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileText className="h-4 w-4" /> Votos por mesa
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {loadingVotes && (
+            <p className="text-sm text-muted-foreground">Cargando votos...</p>
+          )}
+          {!loadingVotes && votesError && (
+            <p className="text-sm text-destructive">{votesError}</p>
+          )}
+          {!loadingVotes && !votesError && filteredVotes.length === 0 && (
+            <p className="text-sm text-muted-foreground">No hay reportes de votos.</p>
+          )}
+          {!loadingVotes && !votesError && filteredVotes.map((report) => (
+            <div key={report.id} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {report.pollingStation ?? "Mesa"} · {report.municipality ?? "Sin municipio"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Total: {report.totalVotes} votos
+                    {report.reportedAt ? ` · ${new Date(report.reportedAt).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" })}` : ""}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-zinc-800/60 border-zinc-700"
+                  onClick={() => setExpandedId(expandedId === report.id ? null : report.id)}
+                >
+                  {expandedId === report.id ? "Ocultar detalle" : "Ver detalle"}
+                </Button>
+              </div>
+
+              {expandedId === report.id && (
+                <div className="mt-3 grid gap-2">
+                  {report.details.length === 0 && (
+                    <p className="text-xs text-muted-foreground">Sin detalle por candidato.</p>
+                  )}
+                  {report.details.map((detail) => (
+                    <div key={`${report.id}-${detail.candidateId}`} className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{detail.fullName ?? "Candidato"}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {detail.position ? detail.position : ""}
+                          {detail.party ? ` · ${detail.party}` : ""}
+                          {detail.ballotNumber ? ` · Tarjetón ${detail.ballotNumber}` : ""}
+                        </p>
+                      </div>
+                      <span className="text-sm font-semibold text-foreground">{detail.votes}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
