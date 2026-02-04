@@ -1141,18 +1141,17 @@ function EquipoInner() {
 
       {!loading && !error && filteredMembers.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredMembers.map((member) => (
+          {filteredMembers.map((member) => {
+            const mesasAsignadas = member.pollingStationNumbers?.length
+              ? member.pollingStationNumbers.join(", ")
+              : null
+            const puestoAsignado = member.pollingStationCode ?? null
+            return (
             <Card
               key={member.id}
               className="bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 transition-colors"
             >
               <CardContent className="p-4">
-                {(() => {
-                  const mesasAsignadas = member.pollingStationNumbers?.length
-                    ? member.pollingStationNumbers.join(", ")
-                    : null
-                  const puestoAsignado = member.pollingStationCode ?? null
-                  return (
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <Avatar className="h-12 w-12 border-2 border-zinc-700">
@@ -1269,11 +1268,10 @@ function EquipoInner() {
                     Eliminar
                   </Button>
                 </div>
-                  )
-                })()}
               </CardContent>
             </Card>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
