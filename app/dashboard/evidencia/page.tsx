@@ -130,6 +130,7 @@ type EvidenceItem = {
   voteReportId: string | null
   totalVotes?: number | null
   reportedAt?: string | null
+  voteDetails?: VoteCandidateDetail[]
 }
 
 type VoteCandidateDetail = {
@@ -969,11 +970,11 @@ export default function EvidenciaPage() {
                                     </p>
                                   </div>
                                   <div className="text-right">
-                                    <p className="text-lg font-bold text-foreground">{detail.votes}</p>
-                                    <p className="text-[11px] text-muted-foreground">votos</p>
-                                  </div>
-                                </div>
-                              </div>
+                                {reportDetail.details.length === 0 && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Sin votos asociados al reporte.
+                                  </p>
+                                )}
                             ))}
                             {reportDetail.details.length === 0 && (
                               <p className="text-xs text-muted-foreground">Sin votos asociados al reporte.</p>
@@ -1001,15 +1002,38 @@ export default function EvidenciaPage() {
                       </div>
                     )}
 
-                    {!detailLoading && !reportDetail && typeof detailItem.totalVotes === "number" && (
-                      <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 text-sm">
+                    {!detailLoading && (!reportDetail || reportDetail.details.length === 0) && (
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 text-sm space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-muted-foreground">Total votos</span>
-                          <span className="text-foreground font-semibold">{detailItem.totalVotes}</span>
+                          <span className="text-foreground font-semibold">{detailItem.totalVotes ?? reportDetail?.totalVotes ?? 0}</span>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-2">
-                          Detalle de votos por candidato no disponible para este reporte.
-                        </p>
+                        {Array.isArray(detailItem.voteDetails) && detailItem.voteDetails.length > 0 ? (
+                          <div className="grid gap-2">
+                            {detailItem.voteDetails.map((detail) => (
+                              <div key={`${detailItem.id}-${detail.candidateId}`} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div>
+                                    <p className="font-semibold text-foreground leading-tight">{detail.fullName ?? "Candidato"}</p>
+                                    <p className="text-[11px] text-muted-foreground flex flex-wrap gap-1">
+                                      {detail.position ? <span>{detail.position}</span> : null}
+                                      {detail.party ? <span>• {detail.party}</span> : null}
+                                      {detail.ballotNumber ? <Badge className="bg-zinc-800 border-zinc-700">Tarjeton {detail.ballotNumber}</Badge> : null}
+                                    </p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-lg font-bold text-foreground">{detail.votes}</p>
+                                    <p className="text-[11px] text-muted-foreground">votos</p>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            Detalle de votos por candidato no disponible para este reporte.
+                          </p>
+                        )}
                       </div>
                     )}
 

@@ -133,9 +133,27 @@ export async function GET(req: NextRequest) {
            vr.address AS vr_address,
            vr.total_votes AS vr_total_votes,
            vr.reported_at AS vr_reported_at,
+           vdj.vote_details AS vote_details,
            COALESCE(d.full_name, dv.full_name, da.full_name, u.email, uv.email, 'Testigo electoral') AS uploaded_by
     FROM evidences e
     LEFT JOIN vote_reports vr ON vr.id = e.vote_report_id
+    LEFT JOIN LATERAL (
+      SELECT json_agg(
+        json_build_object(
+          'candidateId', c.id,
+          'fullName', c.full_name,
+          'party', c.party,
+          'position', c.position,
+          'ballotNumber', c.ballot_number,
+          'color', c.color,
+          'votes', vd.votes
+        )
+        ORDER BY c.position, c.ballot_number NULLS LAST, c.full_name
+      ) AS vote_details
+      FROM vote_details vd
+      JOIN candidates c ON c.id = vd.candidate_id
+      WHERE vd.vote_report_id = vr.id
+    ) vdj ON true
     LEFT JOIN delegates d ON d.id = e.uploaded_by_id
     LEFT JOIN users u ON u.delegate_id = e.uploaded_by_id
     LEFT JOIN delegates dv ON dv.id = vr.delegate_id
@@ -191,6 +209,7 @@ export async function GET(req: NextRequest) {
           voteReportId: row.vote_report_id as string | null,
           totalVotes: row.vr_total_votes === null || row.vr_total_votes === undefined ? null : Number(row.vr_total_votes),
           reportedAt: row.vr_reported_at ? new Date(row.vr_reported_at as string).toISOString() : null,
+          voteDetails: Array.isArray(row.vote_details) ? row.vote_details : [],
         })),
         stats: {
           total: Number(statsRes.rows[0]?.total ?? 0),
