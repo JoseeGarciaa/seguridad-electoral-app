@@ -664,6 +664,8 @@ export default function EvidenciaPage() {
             </CardHeader>
             <CardContent className="grid gap-3 md:grid-cols-2">
               <button
+                                    <p className="text-lg font-bold text-foreground">{detail.votes}</p>
+                                    <p className="text-[11px] text-muted-foreground">votos</p>
                 onClick={() => setView("wizard")}
                 className="group w-full rounded-2xl border border-border/60 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-background p-4 text-left transition hover:border-emerald-500/60 hover:shadow-lg hover:shadow-emerald-500/10"
               >
