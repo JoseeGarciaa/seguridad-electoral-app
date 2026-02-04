@@ -128,6 +128,8 @@ type EvidenceItem = {
   localPreview?: string
   tags: string[]
   voteReportId: string | null
+  totalVotes?: number | null
+  reportedAt?: string | null
 }
 
 type VoteCandidateDetail = {
@@ -999,6 +1001,18 @@ export default function EvidenciaPage() {
                       </div>
                     )}
 
+                    {!detailLoading && !reportDetail && typeof detailItem.totalVotes === "number" && (
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Total votos</span>
+                          <span className="text-foreground font-semibold">{detailItem.totalVotes}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          Detalle de votos por candidato no disponible para este reporte.
+                        </p>
+                      </div>
+                    )}
+
                     <div className="flex gap-2 pt-1">
                       <Button variant="outline" className="bg-zinc-800/60 border-zinc-700" onClick={() => window.open(detailItem.url, "_blank")}>
                         Descargar
@@ -1421,6 +1435,11 @@ function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter }: { ite
           {item.pollingStation && <Badge className="bg-zinc-800 border-zinc-700 text-xs">Mesa/Puesto: {item.pollingStation}</Badge>}
           {item.municipality && <Badge className="bg-zinc-800 border-zinc-700 text-xs">{item.municipality}</Badge>}
           {item.voteReportId && <Badge className="bg-emerald-600/30 border-emerald-700 text-emerald-100 text-xs">Con votos</Badge>}
+          {typeof item.totalVotes === "number" && (
+            <Badge className="bg-emerald-900/30 border-emerald-800 text-emerald-100 text-xs">
+              Total votos: {item.totalVotes}
+            </Badge>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">

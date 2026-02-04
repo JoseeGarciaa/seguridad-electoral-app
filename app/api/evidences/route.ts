@@ -131,6 +131,8 @@ export async function GET(req: NextRequest) {
            vr.municipality AS vr_municipality,
            vr.department AS vr_department,
            vr.address AS vr_address,
+           vr.total_votes AS vr_total_votes,
+           vr.reported_at AS vr_reported_at,
            COALESCE(d.full_name, dv.full_name, da.full_name, u.email, uv.email, 'Testigo electoral') AS uploaded_by
     FROM evidences e
     LEFT JOIN vote_reports vr ON vr.id = e.vote_report_id
@@ -187,6 +189,8 @@ export async function GET(req: NextRequest) {
           url: row.url as string,
           tags: (row.tags as string[]) ?? [],
           voteReportId: row.vote_report_id as string | null,
+          totalVotes: row.vr_total_votes === null || row.vr_total_votes === undefined ? null : Number(row.vr_total_votes),
+          reportedAt: row.vr_reported_at ? new Date(row.vr_reported_at as string).toISOString() : null,
         })),
         stats: {
           total: Number(statsRes.rows[0]?.total ?? 0),
