@@ -177,13 +177,22 @@ export async function getRecentAlerts(
   try {
     const { rows } = await pool.query(alertsQuery, params)
 
-    const mapped: AlertItem[] = rows.map((row) => ({
-      id: String(row.id),
-      severity: "medium",
-      title: (row.title as string) ?? "Alerta",
-      message: (row.message as string) ?? "",
-      time: (row.time as string) ?? "",
-    }))
+    const mapped: AlertItem[] = rows.map((row) => {
+      const rawTime = (row.time as any) ?? null
+      const timeValue = rawTime instanceof Date
+        ? rawTime.toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" })
+        : rawTime
+          ? new Date(rawTime).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" })
+          : ""
+
+      return {
+        id: String(row.id),
+        severity: "medium",
+        title: (row.title as string) ?? "Alerta",
+        message: (row.message as string) ?? "",
+        time: timeValue,
+      }
+    })
 
     const activeCount = delegateId
       ? mapped.length
