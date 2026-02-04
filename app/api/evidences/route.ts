@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser, DELEGATE_ROLE } from "@/lib/auth"
 import { pool } from "@/lib/pg"
-import { uploadFile } from "@/lib/storage"
+import { getStorageProvider, uploadFile } from "@/lib/storage"
 
 const fallbackData = {
   items: [
@@ -262,16 +262,19 @@ export async function POST(req: NextRequest) {
       }
 
       let finalUrl = url as string
+      const storageProvider = getStorageProvider()
 
       if (typeof url === "string" && url.startsWith("data:")) {
         const parsed = parseDataUrl(url)
         if (!parsed) {
           return NextResponse.json({ error: "Formato de imagen invalido" }, { status: 400 })
         }
-        const folder = voteReportId ? `vote-reports/${voteReportId}` : "evidences"
-        const filename = `${sanitizeFilename(title)}-${Date.now()}.${parsed.ext}`
-        const uploaded = await uploadFile(parsed.buffer, filename, folder)
-        finalUrl = uploaded.url
+        if (storageProvider !== "local") {
+          const folder = voteReportId ? `vote-reports/${voteReportId}` : "evidences"
+          const filename = `${sanitizeFilename(title)}-${Date.now()}.${parsed.ext}`
+          const uploaded = await uploadFile(parsed.buffer, filename, folder)
+          finalUrl = uploaded.url
+        }
       }
 
       const evidenceId = crypto.randomUUID()

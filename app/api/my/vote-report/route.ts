@@ -2,7 +2,7 @@ import crypto from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { assertPositiveInt, getCurrentUser } from "@/lib/auth"
 import { pool } from "@/lib/pg"
-import { uploadFile } from "@/lib/storage"
+import { getStorageProvider, uploadFile } from "@/lib/storage"
 
 let hasDivipoleColumn: boolean | null = null
 let hasVotePartyDetails: boolean | null = null
@@ -401,6 +401,8 @@ export async function POST(req: NextRequest) {
       await client.query(`DELETE FROM evidences WHERE vote_report_id = $1`, [reportId])
     }
 
+    const storageProvider = getStorageProvider()
+
     for (const [index, photo] of photos.entries()) {
       if (typeof photo !== "string" || !photo.startsWith("data:")) {
         await client.query("ROLLBACK")
@@ -412,10 +414,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Formato de imagen inválido" }, { status: 400 })
       }
 
-      const baseName = sanitizeFilename(resolvedPollingStation ?? "mesa")
-      const filename = `${baseName}-${index + 1}.${parsed.ext}`
-      const uploaded = await uploadFile(parsed.buffer, filename, `vote-reports/${reportId}`)
-      uploadedUrls.push(uploaded.url)
+      let finalUrl = photo
+      if (storageProvider !== "local") {
+        const baseName = sanitizeFilename(resolvedPollingStation ?? "mesa")
+        const filename = `${baseName}-${index + 1}.${parsed.ext}`
+        const uploaded = await uploadFile(parsed.buffer, filename, `vote-reports/${reportId}`)
+        finalUrl = uploaded.url
+      }
+
+      uploadedUrls.push(finalUrl)
 
       if (hasEvidences) {
         const evidenceId = crypto.randomUUID()
@@ -433,7 +440,7 @@ export async function POST(req: NextRequest) {
             resolvedPollingStation,
             delegateId,
             "pending",
-            uploaded.url,
+            finalUrl,
             ["e14"],
             reportId,
           ],
