@@ -286,3 +286,58 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
+
+// DELETE /api/evidences - delete by id (delegados solo pueden eliminar lo propio)
+export async function DELETE(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  if (!pool) {
+    return NextResponse.json({ error: "DB no disponible" }, { status: 503 })
+  }
+
+  const body = await req.json().catch(() => null)
+  const id = body?.id as string | undefined
+  if (!id) {
+    return NextResponse.json({ error: "id requerido" }, { status: 400 })
+  }
+
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
+  if (!isUuid) {
+    return NextResponse.json({ error: "id invalido" }, { status: 400 })
+  }
+
+  const isDelegate = user.role === DELEGATE_ROLE
+  const delegateId = isDelegate ? user.delegateId : null
+  if (isDelegate && !delegateId) {
+    return NextResponse.json({ error: "Perfil de testigo electoral incompleto" }, { status: 403 })
+  }
+
+  try {
+    const client = await pool.connect()
+    try {
+      const params: any[] = [id]
+      let query = "DELETE FROM evidences WHERE id = $1 RETURNING id"
+
+      if (delegateId) {
+        params.push(delegateId)
+        query = "DELETE FROM evidences WHERE id = $1 AND uploaded_by_id = $2 RETURNING id"
+      }
+
+      const { rowCount } = await client.query(query, params)
+      if (!rowCount) {
+        return NextResponse.json({ error: "No encontrado" }, { status: 404 })
+      }
+
+      return NextResponse.json({ id })
+    } finally {
+      client.release()
+    }
+  } catch (error) {
+    console.error("Evidences DELETE error", error)
+    const message = (error as any)?.message ?? "Failed to delete evidence"
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}

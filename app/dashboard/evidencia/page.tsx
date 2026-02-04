@@ -316,6 +316,48 @@ export default function EvidenciaPage() {
     })
   }, [items, searchQuery, statusFilter, typeFilter])
 
+  const handleDeleteEvidence = useCallback(async (item: EvidenceItem) => {
+    if (!item?.id) return
+
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.id)
+    const isLocalOnly = item.id.startsWith("local-") || !isUuid
+
+    // Remove instantly from UI
+    let alreadyRemoved = false
+    setItems((prev) => {
+      const next = prev.filter((i) => i.id !== item.id)
+      if (next.length === prev.length) alreadyRemoved = true
+      return next
+    })
+
+    // If the item is local/fallback (non-UUID), skip server call
+    if (isLocalOnly) {
+      notify("Evidencia eliminada", item.title || undefined)
+      return
+    }
+
+    try {
+      const res = await fetch("/api/evidences", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: item.id }),
+      })
+
+      if (!res.ok) {
+        const message = await res.text().catch(() => "No se pudo eliminar")
+        throw new Error(message || `Status ${res.status}`)
+      }
+
+      notify("Evidencia eliminada", item.title || undefined)
+      preload()
+    } catch (err: any) {
+      if (!alreadyRemoved) {
+        setItems((prev) => (prev.some((i) => i.id === item.id) ? prev : [item, ...prev]))
+      }
+      notify("No se pudo eliminar", err?.message)
+    }
+  }, [preload])
+
   const selectedMesaLabel = useMemo(
     () => mesas.find((m) => m.id === flow.mesaId)?.label ?? flow.mesaId,
     [flow.mesaId, mesas]
@@ -869,6 +911,7 @@ export default function EvidenciaPage() {
                   dateFormatter={dateFormatter}
                   onVerify={() => notify("Marcado verificado")}
                   onView={() => setDetailItem(item)}
+                  onDelete={() => handleDeleteEvidence(item)}
                 ></EvidenceCard>
               ))}
             </div>
@@ -1392,7 +1435,7 @@ function ConfirmStep({ flow, onSubmit }: { flow: VoteFlowState; onSubmit: () => 
   )
 }
 
-function EvidenceCard({ item, onVerify, onView, dateFormatter }: { item: EvidenceItem; onVerify: () => void; onView: () => void; dateFormatter: Intl.DateTimeFormat }) {
+function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter }: { item: EvidenceItem; onVerify: () => void; onView: () => void; onDelete: () => void; dateFormatter: Intl.DateTimeFormat }) {
   return (
     <Card className="bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 transition-colors">
       <CardContent className="p-4 space-y-3">
@@ -1469,7 +1512,7 @@ function EvidenceCard({ item, onVerify, onView, dateFormatter }: { item: Evidenc
               variant="ghost"
               size="icon"
               className="h-8 w-8 text-red-400"
-              onClick={() => toast({ title: "Eliminar pendiente" })}
+              onClick={onDelete}
             >
               <Trash2 className="h-4 w-4" />
             </Button>

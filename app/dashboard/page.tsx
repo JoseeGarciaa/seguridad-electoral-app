@@ -1,15 +1,16 @@
 import { DashboardStats } from "@/components/dashboard/stats"
 import { RecentAlerts } from "@/components/dashboard/recent-alerts"
-import { getRecentAlerts, getWitnessDashboardStats } from "@/lib/dashboard-data"
+import { getDashboardStats, getRecentAlerts, getWitnessDashboardStats } from "@/lib/dashboard-data"
 import { getCurrentUser } from "@/lib/auth"
 
 export default async function DashboardPage() {
   const user = await getCurrentUser()
   const delegateId = user?.delegateId ?? null
+  const isWitness = user?.role === "witness" || user?.role === "delegate"
 
   const [stats, alerts] = await Promise.all([
-    getWitnessDashboardStats(delegateId),
-    getRecentAlerts(delegateId ? { delegateId } : undefined),
+    isWitness ? getWitnessDashboardStats(delegateId) : getDashboardStats(),
+    getRecentAlerts(isWitness && delegateId ? { delegateId } : undefined),
   ])
 
   return (

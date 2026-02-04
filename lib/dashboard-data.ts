@@ -207,10 +207,18 @@ export async function getActivityFeed(limit = 8): Promise<ActivityItem[]> {
 export async function getWitnessDashboardStats(delegateId: string | null): Promise<DashboardStat[]> {
   if (!delegateId || !pool) {
     return [
-      { name: "Puestos asignados", value: "0", description: "Tus puestos de votación" },
+      { name: "Puesto asignado", value: "Sin puesto asignado", description: "Puesto asignado" },
       { name: "Reportes enviados", value: "0", description: "Enviados por ti" },
       { name: "Alertas activas", value: "0", description: "Generadas por tu gestión", changeType: "negative" },
     ]
+  }
+
+  type AssignmentRow = {
+    polling_station: string | null
+    polling_station_number: string | null
+    puesto: string | null
+    municipio: string | null
+    departamento: string | null
   }
 
   const puestosPromise = pool.query<{ c: string }>(
@@ -225,16 +233,56 @@ export async function getWitnessDashboardStats(delegateId: string | null): Promi
     `SELECT COUNT(*) AS c FROM evidences WHERE uploaded_by_id = $1 AND status != 'verified'`,
     [delegateId],
   )
+  const [puestosRes, reportesRes, alertasCount] = await Promise.all([
+    puestosPromise,
+    reportesPromise,
+    alertasPromise,
+  ])
 
-  const [puestosRes, reportesRes, alertasCount] = await Promise.all([puestosPromise, reportesPromise, alertasPromise])
+  let assignment: AssignmentRow | null = null
+  try {
+    const { rows } = await pool.query<AssignmentRow>(
+      `SELECT polling_station, polling_station_number, dl.puesto, dl.municipio, dl.departamento
+         FROM delegate_polling_assignments dpa
+         LEFT JOIN divipole_locations dl ON dl.id = dpa.divipole_location_id
+        WHERE dpa.delegate_id = $1
+        ORDER BY dpa.id
+        LIMIT 1`,
+      [delegateId],
+    )
+    assignment = rows[0] ?? null
+  } catch (err: any) {
+    // Some deployments may not have divipole_location_id; fallback to the base table columns only.
+    if (err?.code === "42703") {
+      const { rows } = await pool.query<AssignmentRow>(
+        `SELECT polling_station, polling_station_number, NULL::text AS puesto, NULL::text AS municipio, NULL::text AS departamento
+           FROM delegate_polling_assignments
+          WHERE delegate_id = $1
+          ORDER BY id
+          LIMIT 1`,
+        [delegateId],
+      )
+      assignment = rows[0] ?? null
+    } else {
+      throw err
+    }
+  }
 
   const puestos = numberFormatter.format(Number(puestosRes.rows[0]?.c ?? 0))
   const reportes = numberFormatter.format(Number(reportesRes.rows[0]?.c ?? 0))
   const alertas = numberFormatter.format(alertasCount)
 
+  // Prefer the human-friendly puesto name; fallback to polling_station code
+  const stationName = assignment?.puesto || assignment?.polling_station || null
+  const locationLabelParts = [assignment?.municipio, assignment?.departamento].filter(Boolean)
+  const locationLabel = locationLabelParts.join(" · ")
+  const mesaLabel = assignment?.polling_station_number ? `Mesa ${assignment.polling_station_number}` : null
+  const composedDescription = [locationLabel, mesaLabel].filter(Boolean).join(" • ") || "Puesto asignado"
+  const assignedValue = stationName || "Sin puesto asignado"
+
   return [
-    { name: "Puestos asignados", value: puestos, description: "Tus puestos de votación" },
-    { name: "Reportes enviados", value: reportes, description: "Enviados por ti" },
+    { name: "Puesto asignado", value: assignedValue, description: composedDescription },
+    { name: "Reportes enviados", value: reportes, description: `Enviados por ti${puestos !== "0" ? ` • ${puestos} puesto(s)` : ""}` },
     { name: "Alertas activas", value: alertas, description: "Generadas por tu gestión", changeType: "negative" },
   ]
 }
