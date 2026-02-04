@@ -970,11 +970,11 @@ export default function EvidenciaPage() {
                                     </p>
                                   </div>
                                   <div className="text-right">
-                                {reportDetail.details.length === 0 && (
-                                  <p className="text-xs text-muted-foreground">
-                                    Sin votos asociados al reporte.
-                                  </p>
-                                )}
+                                    <p className="text-lg font-bold text-foreground">{detail.votes}</p>
+                                    <p className="text-[11px] text-muted-foreground">votos</p>
+                                  </div>
+                                </div>
+                              </div>
                             ))}
                             {reportDetail.details.length === 0 && (
                               <p className="text-xs text-muted-foreground">Sin votos asociados al reporte.</p>
