@@ -117,3 +117,4 @@ export async function GET(req: Request) {
     client.release()
   }
 }
+
