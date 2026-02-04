@@ -29,8 +29,32 @@ function sanitizeFilename(input: string) {
 async function ensureEvidencesTable(): Promise<boolean> {
   if (hasEvidencesTable !== null) return hasEvidencesTable
   const res = await pool!.query(`SELECT to_regclass('public.evidences') AS oid`)
-  hasEvidencesTable = Boolean(res.rows[0]?.oid)
-  return hasEvidencesTable
+  if (res.rows[0]?.oid) {
+    hasEvidencesTable = true
+    return true
+  }
+
+  await pool!.query(
+    `CREATE TABLE IF NOT EXISTS public.evidences (
+       id uuid NOT NULL PRIMARY KEY,
+       type text NOT NULL,
+       title text NOT NULL,
+       description text NULL,
+       municipality text NULL,
+       polling_station text NULL,
+       uploaded_by_id uuid NULL,
+       status text NOT NULL,
+       url text NOT NULL,
+       tags text[] NULL,
+       vote_report_id uuid NULL,
+       uploaded_at timestamptz DEFAULT now() NOT NULL,
+       CONSTRAINT evidences_vote_report_id_fkey FOREIGN KEY (vote_report_id) REFERENCES public.vote_reports(id) ON DELETE SET NULL,
+       CONSTRAINT evidences_uploaded_by_id_fkey FOREIGN KEY (uploaded_by_id) REFERENCES public.delegates(id) ON DELETE SET NULL
+     )`,
+  )
+
+  hasEvidencesTable = true
+  return true
 }
 
 async function ensureDivipoleColumn(): Promise<boolean> {

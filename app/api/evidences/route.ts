@@ -31,6 +31,7 @@ const fallbackData = {
 }
 
 const dataUrlRegex = /^data:(?<mime>[^;]+);base64,(?<data>.+)$/i
+let hasEvidencesTable: boolean | null = null
 
 function parseDataUrl(dataUrl: string): { buffer: Buffer; mime: string; ext: string } | null {
   const match = dataUrlRegex.exec(dataUrl)
@@ -43,6 +44,37 @@ function parseDataUrl(dataUrl: string): { buffer: Buffer; mime: string; ext: str
 
 function sanitizeFilename(input: string) {
   return input.replace(/[^a-zA-Z0-9_-]/g, "_") || "evidence"
+}
+
+async function ensureEvidencesTable(): Promise<boolean> {
+  if (hasEvidencesTable !== null) return hasEvidencesTable
+  const res = await pool!.query(`SELECT to_regclass('public.evidences') AS oid`)
+  if (res.rows[0]?.oid) {
+    hasEvidencesTable = true
+    return true
+  }
+
+  await pool!.query(
+    `CREATE TABLE IF NOT EXISTS public.evidences (
+       id uuid NOT NULL PRIMARY KEY,
+       type text NOT NULL,
+       title text NOT NULL,
+       description text NULL,
+       municipality text NULL,
+       polling_station text NULL,
+       uploaded_by_id uuid NULL,
+       status text NOT NULL,
+       url text NOT NULL,
+       tags text[] NULL,
+       vote_report_id uuid NULL,
+       uploaded_at timestamptz DEFAULT now() NOT NULL,
+       CONSTRAINT evidences_vote_report_id_fkey FOREIGN KEY (vote_report_id) REFERENCES public.vote_reports(id) ON DELETE SET NULL,
+       CONSTRAINT evidences_uploaded_by_id_fkey FOREIGN KEY (uploaded_by_id) REFERENCES public.delegates(id) ON DELETE SET NULL
+     )`,
+  )
+
+  hasEvidencesTable = true
+  return true
 }
 
 // GET /api/evidences - list evidences with optional filters
@@ -130,6 +162,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(fallbackData)
   }
 
+  await ensureEvidencesTable()
+
   try {
     const client = await pool.connect()
     try {
@@ -187,6 +221,8 @@ export async function POST(req: NextRequest) {
   if (!pool) {
     return NextResponse.json({ error: "DB no disponible en modo demo" }, { status: 503 })
   }
+
+  await ensureEvidencesTable()
 
   const body = await req.json().catch(() => null)
   if (!body) {
