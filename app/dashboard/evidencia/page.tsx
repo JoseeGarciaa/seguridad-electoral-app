@@ -959,6 +959,25 @@ export default function EvidenciaPage() {
 
       {view === "evidencias" && (
         <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              className="bg-zinc-800/60 border-zinc-700"
+              onClick={() => setView("hub")}
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" /> Volver
+            </Button>
+            <Button
+              variant="outline"
+              className="bg-zinc-800/60 border-zinc-700"
+              onClick={() => setView("wizard")}
+            >
+              <Camera className="h-4 w-4 mr-2" /> Registrar votos
+            </Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700">
+              <ImageIcon className="h-4 w-4 mr-2" /> Ver evidencias
+            </Button>
+          </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
             <StatCard icon={<Camera className="h-5 w-5 text-cyan-400" />} label="Total" value={stats.total} />
             <StatCard icon={<ImageIcon className="h-5 w-5 text-emerald-400" />} label="Imagenes" value={stats.images} />
