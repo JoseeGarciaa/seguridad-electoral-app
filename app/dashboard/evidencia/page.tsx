@@ -1670,34 +1670,32 @@ function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter }: { ite
           ))}
         </div>
 
-        <div className="flex items-center justify-between pt-2 border-t border-zinc-800 gap-2">
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-800">
           <Button
             variant="outline"
             size="sm"
-            className="bg-zinc-800/60 border-zinc-700"
+            className="h-9 bg-zinc-800/60 border-zinc-700"
             onClick={onView}
           >
             <Eye className="h-4 w-4 mr-2" /> Ver
           </Button>
-          <div className="flex gap-2 flex-wrap justify-end">
-            <Button
-              variant="outline"
-              size="sm"
-              className="bg-emerald-600/30 border-emerald-700 text-emerald-100"
-              onClick={onVerify}
-              disabled={isVerified}
-            >
-              <CheckCircle className="h-4 w-4 mr-2" /> {isVerified ? "Verificado" : "Marcar verificado"}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 min-w-[36px] text-red-400"
-              onClick={onDelete}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 bg-emerald-600/30 border-emerald-700 text-emerald-100"
+            onClick={onVerify}
+            disabled={isVerified}
+          >
+            <CheckCircle className="h-4 w-4 mr-2" /> {isVerified ? "Verificado" : "Marcar verificado"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 min-w-[36px] text-red-400"
+            onClick={onDelete}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
         </div>
       </CardContent>
     </Card>
