@@ -226,29 +226,23 @@ export async function getRecentAlerts(
   const limit = opts?.limit ?? 6
   const delegateId = opts?.delegateId ?? null
 
- 
-  async function safeCount(query: string, params: any[] = [], fallback = 0): Promise<number> {
-    try {
-      const { rows } = await pool.query<{ c: string }>(query, params)
-      return Number(rows[0]?.c ?? fallback)
-    } catch (err: any) {
-      if (err?.code === "42P01") return fallback // tabla no existe en esta instancia
-      throw err
-    }
-  }
   if (!pool) {
     return { items: [], activeCount: 0 }
   }
 
   const alertsQuery = delegateId
-    ? `SELECT id, title, description AS message, status AS severity, uploaded_at AS time
-       FROM evidences
-       WHERE uploaded_by_id = $1
-       ORDER BY uploaded_at DESC
+    ? `SELECT vr.id, vr.polling_station_code, vr.municipality, vr.total_votes, vr.reported_at,
+              COALESCE(d.full_name, 'Delegado') AS delegate_name
+       FROM vote_reports vr
+       LEFT JOIN delegates d ON d.id = vr.delegate_id
+       WHERE vr.delegate_id = $1
+       ORDER BY vr.reported_at DESC NULLS LAST, vr.created_at DESC
        LIMIT $2`
-    : `SELECT id, title, description AS message, status AS severity, uploaded_at AS time
-       FROM evidences
-       ORDER BY uploaded_at DESC
+    : `SELECT vr.id, vr.polling_station_code, vr.municipality, vr.total_votes, vr.reported_at,
+              COALESCE(d.full_name, 'Delegado') AS delegate_name
+       FROM vote_reports vr
+       LEFT JOIN delegates d ON d.id = vr.delegate_id
+       ORDER BY vr.reported_at DESC NULLS LAST, vr.created_at DESC
        LIMIT $1`
 
   const params = delegateId ? [delegateId, limit] : [limit]
@@ -256,7 +250,7 @@ export async function getRecentAlerts(
     const { rows } = await pool.query(alertsQuery, params)
 
     const mapped: AlertItem[] = rows.map((row) => {
-      const rawTime = (row.time as any) ?? null
+      const rawTime = (row.reported_at as any) ?? null
       const timeValue = rawTime instanceof Date
         ? rawTime.toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" })
         : rawTime
@@ -266,15 +260,13 @@ export async function getRecentAlerts(
       return {
         id: String(row.id),
         severity: "medium",
-        title: (row.title as string) ?? "Alerta",
-        message: (row.message as string) ?? "",
+        title: `Nuevo reporte de votos (${row.delegate_name ?? "Delegado"})`,
+        message: `Mesa ${row.polling_station_code ?? "Sin código"} · ${row.municipality ?? "Sin municipio"} · Total ${Number(row.total_votes ?? 0)} votos`,
         time: timeValue,
       }
     })
 
-    const activeCount = delegateId
-      ? mapped.length
-      : await safeCount("SELECT COUNT(*) AS c FROM evidences WHERE status != 'verified'")
+    const activeCount = mapped.length
 
     return { items: mapped, activeCount }
   } catch (err: any) {

@@ -1,76 +1,82 @@
 import { NextRequest, NextResponse } from "next/server"
 import { pool } from "@/lib/pg"
-
-const fallbackData = {
-  items: [
-    {
-      id: "AL-001",
-      title: "Riesgo orden publico",
-      level: "crítica",
-      category: "seguridad",
-      municipality: "Bogotá",
-      time: new Date().toISOString(),
-      status: "abierta",
-      detail: "Reportes de bloqueo en punto de transporte",
-    },
-    {
-      id: "AL-002",
-      title: "Falta de jurados",
-      level: "media",
-      category: "operativa",
-      municipality: "Medellín",
-      time: new Date().toISOString(),
-      status: "abierta",
-      detail: "Se requieren 3 jurados de refuerzo",
-    },
-  ],
-  stats: { total: 2, criticas: 1, abiertas: 2 },
-}
+import { getCurrentUser } from "@/lib/auth"
 
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const searchParams = req.nextUrl.searchParams
   const search = searchParams.get("search")?.trim() ?? ""
   const level = searchParams.get("level") ?? ""
   const status = searchParams.get("status") ?? ""
   const limit = Math.min(Number(searchParams.get("limit") || 200), 400)
 
+  const isWitness = user.role === "delegate" || user.role === "witness"
+  let delegateId = isWitness ? user.delegateId : null
+  if (isWitness && !delegateId && user.email) {
+    try {
+      const fallback = await pool?.query(`SELECT id FROM delegates WHERE LOWER(email) = LOWER($1) LIMIT 1`, [user.email])
+      delegateId = (fallback?.rows[0]?.id as string | undefined) ?? null
+    } catch (err) {
+      console.warn("delegate fallback lookup failed", err)
+    }
+  }
+  if (isWitness && !delegateId) {
+    return NextResponse.json({ items: [], stats: { total: 0, criticas: 0, abiertas: 0 } })
+  }
+
   const filters: string[] = []
   const values: any[] = []
 
   if (search) {
     values.push(`%${search.toLowerCase()}%`)
-    filters.push(`(LOWER(title) LIKE $${values.length} OR LOWER(COALESCE(municipality,'')) LIKE $${values.length})`)
+    filters.push(
+      `(LOWER(COALESCE(vr.municipality,'')) LIKE $${values.length} OR LOWER(COALESCE(vr.polling_station_code,'')) LIKE $${values.length} OR LOWER(COALESCE(d.full_name, '')) LIKE $${values.length})`
+    )
   }
   if (level) {
     values.push(level)
-    filters.push(`level = $${values.length}`)
+    filters.push(`'media' = $${values.length}`)
   }
   if (status) {
     values.push(status)
-    filters.push(`status = $${values.length}`)
+    filters.push(`'abierta' = $${values.length}`)
+  }
+  if (delegateId) {
+    values.push(delegateId)
+    filters.push(`vr.delegate_id = $${values.length}`)
   }
 
   const where = filters.length ? `WHERE ${filters.join(" AND ")}` : ""
 
   const listQuery = `
-    SELECT id, title, level, category, municipality, created_at, detail, status
-    FROM alerts
+    SELECT vr.id,
+           vr.polling_station_code,
+           vr.municipality,
+           vr.reported_at,
+           vr.total_votes,
+           COALESCE(d.full_name, 'Delegado') AS delegate_name
+    FROM vote_reports vr
+    LEFT JOIN delegates d ON d.id = vr.delegate_id
     ${where}
-    ORDER BY created_at DESC
+    ORDER BY vr.reported_at DESC NULLS LAST, vr.created_at DESC
     LIMIT ${limit}
   `
 
   const statsQuery = `
     SELECT
       COUNT(*) AS total,
-      COUNT(*) FILTER (WHERE level = 'crítica') AS criticas,
-      COUNT(*) FILTER (WHERE status = 'abierta') AS abiertas
-    FROM alerts
+      0 AS criticas,
+      COUNT(*) AS abiertas
+    FROM vote_reports vr
+    ${delegateId ? "WHERE vr.delegate_id = $1" : ""}
   `
 
   if (!pool) {
-    console.warn("DATABASE_URL not set; serving alerts fallback data")
-    return NextResponse.json(fallbackData)
+    return NextResponse.json({ items: [], stats: { total: 0, criticas: 0, abiertas: 0 } })
   }
 
   try {
@@ -78,19 +84,19 @@ export async function GET(req: NextRequest) {
     try {
       const [listRes, statsRes] = await Promise.all([
         client.query(listQuery, values),
-        client.query(statsQuery),
+        client.query(statsQuery, delegateId ? [delegateId] : []),
       ])
 
       return NextResponse.json({
         items: listRes.rows.map((row) => ({
           id: row.id as string,
-          title: row.title as string,
-          level: row.level as string,
-          category: row.category as string,
-          municipality: row.municipality as string | null,
-          time: row.created_at ? new Date(row.created_at).toISOString() : null,
-          status: row.status as string,
-          detail: row.detail as string | null,
+          title: `Nuevo reporte de votos (${row.delegate_name ?? "Delegado"})`,
+          level: "media",
+          category: "votos",
+          municipality: (row.municipality as string | null) ?? "Sin municipio",
+          time: row.reported_at ? new Date(row.reported_at).toISOString() : null,
+          status: "abierta",
+          detail: `Mesa ${row.polling_station_code ?? "Sin código"} · Total votos ${Number(row.total_votes ?? 0)}`,
         })),
         stats: {
           total: Number(statsRes.rows[0]?.total ?? 0),
@@ -103,6 +109,9 @@ export async function GET(req: NextRequest) {
     }
   } catch (error) {
     console.error("Alerts GET error", error)
-    return NextResponse.json({ ...fallbackData, warning: "DB no disponible, usando datos de respaldo" })
+    if ((error as any)?.code === "42P01") {
+      return NextResponse.json({ items: [], stats: { total: 0, criticas: 0, abiertas: 0 } })
+    }
+    return NextResponse.json({ error: "No se pudo cargar alertas" }, { status: 500 })
   }
 }

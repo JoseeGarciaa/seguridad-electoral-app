@@ -22,16 +22,6 @@ import {
 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 
-type ComplianceItem = {
-  id: string
-  name: string
-  municipality: string | null
-  assigned: number
-  reported: number
-  missing: number
-  lastReportedAt: string | null
-}
-
 type AlertItem = {
   id: string
   title: string
@@ -60,37 +50,25 @@ export default function AlertasPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [level, setLevel] = useState("todas")
+  const [stats, setStats] = useState({ total: 0, criticas: 0, abiertas: 0 })
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
       setLoading(true)
       try {
-        const res = await fetch("/api/compliance", { cache: "no-store" })
-        if (!res.ok) throw new Error("No se pudo cargar cumplimiento")
+        const res = await fetch("/api/alerts", { cache: "no-store" })
+        if (!res.ok) throw new Error("No se pudo cargar alertas")
         const json = await res.json()
         if (cancelled) return
 
-        const items: ComplianceItem[] = Array.isArray(json.items) ? json.items : []
-        const alerts: AlertItem[] = items
-          .filter((item) => item.missing > 0)
-          .map((item) => {
-            const level = item.missing >= 3 ? "crítica" : item.missing >= 1 ? "alta" : "media"
-            const time = item.lastReportedAt
-              ? new Date(item.lastReportedAt).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" })
-              : "Sin reporte"
-            return {
-              id: item.id,
-              title: item.name,
-              level,
-              category: "incumplimiento",
-              municipality: item.municipality ?? "Sin municipio",
-              time,
-              status: "abierta",
-              detail: `Mesas asignadas ${item.assigned}, reportadas ${item.reported}, faltantes ${item.missing}.`,
-            }
-          })
-        setData(alerts)
+        const items: AlertItem[] = Array.isArray(json.items) ? json.items : []
+        setData(items)
+        setStats({
+          total: Number(json.stats?.total ?? items.length),
+          criticas: Number(json.stats?.criticas ?? 0),
+          abiertas: Number(json.stats?.abiertas ?? 0),
+        })
       } catch (err: any) {
         console.error(err)
         toast({ title: "Alertas", description: err?.message ?? "No se pudo cargar" })
@@ -114,18 +92,12 @@ export default function AlertasPage() {
     });
   }, [data, level, search]);
 
-  const stats = useMemo(() => {
-    const criticas = data.filter((a) => a.level === "crítica").length;
-    const abiertas = data.filter((a) => a.status === "abierta").length;
-    return { total: data.length, criticas, abiertas };
-  }, [data]);
-
   return (
     <div className="space-y-6 pb-20 lg:pb-6">
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-bold text-foreground">Alertas</h1>
         <p className="text-sm text-muted-foreground">
-          Alertas de incumplimiento de testigos electorales (mesas asignadas vs reportadas).
+          Alertas generadas por reportes de votos enviados por los testigos.
         </p>
       </div>
 
