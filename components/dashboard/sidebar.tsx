@@ -11,12 +11,9 @@ import {
   Target,
   Camera,
   Bell,
-  UserCircle,
   Settings,
   Calendar,
   CheckSquare,
-  Heart,
-  MessageSquare,
   FileCheck,
   ChevronLeft,
   ChevronRight
@@ -43,12 +40,9 @@ const navigation = [
   { name: "Territorio PRO", href: "/dashboard/territorio", icon: Map },
   { name: "War Room", href: "/dashboard/warroom", icon: Target },
   { name: "Equipo", href: "/dashboard/equipo", icon: Users },
-  { name: "Asignaciones", href: "/dashboard/asignaciones", icon: UserCircle },
   { name: "Evidencias", href: "/dashboard/evidencias", icon: Camera },
-  { name: "Simpatizantes", href: "/dashboard/simpatizantes", icon: Heart },
   { name: "Eventos", href: "/dashboard/eventos", icon: Calendar },
   { name: "Tareas", href: "/dashboard/tareas", icon: CheckSquare },
-  { name: "Comunicación", href: "/dashboard/comunicacion", icon: MessageSquare },
   { name: "Alertas", href: "/dashboard/alertas", icon: Bell },
   { name: "Cumplimiento", href: "/dashboard/cumplimiento", icon: FileCheck },
 ]
@@ -69,10 +63,7 @@ export function DashboardSidebar({ user }: SidebarProps) {
   const isWitness = user.role === "witness" || roleLabel.includes("testigo")
 
   const restrictedForDelegate = new Set([
-    "/dashboard/asignaciones",
-    "/dashboard/simpatizantes",
     "/dashboard/equipo",
-    "/dashboard/comunicacion",
   ])
 
   const isDelegate = !isWitness && (user.role === "delegate" || roleLabel.includes("delegado"))

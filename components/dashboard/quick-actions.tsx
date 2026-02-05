@@ -42,13 +42,6 @@ export function QuickActions({ pendingAlerts }: { pendingAlerts: number }) {
       color: "bg-accent/10 text-accent",
     },
     {
-      name: "Importar CSV",
-      description: "Asignaciones",
-      href: "/dashboard/asignaciones",
-      icon: FileUp,
-      color: "bg-neon-green/10 text-neon-green",
-    },
-    {
       name: "Ver Alertas",
       description: `${pendingAlerts} pendientes`,
       href: "/dashboard/alertas",
@@ -83,8 +76,5 @@ export function QuickActions({ pendingAlerts }: { pendingAlerts: number }) {
               </div>
             </Link>
           </motion.div>
+
         ))}
-      </div>
-    </div>
-  )
-}
