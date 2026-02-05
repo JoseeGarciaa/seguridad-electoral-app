@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CheckCircle, Target, TrendingUp, Shield, Calendar } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 
@@ -31,6 +32,19 @@ const milestones = [
 
 export default function CumplimientoPage() {
   const [summary, setSummary] = useState({ assigned: 0, reported: 0, missing: 0, coveragePct: 0 })
+  const [items, setItems] = useState<
+    Array<{
+      id: string
+      name: string
+      email: string
+      municipality: string | null
+      assigned: number
+      reported: number
+      missing: number
+      lastReportedAt: string | null
+    }>
+  >([])
+  const [viewerRole, setViewerRole] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -47,6 +61,8 @@ export default function CumplimientoPage() {
           missing: Number(next.missing ?? 0),
           coveragePct: Number(next.coveragePct ?? 0),
         })
+        setItems(Array.isArray(json?.items) ? json.items : [])
+        setViewerRole(json?.viewerRole ?? null)
       } catch (err: any) {
         console.error(err)
         toast({ title: "Cumplimiento", description: err?.message ?? "No se pudo cargar" })
@@ -90,6 +106,8 @@ export default function CumplimientoPage() {
       title: "Registrar avance",
       description: "Acción pendiente de integración",
     });
+
+  const isAdmin = viewerRole === "admin"
 
   return (
     <div className="space-y-6 pb-20 lg:pb-6">
@@ -181,6 +199,68 @@ export default function CumplimientoPage() {
           </CardContent>
         </Card>
       </div>
+
+      {isAdmin && (
+        <Card className="bg-zinc-900/60 border-zinc-800">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Target className="h-4 w-4" /> Delegados y mesas pendientes
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {items.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sin delegados con mesas asignadas.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Delegado</TableHead>
+                    <TableHead>Municipio</TableHead>
+                    <TableHead>Asignadas</TableHead>
+                    <TableHead>Reportadas</TableHead>
+                    <TableHead>Faltantes</TableHead>
+                    <TableHead>Cobertura</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((item) => {
+                    const pct = item.assigned === 0 ? 0 : Math.round((item.reported / item.assigned) * 100)
+                    return (
+                      <TableRow key={item.id}>
+                        <TableCell className="min-w-[180px]">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-foreground">{item.name}</span>
+                            <span className="text-xs text-muted-foreground">{item.email}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {item.municipality ?? "-"}
+                        </TableCell>
+                        <TableCell className="text-sm text-foreground">{item.assigned}</TableCell>
+                        <TableCell className="text-sm text-foreground">{item.reported}</TableCell>
+                        <TableCell>
+                          <Badge className="bg-amber-500/20 text-amber-200">{item.missing}</Badge>
+                        </TableCell>
+                        <TableCell className="min-w-[160px]">
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">{pct}%</span>
+                              <span className="text-muted-foreground">
+                                {item.reported}/{item.assigned}
+                              </span>
+                            </div>
+                            <Progress value={pct} className="h-2" />
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
