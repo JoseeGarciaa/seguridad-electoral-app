@@ -30,8 +30,8 @@ export default function TerritorioPage() {
   const [viewMode, setViewMode] = useState<"circle" | "heatmap" | "3d">("circle")
   const [search, setSearch] = useState("")
   const [features, setFeatures] = useState<Feature[]>([])
-  const [totals, setTotals] = useState<{ total_puestos: number; total_mesas: number; with_coords: number }>(
-    { total_puestos: 0, total_mesas: 0, with_coords: 0 }
+  const [totals, setTotals] = useState<{ total_puestos: number; total_mesas: number; with_coords: number; total_votes: number }>(
+    { total_puestos: 0, total_mesas: 0, with_coords: 0, total_votes: 0 }
   )
   const [loading, setLoading] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -48,13 +48,14 @@ export default function TerritorioPage() {
         if (!res.ok) return
         const data = (await res.json()) as {
           features?: Feature[]
-          totals?: { total_puestos?: number; total_mesas?: number; with_coords?: number }
+          totals?: { total_puestos?: number; total_mesas?: number; with_coords?: number; total_votes?: number }
         }
         setFeatures(Array.isArray(data.features) ? data.features : [])
         setTotals({
           total_puestos: Number(data.totals?.total_puestos ?? 0),
           total_mesas: Number(data.totals?.total_mesas ?? 0),
           with_coords: Number(data.totals?.with_coords ?? 0),
+          total_votes: Number(data.totals?.total_votes ?? 0),
         })
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
@@ -81,11 +82,10 @@ export default function TerritorioPage() {
   }
 
   const stats = useMemo(() => {
-    const mesas = totals.total_mesas
-    const puestos = Array.from(new Set(features.map((f) => f.properties.puesto).filter(Boolean)))
-    const puestoLabel = puestos.length === 0 ? "Sin puesto asignado" : puestos.length === 1 ? puestos[0] : `${puestos[0]} +${puestos.length - 1} más`
-    return { mesas, puestoLabel }
-  }, [features, totals])
+    const puestosCount = totals.total_puestos
+    const votos = totals.total_votes
+    return { puestosCount, votos }
+  }, [totals.total_puestos, totals.total_votes])
 
   return (
     <div className="space-y-4 pb-20 lg:pb-6">
@@ -93,7 +93,7 @@ export default function TerritorioPage() {
       {loading ? (
         <div className="h-20 animate-pulse bg-secondary/50 rounded-xl" />
       ) : (
-        <TerritoryStats puestoLabel={stats.puestoLabel} mesas={stats.mesas} />
+        <TerritoryStats totalPuestos={stats.puestosCount} totalVotos={stats.votos} />
       )}
 
       {/* Filters */}

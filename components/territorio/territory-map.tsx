@@ -143,7 +143,7 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
             <div class="space-y-1 text-sm">
               <div class="font-semibold" style="color:#000">${props.puesto}</div>
               <div class="text-muted-foreground">${props.municipio}, ${props.departamento}</div>
-              <div class="text-muted-foreground text-xs">Mesas: ${props.mesas?.toLocaleString?.() ?? "-"} · Votantes: ${
+              <div class="text-muted-foreground text-xs">Mesas: ${props.mesas?.toLocaleString?.() ?? "-"} · Votos: ${
             props.total?.toLocaleString?.() ?? "-"
           }</div>
             </div>
@@ -191,7 +191,7 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
         <div class="space-y-1 text-sm">
           <div class="font-semibold" style="color:#000">${feature.properties.puesto}</div>
           <div class="text-muted-foreground">${feature.properties.municipio}, ${feature.properties.departamento}</div>
-          <div class="text-muted-foreground text-xs">Mesas: ${feature.properties.mesas?.toLocaleString?.() ?? "-"} · Votantes: ${
+          <div class="text-muted-foreground text-xs">Mesas: ${feature.properties.mesas?.toLocaleString?.() ?? "-"} · Votos: ${
         feature.properties.total?.toLocaleString?.() ?? "-"
       }</div>
         </div>

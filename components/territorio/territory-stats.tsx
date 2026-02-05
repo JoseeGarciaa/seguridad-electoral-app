@@ -4,18 +4,18 @@ import { motion } from "framer-motion"
 import { Building2, CheckCircle } from "lucide-react"
 
 type Props = {
-  puestoLabel: string
-  mesas: number
+  totalPuestos: number
+  totalVotos: number
 }
 
 const numberFormatter = new Intl.NumberFormat("es-CO")
 
 const formatNumber = (value: number) => numberFormatter.format(Math.max(0, Math.trunc(value)))
 
-export function TerritoryStats({ puestoLabel, mesas }: Props) {
+export function TerritoryStats({ totalPuestos, totalVotos }: Props) {
   const stats = [
-    { name: "Puesto asignado", value: puestoLabel, icon: Building2 },
-    { name: "Mesas asignadas", value: formatNumber(mesas), icon: CheckCircle },
+    { name: "Puestos con reportes", value: formatNumber(totalPuestos), icon: Building2 },
+    { name: "Votos reportados", value: formatNumber(totalVotos), icon: CheckCircle },
   ]
 
   return (

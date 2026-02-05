@@ -111,14 +111,14 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
                         <p className="text-sm font-semibold text-foreground">{puesto.properties.mesas ?? "-"}</p>
                       </div>
                       <div className="bg-secondary/50 rounded p-2">
-                        <p className="text-[10px] text-muted-foreground">Votantes</p>
+                        <p className="text-[10px] text-muted-foreground">Votos</p>
                         <p className="text-sm font-semibold text-foreground">
                           {puesto.properties.total !== undefined ? formatter.format(puesto.properties.total) : "-"}
                         </p>
                       </div>
                       <div className="bg-secondary/50 rounded p-2">
                         <p className="text-[10px] text-muted-foreground">Estado</p>
-                        <p className="text-sm font-semibold text-neon-green">Asignado</p>
+                        <p className="text-sm font-semibold text-neon-green">Reportado</p>
                       </div>
                     </div>
                     <div className="flex gap-2">
@@ -150,7 +150,7 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
             <div className="flex items-center gap-1">
               <CheckCircle className="w-3 h-3 text-neon-green" />
               <span className="text-muted-foreground">
-                Asignados: {filtered.length}
+                Reportes: {filtered.length}
               </span>
             </div>
           </div>
