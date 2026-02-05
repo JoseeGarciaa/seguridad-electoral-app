@@ -15,6 +15,7 @@ type Feature = {
     total: number
     hombres: number
     mujeres: number
+    candidates?: Array<{ id: string; name: string; votes: number }>
     dd?: string | null
     mm?: string | null
     pp?: string | null
@@ -45,6 +46,7 @@ type Row = {
   report_address: string | null
   report_polling_station_code: string | null
   total_votes: number | null
+  candidates: Array<{ id: string; name: string; votes: number }> | null
 }
 
 export async function GET(req: NextRequest) {
@@ -92,10 +94,25 @@ export async function GET(req: NextRequest) {
            vr.municipality AS report_municipality,
            vr.address AS report_address,
            vr.polling_station_code AS report_polling_station_code,
-           vr.total_votes
+           vr.total_votes,
+           COALESCE(cand.candidates, '[]'::json) AS candidates
     FROM vote_reports vr
     LEFT JOIN delegate_polling_assignments dpa ON dpa.id = vr.delegate_assignment_id
     LEFT JOIN divipole_locations dl ON dl.id = dpa.divipole_location_id
+    LEFT JOIN LATERAL (
+      SELECT json_agg(
+        json_build_object(
+          'id', c.id,
+          'name', c.full_name,
+          'votes', vd.votes
+        ) ORDER BY vd.votes DESC
+      ) AS candidates
+      FROM vote_details vd
+      JOIN candidates c ON c.id = vd.candidate_id
+      WHERE vd.vote_report_id = vr.id
+      ORDER BY vd.votes DESC
+      LIMIT 3
+    ) cand ON true
     WHERE ($1::uuid IS NULL OR vr.delegate_id = $1)
     ORDER BY COALESCE(dl.municipio, vr.municipality), COALESCE(dl.puesto, dpa.polling_station, vr.polling_station_code)
   `
@@ -104,6 +121,13 @@ export async function GET(req: NextRequest) {
 
   const features: Feature[] = rows.map((row) => {
     const mesasCount = Number(row.mesas ?? row.polling_station_number ?? 1)
+    const candidates = Array.isArray(row.candidates)
+      ? row.candidates.map((c) => ({
+          id: String(c.id),
+          name: String(c.name),
+          votes: Number((c as any).votes ?? 0),
+        }))
+      : []
     return {
       type: "Feature",
       geometry: {
@@ -120,6 +144,7 @@ export async function GET(req: NextRequest) {
         total: Number(row.total_votes ?? 0),
         hombres: Number(row.hombres ?? 0),
         mujeres: Number(row.mujeres ?? 0),
+        candidates,
         dd: row.dd,
         mm: row.mm,
         pp: row.pp,

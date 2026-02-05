@@ -21,6 +21,7 @@ type Feature = {
     total: number
     hombres: number
     mujeres: number
+    candidates?: Array<{ id: string; name: string; votes: number }>
     dd?: string
     mm?: string
     pp?: string
@@ -136,6 +137,20 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
         if (!feature) return
         const coords = feature.geometry.coordinates
         const props = feature.properties
+        const candidates = Array.isArray(props.candidates) ? props.candidates : []
+        const candidatesHtml = candidates.length
+          ? `<div class="mt-2 text-xs">
+              <div class="font-semibold" style="color:#0f172a">Top candidatos</div>
+              <div class="mt-1 space-y-1">
+                ${candidates
+                  .map(
+                    (c) =>
+                      `<div class="flex justify-between"><span>${c.name}</span><span>${Number(c.votes).toLocaleString?.() ?? c.votes}</span></div>`,
+                  )
+                  .join("")}
+              </div>
+            </div>`
+          : ""
         onSelect?.(props.id)
         new maplibregl.Popup({ closeButton: true })
           .setLngLat(coords)
@@ -146,6 +161,7 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
               <div class="text-muted-foreground text-xs">Mesas: ${props.mesas?.toLocaleString?.() ?? "-"} · Votos: ${
             props.total?.toLocaleString?.() ?? "-"
           }</div>
+              ${candidatesHtml}
             </div>
           `)
           .addTo(map)
@@ -185,6 +201,20 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
     if (!feature) return
     const [lng, lat] = feature.geometry.coordinates
     mapRef.current.easeTo({ center: [lng, lat], zoom: Math.max(mapRef.current.getZoom(), 11) })
+    const candidates = Array.isArray(feature.properties.candidates) ? feature.properties.candidates : []
+    const candidatesHtml = candidates.length
+      ? `<div class="mt-2 text-xs">
+          <div class="font-semibold" style="color:#0f172a">Top candidatos</div>
+          <div class="mt-1 space-y-1">
+            ${candidates
+              .map(
+                (c) =>
+                  `<div class="flex justify-between"><span>${c.name}</span><span>${Number(c.votes).toLocaleString?.() ?? c.votes}</span></div>`,
+              )
+              .join("")}
+          </div>
+        </div>`
+      : ""
     new maplibregl.Popup({ closeButton: true })
       .setLngLat([lng, lat])
       .setHTML(`
@@ -194,6 +224,7 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
           <div class="text-muted-foreground text-xs">Mesas: ${feature.properties.mesas?.toLocaleString?.() ?? "-"} · Votos: ${
         feature.properties.total?.toLocaleString?.() ?? "-"
       }</div>
+          ${candidatesHtml}
         </div>
       `)
       .addTo(mapRef.current)
@@ -266,7 +297,21 @@ function addPointsLayer(map: MLMap, mode: ViewMode) {
           }
         : {
             "circle-color": mode === "3d" ? "#06b6d4" : "#22c55e",
-            "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 4, 12, 8, 16, 14],
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["get", "total"],
+              0,
+              4,
+              50,
+              6,
+              150,
+              10,
+              300,
+              14,
+              600,
+              18,
+            ],
             "circle-stroke-width": 1,
             "circle-stroke-color": "#0f172a",
             "circle-opacity": 0.9,
