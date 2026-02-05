@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ features: [], totals: { total_puestos: 0, total_mesas: 0, with_coords: 0 } })
   }
 
-  const query = `
+  const buildQuery = (useReportLocation: boolean) => `
     SELECT vr.id AS report_id,
            dpa.id AS assignment_id,
            dl.departamento,
@@ -98,7 +98,14 @@ export async function GET(req: NextRequest) {
            COALESCE(cand.candidates, '[]'::json) AS candidates
     FROM vote_reports vr
     LEFT JOIN delegate_polling_assignments dpa ON dpa.id = vr.delegate_assignment_id
-    LEFT JOIN divipole_locations dl ON dl.id = dpa.divipole_location_id
+    LEFT JOIN divipole_locations dl ON (
+      dl.id = ${useReportLocation ? "COALESCE(dpa.divipole_location_id, vr.divipole_location_id)" : "dpa.divipole_location_id"}
+      OR (
+        dl.pp = vr.polling_station_code
+        AND dl.municipio = vr.municipality
+        AND dl.departamento = vr.department
+      )
+    )
     LEFT JOIN LATERAL (
       SELECT json_agg(
         json_build_object(
@@ -117,7 +124,18 @@ export async function GET(req: NextRequest) {
     ORDER BY COALESCE(dl.municipio, vr.municipality), COALESCE(dl.puesto, dpa.polling_station, vr.polling_station_code)
   `
 
-  const { rows } = await pool.query<Row>(query, [isAdmin ? null : delegateId])
+  let rows: Row[] = []
+  try {
+    const res = await pool.query<Row>(buildQuery(true), [isAdmin ? null : delegateId])
+    rows = res.rows
+  } catch (error: any) {
+    if (error?.code === "42703") {
+      const res = await pool.query<Row>(buildQuery(false), [isAdmin ? null : delegateId])
+      rows = res.rows
+    } else {
+      throw error
+    }
+  }
 
   const features: Feature[] = rows.map((row) => {
     const mesasCount = Number(row.mesas ?? row.polling_station_number ?? 1)

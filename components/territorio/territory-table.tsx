@@ -79,7 +79,8 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium text-foreground truncate">{puesto.properties.puesto}</p>
-                      {(!puesto.geometry.coordinates || puesto.geometry.coordinates.length !== 2) && (
+                      {(!puesto.geometry.coordinates || puesto.geometry.coordinates.length !== 2 ||
+                        (puesto.geometry.coordinates[0] === 0 && puesto.geometry.coordinates[1] === 0)) && (
                         <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] bg-neon-orange/10 text-neon-orange">
                           Sin coords
                         </span>
