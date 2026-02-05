@@ -20,6 +20,23 @@ function emptyPayload() {
   }
 }
 
+async function safeQuery<T>(
+  client: { query: <R>(queryText: string, params?: any[]) => Promise<{ rows: R[] }> },
+  queryText: string,
+  params: any[] = [],
+  fallback: T[] = [],
+): Promise<T[]> {
+  try {
+    const { rows } = await client.query<T>(queryText, params)
+    return rows
+  } catch (err: any) {
+    if (err?.code === "42P01" || err?.code === "42703") {
+      return fallback
+    }
+    throw err
+  }
+}
+
 export async function GET() {
   const user = await getCurrentUser()
   if (!user) {
@@ -186,16 +203,42 @@ export async function GET() {
 
   const client = await pool.connect()
   try {
-    const [statsRes, candidateRes, feedRes, muniRes, evidenceRes, photoMissRes] = await Promise.all([
-      client.query(statsQuery, delegateParams),
-      client.query(candidateQuery, delegateParams),
-      client.query(feedQuery, delegateParams),
-      client.query(municipalitiesQuery, delegateParams),
-      client.query(evidencesQuery, delegateParams),
-      client.query(missingPhotoQuery, delegateParams),
+    const [statsRows, candidateRows, feedRows, evidenceRows, photoMissRows] = await Promise.all([
+      safeQuery<any>(client, statsQuery, delegateParams),
+      safeQuery<any>(client, candidateQuery, delegateParams),
+      safeQuery<any>(client, feedQuery, delegateParams),
+      safeQuery<any>(client, evidencesQuery, delegateParams),
+      safeQuery<any>(client, missingPhotoQuery, delegateParams),
     ])
 
-    const statsRow = statsRes.rows[0] ?? {}
+    let muniRows = await safeQuery<any>(client, municipalitiesQuery, delegateParams)
+    if (muniRows.length === 0) {
+      const fallbackMunicipalities = delegateId
+        ? `
+          SELECT municipality AS name,
+                 COUNT(*) AS reported,
+                 COUNT(*) AS total,
+                 100 AS coverage
+          FROM vote_reports
+          WHERE delegate_id = $1
+          GROUP BY municipality
+          ORDER BY reported DESC
+          LIMIT 60
+        `
+        : `
+          SELECT municipality AS name,
+                 COUNT(*) AS reported,
+                 COUNT(*) AS total,
+                 100 AS coverage
+          FROM vote_reports
+          GROUP BY municipality
+          ORDER BY reported DESC
+          LIMIT 60
+        `
+      muniRows = await safeQuery<any>(client, fallbackMunicipalities, delegateParams)
+    }
+
+    const statsRow = statsRows[0] ?? {}
     const statsPayload = {
       reports: Number(statsRow?.reports ?? 0),
       activeDelegates: Number(statsRow?.active_delegates ?? 0),
@@ -208,8 +251,8 @@ export async function GET() {
       lastUpdated: new Date().toISOString(),
     }
 
-    const totalVotes = candidateRes.rows.reduce((acc, row) => acc + Number(row.votes ?? 0), 0)
-    const candidates = candidateRes.rows.map((row) => ({
+    const totalVotes = candidateRows.reduce((acc, row) => acc + Number(row.votes ?? 0), 0)
+    const candidates = candidateRows.map((row) => ({
       id: row.id as string,
       name: (row.full_name as string) ?? "",
       party: (row.party as string) ?? null,
@@ -218,7 +261,7 @@ export async function GET() {
       color: (row.color as string) ?? null,
     }))
 
-    const feed = feedRes.rows.map((row) => ({
+    const feed = feedRows.map((row) => ({
       id: String(row.id),
       user: (row.user_name as string) ?? "Delegado",
       action: "Acta subida",
@@ -227,7 +270,7 @@ export async function GET() {
       type: "evidence" as const,
     }))
 
-    const municipalities = muniRes.rows.map((row) => {
+    const municipalities = muniRows.map((row) => {
       const coverage = Number(row.coverage ?? 0)
       const status: "green" | "yellow" | "red" = coverage >= 85 ? "green" : coverage >= 50 ? "yellow" : "red"
       return {
@@ -239,7 +282,7 @@ export async function GET() {
       }
     })
 
-    const evidences = evidenceRes.rows.map((row) => ({
+    const evidences = evidenceRows.map((row) => ({
       id: String(row.id),
       puesto: (row.puesto as string) ?? "Puesto",
       mesa: row.mesa_num ? `Mesa ${row.mesa_num}` : row.address || row.municipality || "",
@@ -249,7 +292,7 @@ export async function GET() {
       photoUrl: (row.photo_url as string) ?? null,
     }))
 
-    const missingPhoto = Number(photoMissRes.rows[0]?.missing_photo ?? 0)
+    const missingPhoto = Number(photoMissRows[0]?.missing_photo ?? 0)
     const lowCoverageAlerts = municipalities
       .filter((m) => m.coverage < 50)
       .slice(0, 5)
@@ -286,18 +329,6 @@ export async function GET() {
 
     const alerts = [...lowCoverageAlerts, ...warningCoverageAlerts, ...photoAlerts].slice(0, 10)
 
-    const shouldServeDemo =
-      Number(statsPayload.reports ?? 0) === 0 ||
-      Number(statsPayload.coverage ?? 0) === 0 ||
-      candidates.length === 0 ||
-      feed.length === 0 ||
-      municipalities.length === 0 ||
-      evidences.length === 0
-
-    if (shouldServeDemo) {
-      return NextResponse.json(buildDemoWarRoom())
-    }
-
     return NextResponse.json({
       stats: statsPayload,
       candidates,
@@ -306,9 +337,9 @@ export async function GET() {
       municipalities,
       evidences,
     })
-  } catch (error) {
+  } catch (err: any) {
     console.error("warroom error", err)
-    if (err?.code === "42P01") {
+    if (err?.code === "42P01" || err?.code === "42703") {
       return NextResponse.json(emptyPayload())
     }
     return NextResponse.json({ error: "No se pudo cargar War Room" }, { status: 500 })
