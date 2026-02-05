@@ -6,9 +6,7 @@ import {
   Map, 
   Camera, 
   UserPlus, 
-  FileUp, 
-  Bell,
-  Target
+  Bell
 } from "lucide-react"
 
 export function QuickActions({ pendingAlerts }: { pendingAlerts: number }) {
@@ -19,13 +17,6 @@ export function QuickActions({ pendingAlerts }: { pendingAlerts: number }) {
       href: "/dashboard/territorio",
       icon: Map,
       color: "bg-primary/10 text-primary",
-    },
-    {
-      name: "War Room",
-      description: "Día Electoral",
-      href: "/dashboard/warroom",
-      icon: Target,
-      color: "bg-neon-cyan/10 text-neon-cyan",
     },
     {
       name: "Subir Evidencia",

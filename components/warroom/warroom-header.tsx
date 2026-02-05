@@ -5,7 +5,15 @@ import { Radio, Clock, Users, CheckCircle } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useWarRoomData } from "./warroom-data-provider"
 
-export function WarRoomHeader() {
+export function WarRoomHeader({
+  title = "WAR ROOM",
+  subtitle = "Centro de Comando Electoral",
+  badgeLabel = "EN VIVO",
+}: {
+  title?: string
+  subtitle?: string
+  badgeLabel?: string
+}) {
   // Defer real time render to client to prevent SSR/client hydration mismatches.
   const [time, setTime] = useState<Date | null>(null)
   const { data, loading } = useWarRoomData()
@@ -43,12 +51,12 @@ export function WarRoomHeader() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-foreground">WAR ROOM</h1>
+              <h1 className="text-xl font-bold text-foreground">{title}</h1>
               <span className="px-2 py-0.5 rounded-full bg-destructive/20 text-destructive text-xs font-medium animate-pulse">
-                EN VIVO
+                {badgeLabel}
               </span>
             </div>
-            <p className="text-sm text-muted-foreground">Centro de Comando Electoral</p>
+            <p className="text-sm text-muted-foreground">{subtitle}</p>
           </div>
         </div>
 

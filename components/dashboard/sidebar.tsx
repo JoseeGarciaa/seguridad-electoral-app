@@ -8,7 +8,6 @@ import {
   LayoutDashboard, 
   Map, 
   Users, 
-  Target,
   Camera,
   Bell,
   Settings,
@@ -38,7 +37,6 @@ interface SidebarProps {
 const navigation = [
   { name: "Centro de Mando", href: "/dashboard", icon: LayoutDashboard },
   { name: "Territorio PRO", href: "/dashboard/territorio", icon: Map },
-  { name: "War Room", href: "/dashboard/warroom", icon: Target },
   { name: "Equipo", href: "/dashboard/equipo", icon: Users },
   { name: "Evidencias", href: "/dashboard/evidencias", icon: Camera },
   { name: "Eventos", href: "/dashboard/eventos", icon: Calendar },

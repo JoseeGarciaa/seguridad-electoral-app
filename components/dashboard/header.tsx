@@ -178,7 +178,6 @@ export function DashboardHeader({ user }: HeaderProps) {
                 : [
                     { name: "Centro de Mando", href: "/dashboard" },
                     { name: "Territorio PRO", href: "/dashboard/territorio" },
-                    { name: "War Room", href: "/dashboard/warroom" },
                     { name: "Equipo", href: "/dashboard/equipo" },
                     { name: "Evidencias", href: "/dashboard/evidencias" },
                     { name: "Eventos", href: "/dashboard/eventos" },
