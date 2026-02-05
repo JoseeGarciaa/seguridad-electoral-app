@@ -924,13 +924,6 @@ export default function EvidenciaPage() {
                   <Filter className="h-4 w-4" /> Filtros
                 </span>
                 <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    className="bg-zinc-800/60 border-zinc-700"
-                    onClick={() => notify("Descarga iniciada")}
-                  >
-                    <Download className="h-4 w-4 mr-2" /> Descargar
-                  </Button>
                   <Dialog open={photoDialogOpen} onOpenChange={setPhotoDialogOpen}>
                     <DialogTrigger asChild>
                       <Button className="bg-cyan-600 hover:bg-cyan-700 text-white">
