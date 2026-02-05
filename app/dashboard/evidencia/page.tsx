@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useCallback, useEffect, useMemo, useState } from "react"
+import jsPDF from "jspdf"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -236,12 +237,137 @@ export default function EvidenciaPage() {
   const [detailItem, setDetailItem] = useState<EvidenceItem | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [reportDetail, setReportDetail] = useState<VoteReportDetail | null>(null)
+  const [downloading, setDownloading] = useState(false)
   const dateFormatter = useMemo(
     () => new Intl.DateTimeFormat("es-CO", { dateStyle: "short", timeStyle: "short", timeZone: "UTC" }),
     []
   )
 
   const notify = (message: string, description?: string) => toast({ title: message, description })
+
+  const getDetailVotes = useCallback(() => {
+    if (reportDetail?.details?.length) return reportDetail.details
+    if (Array.isArray(detailItem?.voteDetails) && detailItem.voteDetails.length) return detailItem.voteDetails
+    return []
+  }, [detailItem, reportDetail])
+
+  const fetchImageAsDataUrl = useCallback(async (url?: string | null) => {
+    if (!url) return null
+    if (url.startsWith("data:")) return url
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const blob = await res.blob()
+    return await new Promise<string | null>((resolve) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : null)
+      reader.onerror = () => resolve(null)
+      reader.readAsDataURL(blob)
+    })
+  }, [])
+
+  const handleDownloadImage = useCallback(async () => {
+    if (!detailItem) return
+    const url = detailItem.url || detailItem.localPreview
+    if (!url) {
+      notify("Sin imagen", "No hay imagen disponible para descargar")
+      return
+    }
+    try {
+      setDownloading(true)
+      if (url.startsWith("data:")) {
+        const a = document.createElement("a")
+        a.href = url
+        a.download = `${detailItem.title || "evidencia"}.png`
+        a.click()
+        return
+      }
+      const res = await fetch(url)
+      if (!res.ok) throw new Error("No se pudo descargar la imagen")
+      const blob = await res.blob()
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = href
+      a.download = `${detailItem.title || "evidencia"}.jpg`
+      a.click()
+      URL.revokeObjectURL(href)
+    } catch (err) {
+      console.error(err)
+      notify("Descarga fallida", "No se pudo descargar la imagen")
+    } finally {
+      setDownloading(false)
+    }
+  }, [detailItem, notify])
+
+  const handleDownloadPdf = useCallback(async () => {
+    if (!detailItem) return
+    try {
+      setDownloading(true)
+      const votes = getDetailVotes()
+      const imageUrl = detailItem.url || detailItem.localPreview
+      const imageData = await fetchImageAsDataUrl(imageUrl)
+
+      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" })
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+      let y = 40
+
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(16)
+      doc.text(detailItem.title || "Evidencia", 40, y)
+      y += 18
+
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(10)
+      doc.text(`Mesa: ${detailItem.pollingStation ?? "Sin dato"}`, 40, y)
+      y += 14
+      doc.text(`Municipio: ${detailItem.municipality ?? "Sin dato"}`, 40, y)
+      y += 14
+      doc.text(`Subido: ${new Date(detailItem.uploadedAt).toLocaleString("es-CO")}`, 40, y)
+      y += 18
+
+      if (imageData) {
+        const imgProps = doc.getImageProperties(imageData)
+        const maxWidth = pageWidth - 80
+        const maxHeight = 260
+        const ratio = Math.min(maxWidth / imgProps.width, maxHeight / imgProps.height)
+        const imgWidth = imgProps.width * ratio
+        const imgHeight = imgProps.height * ratio
+        const imageFormat = imageData.startsWith("data:image/png") ? "PNG" : "JPEG"
+        doc.addImage(imageData, imageFormat, 40, y, imgWidth, imgHeight)
+        y += imgHeight + 16
+      }
+
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(12)
+      doc.text("Votos reportados", 40, y)
+      y += 16
+
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(10)
+      if (!votes.length) {
+        doc.text("Sin detalle de votos.", 40, y)
+      } else {
+        votes.forEach((v) => {
+          const labelBase = `${v.fullName ?? "Candidato"} (${v.party ?? ""})`
+          const label = labelBase.replace(/\s+\)/g, ")").replace(/\(\s*\)/g, "")
+          const line = `${label}: ${v.votes} votos`
+          if (y > pageHeight - 40) {
+            doc.addPage()
+            y = 40
+          }
+          doc.text(line, 40, y)
+          y += 14
+        })
+      }
+
+      doc.save(`${detailItem.title || "evidencia"}.pdf`)
+    } catch (err) {
+      console.error(err)
+      notify("Descarga fallida", "No se pudo generar el PDF")
+    } finally {
+      setDownloading(false)
+    }
+  }, [detailItem, fetchImageAsDataUrl, getDetailVotes, notify])
 
   const preload = useCallback(async () => {
     setLoading(true)
@@ -1037,11 +1163,25 @@ export default function EvidenciaPage() {
                       </div>
                     )}
 
-                    <div className="flex gap-2 pt-1">
-                      <Button variant="outline" className="bg-zinc-800/60 border-zinc-700" onClick={() => window.open(detailItem.url, "_blank")}>
-                        Descargar
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <Button
+                        variant="outline"
+                        className="bg-zinc-800/60 border-zinc-700"
+                        onClick={handleDownloadImage}
+                        disabled={downloading}
+                      >
+                        Descargar imagen
                       </Button>
-                      <Button variant="ghost" className="text-emerald-400" onClick={() => setDetailItem(null)}>Cerrar</Button>
+                      <Button
+                        className="bg-emerald-600 hover:bg-emerald-700"
+                        onClick={handleDownloadPdf}
+                        disabled={downloading}
+                      >
+                        Descargar PDF con votos
+                      </Button>
+                      <Button variant="ghost" className="text-emerald-400" onClick={() => setDetailItem(null)}>
+                        Cerrar
+                      </Button>
                     </div>
                   </div>
                 </div>
