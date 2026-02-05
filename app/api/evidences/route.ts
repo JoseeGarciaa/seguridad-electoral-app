@@ -84,9 +84,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const isDelegate = user.role === DELEGATE_ROLE
-  const delegateId = isDelegate ? user.delegateId : null
-  if (isDelegate && !delegateId) {
+  const isWitness = user.role === DELEGATE_ROLE || user.role === "witness"
+  let delegateId = isWitness ? user.delegateId : null
+  if (isWitness && !delegateId && user.email) {
+    try {
+      const fallback = await pool?.query(`SELECT id FROM delegates WHERE LOWER(email) = LOWER($1) LIMIT 1`, [user.email])
+      delegateId = (fallback?.rows[0]?.id as string | undefined) ?? null
+    } catch (err) {
+      console.warn("delegate fallback lookup failed", err)
+    }
+  }
+  if (isWitness && !delegateId) {
     return NextResponse.json({ error: "Perfil de testigo electoral incompleto" }, { status: 403 })
   }
   const searchParams = req.nextUrl.searchParams
@@ -235,9 +243,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const isDelegate = user.role === DELEGATE_ROLE
-  const delegateId = isDelegate ? user.delegateId : null
-  if (isDelegate && !delegateId) {
+  const isWitness = user.role === DELEGATE_ROLE || user.role === "witness"
+  let delegateId = isWitness ? user.delegateId : null
+  if (isWitness && !delegateId && user.email) {
+    try {
+      const fallback = await pool?.query(`SELECT id FROM delegates WHERE LOWER(email) = LOWER($1) LIMIT 1`, [user.email])
+      delegateId = (fallback?.rows[0]?.id as string | undefined) ?? null
+    } catch (err) {
+      console.warn("delegate fallback lookup failed", err)
+    }
+  }
+  if (isWitness && !delegateId) {
     return NextResponse.json({ error: "Perfil de testigo electoral incompleto" }, { status: 403 })
   }
 
@@ -265,14 +281,14 @@ export async function POST(req: NextRequest) {
     voteReportId = null,
   } = body
 
-  const enforcedUploadedById = isDelegate ? delegateId : uploadedById
+  const enforcedUploadedById = isWitness ? delegateId : uploadedById
   let uploaderName: string | null = null
 
   if (!type || !title || !url || !status) {
     return NextResponse.json({ error: "type, title, url y status son requeridos" }, { status: 400 })
   }
 
-  if (isDelegate && !enforcedUploadedById) {
+  if (isWitness && !enforcedUploadedById) {
     return NextResponse.json({ error: "No se puede registrar evidencia sin delegado asignado" }, { status: 403 })
   }
 
@@ -324,7 +340,7 @@ export async function POST(req: NextRequest) {
 
       const { rows } = await client.query(insertQuery, values)
 
-      const resolvedUploader = uploaderName ?? (isDelegate ? user.email : null)
+      const resolvedUploader = uploaderName ?? (isWitness ? user.email : null)
 
       if (voteReportId && type === "image" && finalUrl) {
         await client.query(
@@ -373,9 +389,17 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "id invalido" }, { status: 400 })
   }
 
-  const isDelegate = user.role === DELEGATE_ROLE
-  const delegateId = isDelegate ? user.delegateId : null
-  if (isDelegate && !delegateId) {
+  const isWitness = user.role === DELEGATE_ROLE || user.role === "witness"
+  let delegateId = isWitness ? user.delegateId : null
+  if (isWitness && !delegateId && user.email) {
+    try {
+      const fallback = await pool?.query(`SELECT id FROM delegates WHERE LOWER(email) = LOWER($1) LIMIT 1`, [user.email])
+      delegateId = (fallback?.rows[0]?.id as string | undefined) ?? null
+    } catch (err) {
+      console.warn("delegate fallback lookup failed", err)
+    }
+  }
+  if (isWitness && !delegateId) {
     return NextResponse.json({ error: "Perfil de testigo electoral incompleto" }, { status: 403 })
   }
 
