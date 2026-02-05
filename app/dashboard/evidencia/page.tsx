@@ -28,7 +28,6 @@ import {
   Loader2,
   CheckCircle,
   Eye,
-  Download,
   Trash2,
   X,
   ArrowLeft,
@@ -488,6 +487,57 @@ export default function EvidenciaPage() {
       notify("No se pudo eliminar", err?.message)
     }
   }, [preload])
+
+  const handleVerifyEvidence = useCallback(async (item: EvidenceItem) => {
+    if (!item?.id) return
+
+    if (item.status === "verified") {
+      notify("Ya está verificado")
+      return
+    }
+
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.id)
+    const isLocalOnly = item.id.startsWith("local-") || !isUuid
+
+    setItems((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, status: "verified" } : i))
+    )
+
+    setStats((prev) => ({
+      ...prev,
+      verified: prev.verified + 1,
+    }))
+
+    if (isLocalOnly) {
+      notify("Marcado verificado")
+      return
+    }
+
+    try {
+      const res = await fetch("/api/evidences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: item.id, status: "verified" }),
+      })
+
+      if (!res.ok) {
+        const message = await res.text().catch(() => "No se pudo actualizar")
+        throw new Error(message || `Status ${res.status}`)
+      }
+
+      notify("Marcado verificado")
+      preload()
+    } catch (err: any) {
+      setItems((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, status: item.status } : i))
+      )
+      setStats((prev) => ({
+        ...prev,
+        verified: Math.max(0, prev.verified - 1),
+      }))
+      notify("No se pudo verificar", err?.message)
+    }
+  }, [notify, preload])
 
   const selectedMesaLabel = useMemo(
     () => mesas.find((m) => m.id === flow.mesaId)?.label ?? flow.mesaId,
@@ -985,7 +1035,7 @@ export default function EvidenciaPage() {
                   key={item.id}
                   item={item}
                   dateFormatter={dateFormatter}
-                  onVerify={() => notify("Marcado verificado")}
+                  onVerify={() => handleVerifyEvidence(item)}
                   onView={() => setDetailItem(item)}
                   onDelete={() => handleDeleteEvidence(item)}
                 ></EvidenceCard>
@@ -1568,6 +1618,7 @@ function ConfirmStep({ flow, onSubmit }: { flow: VoteFlowState; onSubmit: () => 
 }
 
 function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter }: { item: EvidenceItem; onVerify: () => void; onView: () => void; onDelete: () => void; dateFormatter: Intl.DateTimeFormat }) {
+  const isVerified = item.status === "verified"
   return (
     <Card className="bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 transition-colors">
       <CardContent className="p-4 space-y-3">
@@ -1634,16 +1685,9 @@ function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter }: { ite
               size="sm"
               className="bg-emerald-600/30 border-emerald-700 text-emerald-100"
               onClick={onVerify}
+              disabled={isVerified}
             >
-              <CheckCircle className="h-4 w-4 mr-2" /> Marcar verificado
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 min-w-[36px]"
-              onClick={() => window.open(item.url || item.localPreview, "_blank")}
-            >
-              <Download className="h-4 w-4" />
+              <CheckCircle className="h-4 w-4 mr-2" /> {isVerified ? "Verificado" : "Marcar verificado"}
             </Button>
             <Button
               variant="ghost"

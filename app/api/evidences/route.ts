@@ -429,3 +429,68 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
+
+// PATCH /api/evidences - update evidence status (delegados solo pueden actualizar lo propio)
+export async function PATCH(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  if (!pool) {
+    return NextResponse.json({ error: "DB no disponible" }, { status: 503 })
+  }
+
+  const body = await req.json().catch(() => null)
+  const id = body?.id as string | undefined
+  const status = (body?.status as string | undefined) ?? "verified"
+
+  if (!id) {
+    return NextResponse.json({ error: "id requerido" }, { status: 400 })
+  }
+
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
+  if (!isUuid) {
+    return NextResponse.json({ error: "id invalido" }, { status: 400 })
+  }
+
+  const isWitness = user.role === DELEGATE_ROLE || user.role === "witness"
+  let delegateId = isWitness ? user.delegateId : null
+  if (isWitness && !delegateId && user.email) {
+    try {
+      const fallback = await pool.query(`SELECT id FROM delegates WHERE LOWER(email) = LOWER($1) LIMIT 1`, [user.email])
+      delegateId = (fallback.rows[0]?.id as string | undefined) ?? null
+    } catch (err) {
+      console.warn("delegate fallback lookup failed", err)
+    }
+  }
+  if (isWitness && !delegateId) {
+    return NextResponse.json({ error: "Perfil de testigo electoral incompleto" }, { status: 403 })
+  }
+
+  try {
+    const client = await pool.connect()
+    try {
+      const params: any[] = [status, id]
+      let query = "UPDATE evidences SET status = $1 WHERE id = $2 RETURNING id, status"
+
+      if (delegateId) {
+        params.push(delegateId)
+        query = "UPDATE evidences SET status = $1 WHERE id = $2 AND uploaded_by_id = $3 RETURNING id, status"
+      }
+
+      const { rows, rowCount } = await client.query(query, params)
+      if (!rowCount) {
+        return NextResponse.json({ error: "No encontrado" }, { status: 404 })
+      }
+
+      return NextResponse.json({ id: rows[0].id as string, status: rows[0].status as string })
+    } finally {
+      client.release()
+    }
+  } catch (error) {
+    console.error("Evidences PATCH error", error)
+    const message = (error as any)?.message ?? "Failed to update evidence"
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}
