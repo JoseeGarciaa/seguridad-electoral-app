@@ -143,6 +143,15 @@ type VoteCandidateDetail = {
   color: string | null
 }
 
+type VoteReportSummary = {
+  id: string
+  assignmentId: string | null
+  pollingStation: string | null
+  municipality: string | null
+  totalVotes: number
+  details: VoteCandidateDetail[]
+}
+
 type VoteReportDetail = {
   id: string
   pollingStation: string | null
@@ -224,6 +233,7 @@ export default function EvidenciaPage() {
   const [candidatos, setCandidatos] = useState<Candidato[]>([])
   const [items, setItems] = useState<EvidenceItem[]>([])
   const [stats, setStats] = useState<EvidenceStats>(defaultStats)
+  const [reportsByAssignment, setReportsByAssignment] = useState<Record<string, VoteReportSummary>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
@@ -372,10 +382,11 @@ export default function EvidenciaPage() {
     setLoading(true)
     setError(null)
     try {
-      const [mesasRes, catalogosRes, evidencesRes] = await Promise.all([
+      const [mesasRes, catalogosRes, evidencesRes, voteReportsRes] = await Promise.all([
         fetch("/api/mesas-asignadas", { cache: "no-store" }),
         fetch("/api/catalogos", { cache: "no-store" }),
         fetch("/api/evidences", { cache: "no-store" }),
+        fetch("/api/vote-reports", { cache: "no-store" }),
       ])
 
       // Mesas pueden fallar para perfiles admin; en ese caso continuamos con lista vacia.
@@ -388,6 +399,7 @@ export default function EvidenciaPage() {
       const mesasData = mesasRes.ok ? await mesasRes.json().catch(() => ({ items: [] })) : { items: [] }
       const catalogosData = await catalogosRes.json()
       const evidencesData = await evidencesRes.json()
+      const voteReportsData = voteReportsRes.ok ? await voteReportsRes.json().catch(() => ({ items: [] })) : { items: [] }
 
       setMesas(mesasData?.items ?? [])
       setCargos(catalogosData?.cargos ?? [])
@@ -395,6 +407,21 @@ export default function EvidenciaPage() {
       setCandidatos(catalogosData?.candidatos ?? [])
       setItems(evidencesData?.items ?? [])
       setStats(evidencesData?.stats ?? defaultStats)
+
+      const reportMap: Record<string, VoteReportSummary> = {}
+      const items = Array.isArray(voteReportsData?.items) ? voteReportsData.items : []
+      items.forEach((report: any) => {
+        if (!report.assignmentId) return
+        reportMap[String(report.assignmentId)] = {
+          id: String(report.id),
+          assignmentId: report.assignmentId ?? null,
+          pollingStation: report.pollingStation ?? null,
+          municipality: report.municipality ?? null,
+          totalVotes: Number(report.totalVotes ?? 0),
+          details: Array.isArray(report.details) ? report.details : [],
+        }
+      })
+      setReportsByAssignment(reportMap)
     } catch (err) {
       console.error(err)
       setError("No se pudo cargar evidencias y catalogos")
@@ -543,6 +570,34 @@ export default function EvidenciaPage() {
     () => mesas.find((m) => m.id === flow.mesaId)?.label ?? flow.mesaId,
     [flow.mesaId, mesas]
   )
+
+  const handlePickMesa = useCallback((id: string) => {
+    const report = reportsByAssignment[id]
+    if (report) {
+      const candidateVotes = report.details.reduce<Record<string, number>>((acc, detail) => {
+        acc[detail.candidateId] = Number(detail.votes ?? 0)
+        return acc
+      }, {})
+
+      setFlow((prev) => ({
+        ...prev,
+        mesaId: id,
+        candidateVotes,
+        candidatoId: undefined,
+        votos: 0,
+      }))
+      notify("Votos cargados", "Se cargaron los votos previamente reportados para esta mesa")
+      return
+    }
+
+    setFlow((prev) => ({
+      ...prev,
+      mesaId: id,
+      candidateVotes: {},
+      candidatoId: undefined,
+      votos: 0,
+    }))
+  }, [notify, reportsByAssignment])
 
   useEffect(() => {
     let cancelled = false
@@ -916,7 +971,7 @@ export default function EvidenciaPage() {
 
           <CardContent className="space-y-4">
             <div className="grid gap-4 lg:grid-cols-3">
-              <AssignedMesasPanel mesas={mesas} selectedMesaId={flow.mesaId} onPick={(id) => setFlow((prev) => ({ ...prev, mesaId: id }))} />
+              <AssignedMesasPanel mesas={mesas} selectedMesaId={flow.mesaId} onPick={handlePickMesa} />
 
               <div className="lg:col-span-2 space-y-4">
                 <CandidateVotesPanel
