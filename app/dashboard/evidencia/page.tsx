@@ -110,6 +110,7 @@ type VoteFlowState = {
   photo?: File
   photoPreview?: string
   photos: PhotoSlot[]
+  existingPhotos?: string[]
   candidateVotes: Record<string, number>
 }
 
@@ -225,7 +226,7 @@ const chipFilters = [
 
 export default function EvidenciaPage() {
   const [view, setView] = useState<"hub" | "wizard" | "evidencias">("hub")
-  const [flow, setFlow] = useState<VoteFlowState>({ votos: 0, photos: [], candidateVotes: {} })
+  const [flow, setFlow] = useState<VoteFlowState>({ votos: 0, photos: [], existingPhotos: [], candidateVotes: {} })
   const [stepIndex, setStepIndex] = useState(0)
   const [mesas, setMesas] = useState<Mesa[]>([])
   const [cargos, setCargos] = useState<Cargo[]>([])
@@ -234,6 +235,7 @@ export default function EvidenciaPage() {
   const [items, setItems] = useState<EvidenceItem[]>([])
   const [stats, setStats] = useState<EvidenceStats>(defaultStats)
   const [reportsByAssignment, setReportsByAssignment] = useState<Record<string, VoteReportSummary>>({})
+  const [photosByReport, setPhotosByReport] = useState<Record<string, string[]>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
@@ -405,7 +407,8 @@ export default function EvidenciaPage() {
       setCargos(catalogosData?.cargos ?? [])
       setPartidos(catalogosData?.partidos ?? [])
       setCandidatos(catalogosData?.candidatos ?? [])
-      setItems(evidencesData?.items ?? [])
+      const evidenceItems = evidencesData?.items ?? []
+      setItems(evidenceItems)
       setStats(evidencesData?.stats ?? defaultStats)
 
       const reportMap: Record<string, VoteReportSummary> = {}
@@ -422,6 +425,15 @@ export default function EvidenciaPage() {
         }
       })
       setReportsByAssignment(reportMap)
+
+      const photoMap: Record<string, string[]> = {}
+      evidenceItems.forEach((ev: any) => {
+        if (!ev?.voteReportId || !ev?.url) return
+        const id = String(ev.voteReportId)
+        if (!photoMap[id]) photoMap[id] = []
+        if (!photoMap[id].includes(ev.url)) photoMap[id].push(ev.url)
+      })
+      setPhotosByReport(photoMap)
     } catch (err) {
       console.error(err)
       setError("No se pudo cargar evidencias y catalogos")
@@ -574,6 +586,7 @@ export default function EvidenciaPage() {
   const handlePickMesa = useCallback((id: string) => {
     const report = reportsByAssignment[id]
     if (report) {
+      const existingPhotos = report.id ? (photosByReport[report.id] ?? []) : []
       const candidateVotes = report.details.reduce<Record<string, number>>((acc, detail) => {
         acc[detail.candidateId] = Number(detail.votes ?? 0)
         return acc
@@ -583,6 +596,7 @@ export default function EvidenciaPage() {
         ...prev,
         mesaId: id,
         candidateVotes,
+        existingPhotos,
         candidatoId: undefined,
         votos: 0,
       }))
@@ -594,10 +608,11 @@ export default function EvidenciaPage() {
       ...prev,
       mesaId: id,
       candidateVotes: {},
+      existingPhotos: [],
       candidatoId: undefined,
       votos: 0,
     }))
-  }, [notify, reportsByAssignment])
+  }, [notify, photosByReport, reportsByAssignment])
 
   useEffect(() => {
     let cancelled = false
@@ -629,7 +644,7 @@ export default function EvidenciaPage() {
   }, [detailItem])
 
   const resetFlow = () => {
-    setFlow({ votos: 0, photos: [], candidateVotes: {} })
+    setFlow({ votos: 0, photos: [], existingPhotos: [], candidateVotes: {} })
     setStepIndex(0)
   }
 
@@ -646,7 +661,7 @@ export default function EvidenciaPage() {
     if (current === "partidoId") return Boolean(flow.partidoId)
     if (current === "candidatoId") return Boolean(flow.candidatoId)
     if (current === "votos") return flow.votos >= 0
-    if (current === "photo") return Boolean(flow.photo)
+    if (current === "photo") return Boolean(flow.photo) || (flow.existingPhotos?.length ?? 0) > 0
     return true
   }, [flow, stepIndex])
 
@@ -690,7 +705,8 @@ export default function EvidenciaPage() {
 
     setFlow((prev) => {
       const current = prev.photos ?? []
-      const remainingSlots = Math.max(0, 5 - current.length)
+      const existingCount = prev.existingPhotos?.length ?? 0
+      const remainingSlots = Math.max(0, 5 - current.length - existingCount)
       const nextFiles = selected
         .slice(0, remainingSlots)
         .map((file) => ({ file, preview: URL.createObjectURL(file) }))
@@ -752,6 +768,7 @@ export default function EvidenciaPage() {
           notes: null,
           details,
           photos: photoPayloads,
+          existing_photo_urls: payload.existingPhotos ?? [],
         }
 
         const voteRes = await fetch("/api/my/vote-report", {
@@ -987,7 +1004,7 @@ export default function EvidenciaPage() {
                   onResetVotes={() => setFlow((prev) => ({ ...prev, candidateVotes: {} }))}
                 />
 
-                <PhotoStack photos={flow.photos} onAdd={handleAddPhotos} onRemove={handleRemovePhoto} />
+                <PhotoStack photos={flow.photos} existingPhotos={flow.existingPhotos} onAdd={handleAddPhotos} onRemove={handleRemovePhoto} />
 
                 <div className="flex flex-col gap-3 border-t border-zinc-800 pt-4 md:flex-row md:items-center md:justify-between">
                   <div className="text-sm text-muted-foreground">
@@ -999,7 +1016,7 @@ export default function EvidenciaPage() {
                     </Button>
                     <Button
                       className="bg-cyan-600 hover:bg-cyan-700"
-                      disabled={!flow.mesaId || (flow.photos?.length ?? 0) === 0 || (Object.values(flow.candidateVotes).filter((v) => v > 0).length === 0 && (!flow.candidatoId || flow.votos <= 0))}
+                      disabled={!flow.mesaId || ((flow.photos?.length ?? 0) + (flow.existingPhotos?.length ?? 0)) === 0 || (Object.values(flow.candidateVotes).filter((v) => v > 0).length === 0 && (!flow.candidatoId || flow.votos <= 0))}
                       onClick={handleSubmit}
                     >
                       Enviar evidencias
@@ -1470,8 +1487,9 @@ function CandidateVotesPanel({
   )
 }
 
-function PhotoStack({ photos, onAdd, onRemove }: { photos: PhotoSlot[]; onAdd: (files: FileList | null) => void; onRemove: (index: number) => void }) {
-  const remaining = Math.max(0, 5 - (photos?.length ?? 0))
+function PhotoStack({ photos, existingPhotos, onAdd, onRemove }: { photos: PhotoSlot[]; existingPhotos?: string[]; onAdd: (files: FileList | null) => void; onRemove: (index: number) => void }) {
+  const existingCount = existingPhotos?.length ?? 0
+  const remaining = Math.max(0, 5 - (photos?.length ?? 0) - existingCount)
 
   return (
     <div className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
@@ -1480,10 +1498,18 @@ function PhotoStack({ photos, onAdd, onRemove }: { photos: PhotoSlot[]; onAdd: (
           <p className="text-sm font-semibold">Fotos del E14</p>
           <p className="text-xs text-muted-foreground">Minimo una foto obligatoria. Maximo 5 por envio.</p>
         </div>
-        <Badge className="bg-zinc-800 border-zinc-700 text-xs">{photos.length}/5</Badge>
+        <Badge className="bg-zinc-800 border-zinc-700 text-xs">{photos.length + existingCount}/5</Badge>
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
+        {existingPhotos?.map((url, index) => (
+          <div key={`${url}-${index}`} className="relative h-32 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950">
+            <img src={url} alt="Foto guardada" className="h-full w-full object-cover" />
+            <div className="absolute left-2 top-2 rounded-full bg-zinc-900/80 px-2 py-0.5 text-[10px] text-zinc-300">
+              Guardada
+            </div>
+          </div>
+        ))}
         <label className={`flex h-32 cursor-pointer items-center justify-center rounded-xl border border-dashed ${remaining === 0 ? "border-zinc-800 bg-zinc-950 text-muted-foreground" : "border-cyan-600/60 bg-cyan-600/10 text-cyan-50"}`}>
           <div className="flex flex-col items-center gap-1 text-sm font-semibold">
             <Camera className="h-5 w-5" /> {remaining === 0 ? "Limite alcanzado" : "Tomar / subir foto"}

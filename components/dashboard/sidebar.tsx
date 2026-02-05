@@ -11,7 +11,6 @@ import {
   Camera,
   Bell,
   Settings,
-  Calendar,
   CheckSquare,
   FileCheck,
   ChevronLeft,
@@ -39,8 +38,6 @@ const navigation = [
   { name: "Territorio PRO", href: "/dashboard/territorio", icon: Map },
   { name: "Equipo", href: "/dashboard/equipo", icon: Users },
   { name: "Evidencias", href: "/dashboard/evidencias", icon: Camera },
-  { name: "Eventos", href: "/dashboard/eventos", icon: Calendar },
-  { name: "Tareas", href: "/dashboard/tareas", icon: CheckSquare },
   { name: "Alertas", href: "/dashboard/alertas", icon: Bell },
   { name: "Cumplimiento", href: "/dashboard/cumplimiento", icon: FileCheck },
 ]

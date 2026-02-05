@@ -84,8 +84,6 @@ export function DashboardHeader({ user }: HeaderProps) {
     if (pathname.includes("evidencias")) return "Evidencias"
     if (pathname.includes("testigo")) return "Testigo Electoral"
     if (pathname.includes("simpatizantes")) return "Simpatizantes"
-    if (pathname.includes("eventos")) return "Eventos"
-    if (pathname.includes("tareas")) return "Tareas"
     if (pathname.includes("comunicacion")) return "Comunicación"
     if (pathname.includes("alertas")) return "Alertas"
     if (pathname.includes("cumplimiento")) return "Cumplimiento"
@@ -243,8 +241,6 @@ export function DashboardHeader({ user }: HeaderProps) {
                     { name: "Territorio PRO", href: "/dashboard/territorio" },
                     { name: "Equipo", href: "/dashboard/equipo" },
                     { name: "Evidencias", href: "/dashboard/evidencias" },
-                    { name: "Eventos", href: "/dashboard/eventos" },
-                    { name: "Tareas", href: "/dashboard/tareas" },
                     { name: "Alertas", href: "/dashboard/alertas" },
                   ]).map((item) => (
                 <Link
