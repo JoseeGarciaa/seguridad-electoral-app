@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { logout } from "@/app/actions/auth"
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Shield } from "lucide-react"
@@ -31,11 +31,48 @@ interface HeaderProps {
   user: User
 }
 
+type HeaderAlert = {
+  id: string
+  title: string
+  level: "crítica" | "alta" | "media"
+  category: string
+  municipality: string
+  time: string | null
+  status: "abierta" | "en análisis" | "enviada"
+  detail: string
+}
+
 export function DashboardHeader({ user }: HeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [alerts, setAlerts] = useState<HeaderAlert[]>([])
+  const [alertsLoading, setAlertsLoading] = useState(true)
   const pathname = usePathname()
   const roleLabel = user.profile?.role_extended?.toLowerCase() ?? ""
   const isWitness = user.role === "witness" || roleLabel.includes("testigo")
+
+  useEffect(() => {
+    let cancelled = false
+    const loadAlerts = async () => {
+      setAlertsLoading(true)
+      try {
+        const res = await fetch("/api/alerts?limit=5", { cache: "no-store" })
+        if (!res.ok) throw new Error("No se pudieron cargar alertas")
+        const json = await res.json()
+        if (cancelled) return
+        setAlerts(Array.isArray(json.items) ? json.items : [])
+      } catch (err) {
+        if (!cancelled) setAlerts([])
+      } finally {
+        if (!cancelled) setAlertsLoading(false)
+      }
+    }
+    loadAlerts()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const unreadCount = useMemo(() => alerts.length, [alerts])
 
   // Get current page title
   const getPageTitle = () => {
@@ -105,15 +142,41 @@ export function DashboardHeader({ user }: HeaderProps) {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="relative">
                   <Bell className="w-5 h-5" />
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-destructive rounded-full" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-1 right-1 w-2 h-2 bg-destructive rounded-full" />
+                  )}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-80">
                 <DropdownMenuLabel>Notificaciones</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <div className="p-4 text-center text-sm text-muted-foreground">
-                  No hay notificaciones nuevas
-                </div>
+                {alertsLoading && (
+                  <div className="p-4 text-center text-sm text-muted-foreground">
+                    Cargando notificaciones...
+                  </div>
+                )}
+                {!alertsLoading && alerts.length === 0 && (
+                  <div className="p-4 text-center text-sm text-muted-foreground">
+                    No hay notificaciones nuevas
+                  </div>
+                )}
+                {!alertsLoading && alerts.length > 0 && (
+                  <div className="max-h-80 overflow-y-auto">
+                    {alerts.map((alert) => (
+                      <DropdownMenuItem key={alert.id} className="flex flex-col items-start gap-1">
+                        <span className="text-sm font-medium text-foreground">
+                          {alert.title}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {alert.detail || alert.municipality}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {alert.time ? new Date(alert.time).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" }) : ""}
+                        </span>
+                      </DropdownMenuItem>
+                    ))}
+                  </div>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
 
