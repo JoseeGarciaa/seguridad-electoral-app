@@ -92,23 +92,27 @@ export async function GET(req: NextRequest) {
   joinParts.push(
     "LOWER(dl.pp) = LOWER(COALESCE(dpa.polling_station, vr.polling_station_code)) AND LOWER(dl.municipio) = LOWER(vr.municipality) AND LOWER(dl.departamento) = LOWER(vr.department)",
   )
+  joinParts.push(
+    "LOWER(dl.pp) = LOWER(COALESCE(dpa.polling_station, vr.polling_station_code)) AND LOWER(dl.departamento) = LOWER(vr.department)",
+  )
+  joinParts.push("LOWER(dl.pp) = LOWER(COALESCE(dpa.polling_station, vr.polling_station_code))")
 
   const query = `
     SELECT vr.id AS report_id,
            dpa.id AS assignment_id,
-           dl.departamento,
-           dl.municipio,
-           dl.puesto,
-           dl.direccion,
-           dl.mesas,
-           dl.total,
-           dl.hombres,
-           dl.mujeres,
-           dl.latitud,
-           dl.longitud,
-           dl.dd,
-           dl.mm,
-           dl.pp,
+           loc.departamento,
+           loc.municipio,
+           loc.puesto,
+           loc.direccion,
+           loc.mesas,
+           loc.total,
+           loc.hombres,
+           loc.mujeres,
+           loc.latitud,
+           loc.longitud,
+           loc.dd,
+           loc.mm,
+           loc.pp,
            dpa.polling_station,
            dpa.polling_station_number,
            vr.department AS report_department,
@@ -119,7 +123,16 @@ export async function GET(req: NextRequest) {
            COALESCE(cand.candidates, '[]'::json) AS candidates
     FROM vote_reports vr
     LEFT JOIN delegate_polling_assignments dpa ON dpa.id = vr.delegate_assignment_id
-    LEFT JOIN divipole_locations dl ON (${joinParts.join(" OR ")})
+    LEFT JOIN LATERAL (
+      SELECT dl.*
+      FROM divipole_locations dl
+      WHERE ${joinParts.join(" OR ")}
+      ORDER BY
+        (LOWER(dl.departamento) = LOWER(vr.department)) DESC,
+        (LOWER(dl.municipio) = LOWER(vr.municipality)) DESC,
+        (LOWER(dl.pp) = LOWER(COALESCE(dpa.polling_station, vr.polling_station_code))) DESC
+      LIMIT 1
+    ) loc ON true
     LEFT JOIN LATERAL (
       SELECT json_agg(
         json_build_object(
