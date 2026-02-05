@@ -54,7 +54,7 @@ export async function GET() {
     delegateId = (fallback.rows[0]?.id as string | undefined) ?? null
   }
   if (isWitness && !delegateId) {
-    return NextResponse.json({ error: "Perfil de testigo incompleto" }, { status: 403 })
+    return NextResponse.json(emptyPayload())
   }
   const delegateParams = delegateId ? [delegateId] : []
 
