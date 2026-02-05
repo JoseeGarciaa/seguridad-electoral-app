@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Search, Layers, Map } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 type ViewMode = "circle" | "heatmap" | "3d"
 
@@ -11,6 +12,12 @@ type Props = {
   onSearchChange: (v: string) => void
   viewMode: ViewMode
   onViewModeChange: (v: ViewMode) => void
+  departments: string[]
+  municipalities: string[]
+  selectedDepartment: string | null
+  selectedMunicipality: string | null
+  onDepartmentChange: (v: string | null) => void
+  onMunicipalityChange: (v: string | null) => void
 }
 
 export function TerritoryFilters({
@@ -18,10 +25,18 @@ export function TerritoryFilters({
   onSearchChange,
   viewMode,
   onViewModeChange,
+  departments,
+  municipalities,
+  selectedDepartment,
+  selectedMunicipality,
+  onDepartmentChange,
+  onMunicipalityChange,
 }: Props) {
+  const ALL_VALUE = "__all__"
+
   return (
     <div className="glass rounded-xl border border-border/50 p-4">
-      <div className="flex flex-col lg:flex-row gap-4">
+      <div className="flex flex-col gap-4">
         {/* Search */}
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -33,26 +48,71 @@ export function TerritoryFilters({
           />
         </div>
 
-        {/* View Mode */}
-        <div className="flex items-center gap-2">
-          <Button
-            variant={viewMode === "heatmap" ? "secondary" : "outline"}
-            size="sm"
-            className="gap-2"
-            onClick={() => onViewModeChange("heatmap")}
-          >
-            <Layers className="w-4 h-4" />
-            Heatmap
-          </Button>
-          <Button
-            variant={viewMode === "3d" ? "secondary" : "outline"}
-            size="sm"
-            className="gap-2 bg-transparent"
-            onClick={() => onViewModeChange("3d")}
-          >
-            <Map className="w-4 h-4" />
-            3D
-          </Button>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* Department filter */}
+          <div className="flex flex-col gap-1">
+            <p className="text-xs text-muted-foreground">Departamento</p>
+            <Select
+              value={selectedDepartment ?? ALL_VALUE}
+              onValueChange={(value) => onDepartmentChange(value === ALL_VALUE ? null : value)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Todos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_VALUE}>Todos</SelectItem>
+                {departments.map((dept) => (
+                  <SelectItem key={dept} value={dept}>
+                    {dept}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Municipality filter */}
+          <div className="flex flex-col gap-1">
+            <p className="text-xs text-muted-foreground">Municipio / Ciudad</p>
+            <Select
+              value={selectedMunicipality ?? ALL_VALUE}
+              onValueChange={(value) => onMunicipalityChange(value === ALL_VALUE ? null : value)}
+              disabled={!departments.length && !municipalities.length}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={selectedDepartment ? "Todos" : "Selecciona un departamento"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_VALUE}>Todos</SelectItem>
+                {municipalities.map((city) => (
+                  <SelectItem key={city} value={city}>
+                    {city}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* View Mode */}
+          <div className="flex items-end gap-2">
+            <Button
+              variant={viewMode === "heatmap" ? "secondary" : "outline"}
+              size="sm"
+              className="gap-2 flex-1"
+              onClick={() => onViewModeChange("heatmap")}
+            >
+              <Layers className="w-4 h-4" />
+              Heatmap
+            </Button>
+            <Button
+              variant={viewMode === "3d" ? "secondary" : "outline"}
+              size="sm"
+              className="gap-2 bg-transparent flex-1"
+              onClick={() => onViewModeChange("3d")}
+            >
+              <Map className="w-4 h-4" />
+              3D
+            </Button>
+          </div>
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 "use server";
 
-import { pool } from "@/lib/pg";
+import { getPool } from "@/lib/pg";
 import {
   hashPassword,
   verifyPassword,
@@ -16,6 +16,14 @@ export interface AuthResult {
 }
 
 export async function login(formData: FormData): Promise<AuthResult> {
+  let db;
+  try {
+    db = getPool();
+  } catch (err) {
+    console.error("DATABASE_URL no configurado", err);
+    return { success: false, error: "Error de configuración del servidor" };
+  }
+
   const rawEmail = (formData.get("email") as string | null) ?? "";
   const rawPassword = (formData.get("password") as string | null) ?? "";
   const email = rawEmail.trim().toLowerCase();
@@ -26,7 +34,7 @@ export async function login(formData: FormData): Promise<AuthResult> {
   }
 
   try {
-    const { rows } = await pool.query(
+    const { rows } = await db.query(
       "SELECT id, password_hash, role, is_active FROM users WHERE email = $1 LIMIT 1",
       [email],
     );
@@ -52,6 +60,13 @@ export async function login(formData: FormData): Promise<AuthResult> {
 }
 
 export async function register(formData: FormData): Promise<AuthResult> {
+  let db;
+  try {
+    db = getPool();
+  } catch (err) {
+    console.error("DATABASE_URL no configurado", err);
+    return { success: false, error: "Error de configuración del servidor" };
+  }
   const rawEmail = (formData.get("email") as string | null) ?? "";
   const rawPassword = (formData.get("password") as string | null) ?? "";
   const email = rawEmail.trim().toLowerCase();
@@ -66,7 +81,7 @@ export async function register(formData: FormData): Promise<AuthResult> {
   }
 
   try {
-    const existing = await pool.query("SELECT 1 FROM users WHERE email = $1 LIMIT 1", [email]);
+    const existing = await db.query("SELECT 1 FROM users WHERE email = $1 LIMIT 1", [email]);
     if (existing.rowCount && existing.rowCount > 0) {
       return { success: false, error: "El email ya está registrado" };
     }
@@ -74,7 +89,7 @@ export async function register(formData: FormData): Promise<AuthResult> {
     const hashedPassword = await hashPassword(password);
 
     const userId = crypto.randomUUID();
-    await pool.query(
+    await db.query(
       `INSERT INTO users (id, email, password_hash, role, is_active, must_reset_password, created_at, updated_at)
        VALUES ($1, $2, $3, $4, true, false, now(), now())`,
       [userId, email, hashedPassword, "delegate"],

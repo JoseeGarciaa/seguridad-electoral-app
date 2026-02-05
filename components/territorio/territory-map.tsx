@@ -21,15 +21,19 @@ type Feature = {
     total: number
     hombres: number
     mujeres: number
-    candidates?: Array<{ id: string; name: string; votes: number }>
     dd?: string
     mm?: string
     pp?: string
     delegateAssigned?: boolean
+    delegateName?: string | null
+    delegateEmail?: string | null
+    delegatePhone?: string | null
+    votersPerMesa?: number | null
   }
 }
 
-const TILE_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
+// Use the MapLibre demo style to avoid glyph/sprite mismatches that can crash on some basemaps
+const TILE_STYLE = "https://demotiles.maplibre.org/style.json"
 
 type Props = {
   viewMode: ViewMode
@@ -58,6 +62,12 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
     })
 
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-left")
+
+    // Avoid unhandled runtime errors from style/glyph fetch issues
+    map.on("error", (e) => {
+      // MapLibre surfaces many recoverable errors; keep them logged without breaking the page
+      console.error("MapLibre error", e.error)
+    })
 
     map.on("load", async () => {
       map.addSource("puestos", {
@@ -107,7 +117,6 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
         filter: ["has", "point_count"],
         layout: {
           "text-field": ["get", "point_count_abbreviated"],
-          "text-font": ["Open Sans Bold"],
           "text-size": 12,
         },
         paint: {
@@ -137,20 +146,8 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
         if (!feature) return
         const coords = feature.geometry.coordinates
         const props = feature.properties
-        const candidates = Array.isArray(props.candidates) ? props.candidates : []
-        const candidatesHtml = candidates.length
-          ? `<div class="mt-2 text-xs">
-              <div class="font-semibold" style="color:#0f172a">Top candidatos</div>
-              <div class="mt-1 space-y-1">
-                ${candidates
-                  .map(
-                    (c) =>
-                      `<div class="flex justify-between"><span>${c.name}</span><span>${Number(c.votes).toLocaleString?.() ?? c.votes}</span></div>`,
-                  )
-                  .join("")}
-              </div>
-            </div>`
-          : ""
+        const votersPerMesa = props.votersPerMesa ? Math.round(props.votersPerMesa) : null
+        const delegateHtml = props.delegateAssigned && props.delegateName ? props.delegateName : "Sin testigo electoral"
         onSelect?.(props.id)
         new maplibregl.Popup({ closeButton: true })
           .setLngLat(coords)
@@ -158,10 +155,11 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
             <div class="space-y-1 text-sm">
               <div class="font-semibold" style="color:#000">${props.puesto}</div>
               <div class="text-muted-foreground">${props.municipio}, ${props.departamento}</div>
-              <div class="text-muted-foreground text-xs">Mesas: ${props.mesas?.toLocaleString?.() ?? "-"} · Votos: ${
+              <div class="text-muted-foreground text-xs">Mesas: ${props.mesas?.toLocaleString?.() ?? "-"} · Votantes: ${
             props.total?.toLocaleString?.() ?? "-"
           }</div>
-              ${candidatesHtml}
+              <div class="text-muted-foreground text-xs">Votantes / mesa: ${votersPerMesa ? votersPerMesa.toLocaleString?.() : "-"}</div>
+              <div class="text-xs" style="color:${props.delegateAssigned ? "#16a34a" : "#f59e0b"}">Delegado: ${delegateHtml}</div>
             </div>
           `)
           .addTo(map)
@@ -201,30 +199,21 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
     if (!feature) return
     const [lng, lat] = feature.geometry.coordinates
     mapRef.current.easeTo({ center: [lng, lat], zoom: Math.max(mapRef.current.getZoom(), 11) })
-    const candidates = Array.isArray(feature.properties.candidates) ? feature.properties.candidates : []
-    const candidatesHtml = candidates.length
-      ? `<div class="mt-2 text-xs">
-          <div class="font-semibold" style="color:#0f172a">Top candidatos</div>
-          <div class="mt-1 space-y-1">
-            ${candidates
-              .map(
-                (c) =>
-                  `<div class="flex justify-between"><span>${c.name}</span><span>${Number(c.votes).toLocaleString?.() ?? c.votes}</span></div>`,
-              )
-              .join("")}
-          </div>
-        </div>`
-      : ""
+    const votersPerMesa = feature.properties.votersPerMesa ? Math.round(feature.properties.votersPerMesa) : null
+    const delegateHtml = feature.properties.delegateAssigned && feature.properties.delegateName
+      ? feature.properties.delegateName
+      : "Sin testigo electoral"
     new maplibregl.Popup({ closeButton: true })
       .setLngLat([lng, lat])
       .setHTML(`
         <div class="space-y-1 text-sm">
           <div class="font-semibold" style="color:#000">${feature.properties.puesto}</div>
           <div class="text-muted-foreground">${feature.properties.municipio}, ${feature.properties.departamento}</div>
-          <div class="text-muted-foreground text-xs">Mesas: ${feature.properties.mesas?.toLocaleString?.() ?? "-"} · Votos: ${
+          <div class="text-muted-foreground text-xs">Mesas: ${feature.properties.mesas?.toLocaleString?.() ?? "-"} · Votantes: ${
         feature.properties.total?.toLocaleString?.() ?? "-"
       }</div>
-          ${candidatesHtml}
+          <div class="text-muted-foreground text-xs">Votantes / mesa: ${votersPerMesa ? votersPerMesa.toLocaleString?.() : "-"}</div>
+          <div class="text-xs" style="color:${feature.properties.delegateAssigned ? "#16a34a" : "#f59e0b"}">Delegado: ${delegateHtml}</div>
         </div>
       `)
       .addTo(mapRef.current)
@@ -296,7 +285,12 @@ function addPointsLayer(map: MLMap, mode: ViewMode) {
             "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.7, 12, 0.9],
           }
         : {
-            "circle-color": mode === "3d" ? "#06b6d4" : "#22c55e",
+            "circle-color": [
+              "case",
+              ["==", ["get", "delegateAssigned"], true],
+              "#22c55e",
+              "#f59e0b",
+            ],
             "circle-radius": [
               "interpolate",
               ["linear"],
