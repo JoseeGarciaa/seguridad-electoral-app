@@ -254,7 +254,7 @@ export async function GET(req: NextRequest) {
     }
   }
   if (isWitness && !delegateId) {
-    return NextResponse.json({ items: [], stats: { total: 0, criticas: 0, abiertas: 0 } })
+    return NextResponse.json({ items: [], stats: { total: 0, criticas: 0, abiertas: 0 }, viewerRole: user.role ?? null })
   }
 
   const filters: string[] = []
@@ -305,7 +305,7 @@ export async function GET(req: NextRequest) {
   `
 
   if (!pool) {
-    return NextResponse.json({ items: [], stats: { total: 0, criticas: 0, abiertas: 0 } })
+    return NextResponse.json({ items: [], stats: { total: 0, criticas: 0, abiertas: 0 }, viewerRole: user.role ?? null })
   }
 
   try {
@@ -382,6 +382,7 @@ export async function GET(req: NextRequest) {
           criticas: Number(statsRes.rows[0]?.criticas ?? 0) + manualCriticas,
           abiertas: Number(statsRes.rows[0]?.abiertas ?? 0) + manualAbiertas,
         },
+        viewerRole: user.role ?? null,
       })
     } finally {
       client.release()
@@ -389,7 +390,7 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     console.error("Alerts GET error", error)
     if ((error as any)?.code === "42P01") {
-      return NextResponse.json({ items: [], stats: { total: 0, criticas: 0, abiertas: 0 } })
+      return NextResponse.json({ items: [], stats: { total: 0, criticas: 0, abiertas: 0 }, viewerRole: user.role ?? null })
     }
     return NextResponse.json({ error: "No se pudo cargar alertas" }, { status: 500 })
   }

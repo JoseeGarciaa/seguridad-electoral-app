@@ -49,8 +49,39 @@ export async function GET(req: NextRequest) {
       const hasMunicipalityCode = delegateCols.has("municipality_code")
       const hasPollingStationCode = delegateCols.has("polling_station_code")
       const hasPollingStationNumber = delegateCols.has("polling_station_number")
+      const hasDelegatePollingStationId = delegateCols.has("polling_station_id")
       const hasDocumentNumber = delegateCols.has("document_number")
       const hasSupervisor = delegateCols.has("supervisor_id")
+
+      const dpaColumnsRes = await client.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'delegate_polling_assignments'`
+      )
+      const dpaCols = new Set<string>(dpaColumnsRes.rows.map((r: any) => r.column_name))
+      const hasDpaLocationId = dpaCols.has("divipole_location_id")
+
+      const assignmentSubquery = `
+            SELECT
+              delegate_id,
+              COUNT(*) AS assigned_count,
+              ARRAY_AGG(DISTINCT polling_station) FILTER (WHERE polling_station IS NOT NULL) AS polling_codes,
+              ARRAY_AGG(polling_station_number ORDER BY polling_station_number) FILTER (WHERE polling_station_number IS NOT NULL) AS polling_nums,
+              MIN(polling_station_number) FILTER (WHERE polling_station_number IS NOT NULL) AS primary_num
+              ${hasDpaLocationId
+                ? `,
+              ARRAY_AGG(DISTINCT divipole_location_id) FILTER (WHERE divipole_location_id IS NOT NULL) AS location_ids,
+              MIN(divipole_location_id) FILTER (WHERE divipole_location_id IS NOT NULL) AS primary_location_id`
+                : ""}
+            FROM delegate_polling_assignments
+            GROUP BY delegate_id
+          `
+
+      const divipoleJoin = hasDpaLocationId
+        ? "LEFT JOIN divipole_locations loc ON loc.id = COALESCE(d.polling_station_id, a.primary_location_id)"
+        : hasDelegatePollingStationId
+        ? "LEFT JOIN divipole_locations loc ON loc.id = d.polling_station_id"
+        : hasDeptCode && hasMunicipalityCode && hasPollingStationCode
+        ? "LEFT JOIN divipole_locations loc ON loc.dd = d.department_code AND loc.mm = d.municipality_code AND loc.puesto = COALESCE(d.polling_station_code, a.polling_codes[1])"
+        : `LEFT JOIN divipole_locations loc ON loc.puesto = ${hasPollingStationCode ? "d.polling_station_code" : "a.polling_codes[1]"}`
 
       const baseQuery = `
         WITH base AS (
@@ -70,7 +101,7 @@ export async function GET(req: NextRequest) {
             ${hasTeamProfiles ? "COALESCE(tp.reports_submitted, COALESCE(r.reports_count, 0))" : "COALESCE(r.reports_count, 0)"} AS reports_submitted,
             ${hasTeamProfiles ? "COALESCE(tp.last_active_at, r.last_reported_at, d.updated_at)" : "COALESCE(r.last_reported_at, d.updated_at)"} AS last_active,
             ${hasTeamProfiles ? "tp.avatar_url" : "NULL"} AS avatar_url,
-            ${hasPollingStationCode ? "COALESCE(loc.pp, d.polling_station_code)" : "loc.pp"} AS polling_station_code,
+            ${hasPollingStationCode ? "COALESCE(loc.puesto, d.polling_station_code)" : "loc.puesto"} AS polling_station_code,
             ${hasPollingStationNumber ? "COALESCE(d.polling_station_number, a.primary_num)" : "a.primary_num"} AS polling_station_number,
             ${hasDocumentNumber ? "d.document_number" : "NULL"} AS document_number,
             ${hasSupervisor ? "sup.email" : "NULL"} AS supervisor_email,
@@ -82,18 +113,9 @@ export async function GET(req: NextRequest) {
           ${hasSupervisor ? "LEFT JOIN delegates sup ON sup.id = d.supervisor_id" : ""}
           ${hasTeamProfiles ? "LEFT JOIN team_profiles tp ON tp.delegate_id = d.id" : ""}
           LEFT JOIN (
-            SELECT
-              delegate_id,
-              COUNT(*) AS assigned_count,
-              ARRAY_AGG(DISTINCT polling_station) FILTER (WHERE polling_station IS NOT NULL) AS polling_codes,
-              ARRAY_AGG(polling_station_number ORDER BY polling_station_number) FILTER (WHERE polling_station_number IS NOT NULL) AS polling_nums,
-              MIN(polling_station_number) FILTER (WHERE polling_station_number IS NOT NULL) AS primary_num
-            FROM delegate_polling_assignments
-            GROUP BY delegate_id
+            ${assignmentSubquery}
           ) a ON a.delegate_id = d.id
-          ${hasDeptCode && hasMunicipalityCode && hasPollingStationCode
-            ? "LEFT JOIN divipole_locations loc ON loc.dd = d.department_code AND loc.mm = d.municipality_code AND loc.pp = COALESCE(d.polling_station_code, a.polling_codes[1])"
-            : `LEFT JOIN divipole_locations loc ON loc.pp = ${hasPollingStationCode ? "d.polling_station_code" : "a.polling_codes[1]"}`}
+          ${divipoleJoin}
           LEFT JOIN (
             SELECT delegate_id, COUNT(*) AS reports_count, MAX(reported_at) AS last_reported_at
             FROM vote_reports

@@ -441,7 +441,7 @@ function EquipoInner() {
       notify("Falta documento", "El documento es obligatorio")
       return
     }
-    if (!newMember.departmentCode || !newMember.municipalityCode || !newMember.pollingStationCode) {
+    if (!newMember.departmentCode || !newMember.municipalityCode || !newMember.pollingStationId) {
       notify("Faltan datos", "Selecciona departamento, municipio y puesto desde Divipole")
       return
     }
@@ -665,7 +665,7 @@ function EquipoInner() {
                     setNewMember((p) => ({
                       ...p,
                       pollingStationId: value,
-                      pollingStationCode: puesto?.code ?? "",
+                      pollingStationCode: puesto?.name ?? "",
                       pollingStationNumber: "",
                       pollingStationNumbers: [],
                       department: puesto?.department ?? p.department,
@@ -682,7 +682,7 @@ function EquipoInner() {
                   <SelectContent>
                     {puestos.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
-                        {p.code} - {p.name}
+                        {p.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -885,7 +885,7 @@ function EquipoInner() {
                     setNewMember((p) => ({
                       ...p,
                       pollingStationId: value,
-                      pollingStationCode: puesto?.code ?? "",
+                      pollingStationCode: puesto?.name ?? "",
                       pollingStationNumber: "",
                       pollingStationNumbers: [],
                       department: puesto?.department ?? p.department,
@@ -902,7 +902,7 @@ function EquipoInner() {
                   <SelectContent>
                     {puestos.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
-                        {p.code} - {p.name}
+                        {p.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1179,10 +1179,7 @@ function EquipoInner() {
                   </div>
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Table className="h-4 w-4" />
-                    <span>
-                      {puestoAsignado ? `Puesto ${puestoAsignado}` : "Sin puesto"}
-                      {mesasAsignadas ? ` · Mesas ${mesasAsignadas}` : ""}
-                    </span>
+                    <span>{puestoAsignado ? `Puesto ${puestoAsignado}` : "Sin puesto"}</span>
                   </div>
                 </div>
 

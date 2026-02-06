@@ -21,6 +21,7 @@ type PuestoRow = {
 }
 
 type AssignedRow = { polling_station: string; nums: number[] | null }
+type AssignedByLocationRow = { divipole_location_id: string; nums: number[] | null }
 
 export async function GET(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams
@@ -75,15 +76,34 @@ export async function GET(req: NextRequest) {
         [dept, muni]
       )
 
-      const codes = rows.map((r) => r.pp).filter(Boolean)
+      const dpaColumnsRes = await client.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'delegate_polling_assignments'`
+      )
+      const dpaCols = new Set<string>(dpaColumnsRes.rows.map((r: any) => r.column_name))
+      const hasLocationId = dpaCols.has("divipole_location_id")
+
+      const ids = rows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n))
+      const puestos = rows.map((r) => r.puesto).filter(Boolean)
       let assigned: Record<string, number[]> = {}
-      if (codes.length) {
+
+      if (hasLocationId && ids.length) {
+        const assignedRes = await client.query<AssignedByLocationRow>(
+          `SELECT divipole_location_id, array_agg(DISTINCT polling_station_number) AS nums
+           FROM delegate_polling_assignments
+           WHERE divipole_location_id = ANY($1::bigint[]) AND polling_station_number IS NOT NULL
+           GROUP BY divipole_location_id`,
+          [ids]
+        )
+        assigned = Object.fromEntries(
+          assignedRes.rows.map((r) => [String(r.divipole_location_id), (r.nums ?? []).filter((n) => Number.isInteger(n))])
+        )
+      } else if (!hasLocationId && puestos.length) {
         const assignedRes = await client.query<AssignedRow>(
           `SELECT polling_station, array_agg(DISTINCT polling_station_number) AS nums
            FROM delegate_polling_assignments
            WHERE polling_station = ANY($1) AND polling_station_number IS NOT NULL
            GROUP BY polling_station`,
-          [codes]
+          [puestos]
         )
         assigned = Object.fromEntries(
           assignedRes.rows.map((r) => [r.polling_station, (r.nums ?? []).filter((n) => Number.isInteger(n))])
@@ -93,7 +113,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         puestos: rows.map((r) => ({
           id: r.id,
-          code: r.pp,
+          code: r.puesto, // usamos nombre de puesto como "código" lógico para evitar colisiones por pp
           name: r.puesto,
           departmentCode: r.dd,
           municipalityCode: r.mm,
@@ -104,7 +124,7 @@ export async function GET(req: NextRequest) {
           total: r.total,
           lat: r.latitud,
           lng: r.longitud,
-          takenTables: assigned[r.pp] ?? [],
+          takenTables: hasLocationId ? assigned[String(r.id)] ?? [] : assigned[r.puesto] ?? [],
         })),
       })
     } finally {

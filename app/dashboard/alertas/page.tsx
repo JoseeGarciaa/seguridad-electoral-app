@@ -82,6 +82,7 @@ export default function AlertasPage() {
   const [photoData, setPhotoData] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [levelValue, setLevelValue] = useState<"crítica" | "alta" | "media">("alta")
+  const [viewerRole, setViewerRole] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [selected, setSelected] = useState<AlertItem | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
@@ -94,7 +95,7 @@ export default function AlertasPage() {
       criticas: Number(payload?.stats?.criticas ?? 0),
       abiertas: Number(payload?.stats?.abiertas ?? 0),
     }
-    return { items, statsPayload }
+    return { items, statsPayload, viewerRole: payload?.viewerRole ?? null }
   }, [])
 
   const fetchAlerts = useCallback(async () => {
@@ -114,10 +115,11 @@ export default function AlertasPage() {
     const load = async () => {
       setLoading(true)
       try {
-        const { items, statsPayload } = await fetchAlertsRef.current()
+        const { items, statsPayload, viewerRole } = await fetchAlertsRef.current()
         if (cancelled) return
         setData(items)
         setStats(statsPayload)
+        setViewerRole(viewerRole ?? null)
       } catch (err: any) {
         console.error(err)
         toast({ title: "Alertas", description: err?.message ?? "No se pudo cargar" })
@@ -194,6 +196,8 @@ export default function AlertasPage() {
     })
     return Array.from(map.entries()).map(([code, label]) => ({ code, label }))
   }, [mesas])
+
+  const isAdmin = viewerRole === "admin"
 
   const onFilesSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -301,9 +305,10 @@ export default function AlertasPage() {
 
       // Refresh from server to ensure persistence across navigations
       try {
-        const { items, statsPayload } = await fetchAlerts()
+        const { items, statsPayload, viewerRole } = await fetchAlerts()
         setData(items)
         setStats(statsPayload)
+        setViewerRole(viewerRole ?? null)
         setSelected((prev) => (prev ? items.find((i) => i.id === prev.id) ?? prev : prev))
       } catch (refreshErr) {
         console.error(refreshErr)
@@ -329,124 +334,126 @@ export default function AlertasPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
-          <div className="md:col-span-2">
-            <div className="rounded-xl border border-white/10 bg-white/5 p-5 backdrop-blur">
-              <div className="flex items-center gap-2 text-sm text-cyan-100/90">
-                <Upload className="h-4 w-4" /> Crear alerta manual
-              </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <div className="space-y-2">
-                  <p className="text-xs text-white/70">Tipo de destino</p>
-                  <Select value={scopeType} onValueChange={(v) => setScopeType(v as "puesto" | "mesa") }>
-                    <SelectTrigger className="bg-white/10 border-white/15 text-white">
-                      <SelectValue placeholder="Selecciona" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="puesto">Puesto asignado</SelectItem>
-                      <SelectItem value="mesa">Mesa asignada</SelectItem>
-                    </SelectContent>
-                  </Select>
+          {!isAdmin && (
+            <div className="md:col-span-2">
+              <div className="rounded-xl border border-white/10 bg-white/5 p-5 backdrop-blur">
+                <div className="flex items-center gap-2 text-sm text-cyan-100/90">
+                  <Upload className="h-4 w-4" /> Crear alerta manual
                 </div>
-
-                {scopeType === "puesto" ? (
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <div className="space-y-2">
-                    <p className="text-xs text-white/70">Puesto</p>
-                    <Select value={selectedPuesto || undefined} onValueChange={setSelectedPuesto}>
+                    <p className="text-xs text-white/70">Tipo de destino</p>
+                    <Select value={scopeType} onValueChange={(v) => setScopeType(v as "puesto" | "mesa")}>
                       <SelectTrigger className="bg-white/10 border-white/15 text-white">
-                        <SelectValue placeholder="Selecciona puesto" />
+                        <SelectValue placeholder="Selecciona" />
                       </SelectTrigger>
                       <SelectContent>
-                        {puestos.length === 0 && <SelectItem value="__sin_puestos" disabled>Sin puestos</SelectItem>}
-                        {puestos.map((p) => (
-                          <SelectItem key={p.code} value={p.code}>{p.label}</SelectItem>
-                        ))}
+                        <SelectItem value="puesto">Puesto asignado</SelectItem>
+                        <SelectItem value="mesa">Mesa asignada</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-xs text-white/70">Mesa</p>
-                    <Select value={selectedMesa || undefined} onValueChange={setSelectedMesa}>
-                      <SelectTrigger className="bg-white/10 border-white/15 text-white">
-                        <SelectValue placeholder="Selecciona mesa" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {mesas.length === 0 && <SelectItem value="__sin_mesas" disabled>Sin mesas</SelectItem>}
-                        {mesas.map((m) => (
-                          <SelectItem key={m.id} value={m.id}>
-                            {m.label ?? "Mesa"}{m.polling_station_code ? ` · Puesto ${m.polling_station_code}` : ""}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
 
-                <div className="space-y-2 md:col-span-2">
-                  <p className="text-xs text-white/70">Notas</p>
-                  <Textarea
-                    placeholder="Describe la alerta"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    className="bg-white/10 border-white/15 text-white h-24"
-                  />
-                </div>
+                  {scopeType === "puesto" ? (
+                    <div className="space-y-2">
+                      <p className="text-xs text-white/70">Puesto</p>
+                      <Select value={selectedPuesto || undefined} onValueChange={setSelectedPuesto}>
+                        <SelectTrigger className="bg-white/10 border-white/15 text-white">
+                          <SelectValue placeholder="Selecciona puesto" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {puestos.length === 0 && <SelectItem value="__sin_puestos" disabled>Sin puestos</SelectItem>}
+                          {puestos.map((p) => (
+                            <SelectItem key={p.code} value={p.code}>{p.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-xs text-white/70">Mesa</p>
+                      <Select value={selectedMesa || undefined} onValueChange={setSelectedMesa}>
+                        <SelectTrigger className="bg-white/10 border-white/15 text-white">
+                          <SelectValue placeholder="Selecciona mesa" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {mesas.length === 0 && <SelectItem value="__sin_mesas" disabled>Sin mesas</SelectItem>}
+                          {mesas.map((m) => (
+                            <SelectItem key={m.id} value={m.id}>
+                              {m.label ?? "Mesa"}{m.polling_station_code ? ` · Puesto ${m.polling_station_code}` : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
-                <div className="space-y-2">
-                  <p className="text-xs text-white/70">Nivel</p>
-                  <Select value={levelValue} onValueChange={(v) => setLevelValue(v as "crítica" | "alta" | "media")}>
-                    <SelectTrigger className="bg-white/10 border-white/15 text-white">
-                      <SelectValue placeholder="Nivel" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="crítica">Crítica</SelectItem>
-                      <SelectItem value="alta">Alta</SelectItem>
-                      <SelectItem value="media">Media</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-xs text-white/70">Evidencia</p>
-                  <div className="flex items-center gap-3">
-                    <Input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => onFilesSelected(e.target.files)}
+                  <div className="space-y-2 md:col-span-2">
+                    <p className="text-xs text-white/70">Notas</p>
+                    <Textarea
+                      placeholder="Describe la alerta"
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      className="bg-white/10 border-white/15 text-white h-24"
                     />
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="inline-flex items-center gap-2 rounded-md border border-white/15 bg-white/10 px-3 py-2 text-sm font-medium text-white hover:bg-white/20"
-                    >
-                      <ImageIcon className="h-4 w-4" /> Agregar fotos
-                    </button>
-                    {photoData.length > 0 && (
-                      <Badge className="bg-white/10 border-white/15 text-white">{photoData.length} foto(s) listas</Badge>
-                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs text-white/70">Nivel</p>
+                    <Select value={levelValue} onValueChange={(v) => setLevelValue(v as "crítica" | "alta" | "media")}>
+                      <SelectTrigger className="bg-white/10 border-white/15 text-white">
+                        <SelectValue placeholder="Nivel" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="crítica">Crítica</SelectItem>
+                        <SelectItem value="alta">Alta</SelectItem>
+                        <SelectItem value="media">Media</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs text-white/70">Evidencia</p>
+                    <div className="flex items-center gap-3">
+                      <Input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => onFilesSelected(e.target.files)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="inline-flex items-center gap-2 rounded-md border border-white/15 bg-white/10 px-3 py-2 text-sm font-medium text-white hover:bg-white/20"
+                      >
+                        <ImageIcon className="h-4 w-4" /> Agregar fotos
+                      </button>
+                      {photoData.length > 0 && (
+                        <Badge className="bg-white/10 border-white/15 text-white">{photoData.length} foto(s) listas</Badge>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="mt-4 flex items-center justify-between text-xs text-white/70">
-                <span>Se enviará al canal de seguridad electoral</span>
-                <button
-                  type="button"
-                  onClick={handleCreate}
-                  disabled={submitting}
-                  className="inline-flex items-center gap-2 rounded-md bg-white text-slate-900 px-4 py-2 text-sm font-medium hover:bg-slate-100 disabled:opacity-60"
-                >
-                  {submitting ? "Enviando..." : "Crear alerta"}
-                </button>
+                <div className="mt-4 flex items-center justify-between text-xs text-white/70">
+                  <span>Se enviará al canal de seguridad electoral</span>
+                  <button
+                    type="button"
+                    onClick={handleCreate}
+                    disabled={submitting}
+                    className="inline-flex items-center gap-2 rounded-md bg-white text-slate-900 px-4 py-2 text-sm font-medium hover:bg-slate-100 disabled:opacity-60"
+                  >
+                    {submitting ? "Enviando..." : "Crear alerta"}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           <div className="space-y-3">
-            <p className="text-sm text-white/70">Estado rápido</p>
+            <p className="text-sm text-white/70">Estado rapido</p>
             <div className="grid gap-3 sm:grid-cols-2">
               <Card className="bg-white/10 border-white/10 text-white">
                 <CardContent className="p-4">
@@ -463,7 +470,7 @@ export default function AlertasPage() {
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-white/70">Críticas</p>
+                      <p className="text-sm text-white/70">Criticas</p>
                       <p className="text-2xl font-semibold">{stats.criticas}</p>
                     </div>
                     <AlertTriangle className="h-5 w-5" />
@@ -623,7 +630,6 @@ export default function AlertasPage() {
 
           <div className="space-y-3 text-sm text-foreground">
             <p className="text-muted-foreground">{selected?.detail || "Sin notas"}</p>
-
             {selected?.photos && selected.photos.length > 0 && (
               <div className="grid grid-cols-2 gap-2">
                 {selected.photos.map((src, idx) => (

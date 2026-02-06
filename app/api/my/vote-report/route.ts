@@ -220,104 +220,65 @@ export async function POST(req: NextRequest) {
     client = await pool!.connect()
     await client.query("BEGIN")
 
-    const existing = await client.query(
-      `SELECT id FROM vote_reports WHERE delegate_assignment_id = $1 LIMIT 1`,
-      [delegate_assignment_id],
-    )
-
-    const reportId = (existing.rows[0]?.id as string | undefined) ?? crypto.randomUUID()
     const canWritePartyDetails = await ensureVotePartyDetails()
 
-    if (existing.rows[0]) {
-      if (includeDivipole) {
-        await client.query(
-          `UPDATE vote_reports
-             SET delegate_id = $1,
-                 delegate_assignment_id = $2,
-                 divipole_location_id = $3,
-                 polling_station_code = $4,
-                 department = $5,
-                 municipality = $6,
-                 address = $7,
-                 notes = $8,
-                 reported_at = now()
-           WHERE id = $9`,
-          [
-            delegateId,
-            delegate_assignment_id,
-            resolvedDivipoleId,
-            resolvedPollingStation,
-            resolvedDepartment,
-            resolvedMunicipality,
-            resolvedAddress,
-            notes ?? null,
-            reportId,
-          ],
-        )
-      } else {
-        await client.query(
-          `UPDATE vote_reports
-             SET delegate_id = $1,
-                 delegate_assignment_id = $2,
-                 polling_station_code = $3,
-                 department = $4,
-                 municipality = $5,
-                 address = $6,
-                 notes = $7,
-                 reported_at = now()
-           WHERE id = $8`,
-          [
-            delegateId,
-            delegate_assignment_id,
-            resolvedPollingStation,
-            resolvedDepartment,
-            resolvedMunicipality,
-            resolvedAddress,
-            notes ?? null,
-            reportId,
-          ],
-        )
-      }
+    // Upsert atomically to avoid duplicate-key errors when the same mesa is reported twice
+    const upsertQuery = includeDivipole
+      ? `INSERT INTO vote_reports (
+           id, delegate_id, delegate_assignment_id, divipole_location_id, polling_station_code, department, municipality, address, total_votes, reported_at, notes
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,now(),$9)
+         ON CONFLICT (delegate_assignment_id) DO UPDATE
+           SET delegate_id = EXCLUDED.delegate_id,
+               divipole_location_id = EXCLUDED.divipole_location_id,
+               polling_station_code = EXCLUDED.polling_station_code,
+               department = EXCLUDED.department,
+               municipality = EXCLUDED.municipality,
+               address = EXCLUDED.address,
+               notes = EXCLUDED.notes,
+               reported_at = now()
+         RETURNING id`
+      : `INSERT INTO vote_reports (
+           id, delegate_id, delegate_assignment_id, polling_station_code, department, municipality, address, total_votes, reported_at, notes
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,0,now(),$8)
+         ON CONFLICT (delegate_assignment_id) DO UPDATE
+           SET delegate_id = EXCLUDED.delegate_id,
+               polling_station_code = EXCLUDED.polling_station_code,
+               department = EXCLUDED.department,
+               municipality = EXCLUDED.municipality,
+               address = EXCLUDED.address,
+               notes = EXCLUDED.notes,
+               reported_at = now()
+         RETURNING id`
 
-      await client.query(`DELETE FROM vote_details WHERE vote_report_id = $1`, [reportId])
-      if (canWritePartyDetails) {
-        await client.query(`DELETE FROM vote_party_details WHERE vote_report_id = $1`, [reportId])
-      }
-    } else {
-      if (includeDivipole) {
-        await client.query(
-          `INSERT INTO vote_reports (
-             id, delegate_id, delegate_assignment_id, divipole_location_id, polling_station_code, department, municipality, address, total_votes, reported_at, notes
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, now(), $9)`,
-          [
-            reportId,
-            delegateId,
-            delegate_assignment_id,
-            resolvedDivipoleId,
-            resolvedPollingStation,
-            resolvedDepartment,
-            resolvedMunicipality,
-            resolvedAddress,
-            notes ?? null,
-          ],
-        )
-      } else {
-        await client.query(
-          `INSERT INTO vote_reports (
-             id, delegate_id, delegate_assignment_id, polling_station_code, department, municipality, address, total_votes, reported_at, notes
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, 0, now(), $8)`,
-          [
-            reportId,
-            delegateId,
-            delegate_assignment_id,
-            resolvedPollingStation,
-            resolvedDepartment,
-            resolvedMunicipality,
-            resolvedAddress,
-            notes ?? null,
-          ],
-        )
-      }
+    const reportId = crypto.randomUUID()
+    const upsertParams = includeDivipole
+      ? [
+          reportId,
+          delegateId,
+          delegate_assignment_id,
+          resolvedDivipoleId,
+          resolvedPollingStation,
+          resolvedDepartment,
+          resolvedMunicipality,
+          resolvedAddress,
+          notes ?? null,
+        ]
+      : [
+          reportId,
+          delegateId,
+          delegate_assignment_id,
+          resolvedPollingStation,
+          resolvedDepartment,
+          resolvedMunicipality,
+          resolvedAddress,
+          notes ?? null,
+        ]
+    const upserted = await client.query(upsertQuery, upsertParams)
+    const finalReportId = (upserted.rows[0]?.id as string | undefined) ?? reportId
+
+    await client.query(`DELETE FROM vote_details WHERE vote_report_id = $1`, [finalReportId])
+    if (canWritePartyDetails) {
+      await client.query(`DELETE FROM vote_party_details WHERE vote_report_id = $1`, [finalReportId])
     }
 
     const aggregatedByCandidate = new Map<string, number>()
@@ -372,7 +333,7 @@ export async function POST(req: NextRequest) {
       await client.query(
         `INSERT INTO vote_details (id, vote_report_id, candidate_id, votes)
          VALUES ($1, $2, $3, $4)`,
-        [detailId, reportId, candidateId, votes],
+        [detailId, finalReportId, candidateId, votes],
       )
     }
 
@@ -393,7 +354,7 @@ export async function POST(req: NextRequest) {
         await client.query(
           `INSERT INTO vote_party_details (id, vote_report_id, "position", party, votes)
            VALUES ($1, $2, $3, $4, $5)`,
-          [detailId, reportId, record.position, record.party, record.votes],
+          [detailId, finalReportId, record.position, record.party, record.votes],
         )
       }
     }
@@ -403,7 +364,7 @@ export async function POST(req: NextRequest) {
     const hasNewPhotos = Array.isArray(photos) && photos.length > 0
 
     if (hasNewPhotos && hasEvidences) {
-      await client.query(`DELETE FROM evidences WHERE vote_report_id = $1`, [reportId])
+      await client.query(`DELETE FROM evidences WHERE vote_report_id = $1`, [finalReportId])
     }
 
     const storageProvider = getStorageProvider()
@@ -424,7 +385,7 @@ export async function POST(req: NextRequest) {
       if (storageProvider !== "local") {
         const baseName = sanitizeFilename(resolvedPollingStation ?? "mesa")
         const filename = `${baseName}-${index + 1}.${parsed.ext}`
-        const uploaded = await uploadFile(parsed.buffer, filename, `vote-reports/${reportId}`)
+        const uploaded = await uploadFile(parsed.buffer, filename, `vote-reports/${finalReportId}`)
         finalUrl = uploaded.url
       }
 
@@ -448,22 +409,22 @@ export async function POST(req: NextRequest) {
               "pending",
               finalUrl,
               ["e14"],
-              reportId,
+              finalReportId,
             ],
           )
         }
       }
     }
 
-    await client.query(`UPDATE vote_reports SET total_votes = $1 WHERE id = $2`, [total, reportId])
+    await client.query(`UPDATE vote_reports SET total_votes = $1 WHERE id = $2`, [total, finalReportId])
     if (uploadedUrls[0]) {
-      await client.query(`UPDATE vote_reports SET photo_url = $1 WHERE id = $2`, [uploadedUrls[0], reportId])
+      await client.query(`UPDATE vote_reports SET photo_url = $1 WHERE id = $2`, [uploadedUrls[0], finalReportId])
     } else if (existingPhotos.length > 0) {
-      await client.query(`UPDATE vote_reports SET photo_url = COALESCE(photo_url, $1) WHERE id = $2`, [existingPhotos[0], reportId])
+      await client.query(`UPDATE vote_reports SET photo_url = COALESCE(photo_url, $1) WHERE id = $2`, [existingPhotos[0], finalReportId])
     }
     await client.query("COMMIT")
 
-    return NextResponse.json({ report_id: reportId, total_votes: total, photos: uploadedUrls, evidencesSaved: hasEvidences })
+    return NextResponse.json({ report_id: finalReportId, total_votes: total, photos: uploadedUrls, evidencesSaved: hasEvidences })
   } catch (error: any) {
     if (client) {
       try {

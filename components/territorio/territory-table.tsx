@@ -126,12 +126,6 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
                             {puesto.properties.total !== undefined ? formatter.format(puesto.properties.total) : "-"}
                           </p>
                         </div>
-                        <div className="bg-secondary/50 rounded p-2">
-                          <p className="text-[10px] text-muted-foreground">Votantes / mesa</p>
-                          <p className="text-sm font-semibold text-foreground">
-                            {votersPerMesa ? formatter.format(Math.round(votersPerMesa)) : "-"}
-                          </p>
-                        </div>
                         <div className="bg-secondary/50 rounded p-2 col-span-2">
                           <p className="text-[10px] text-muted-foreground">Delegado asignado</p>
                           <p className={`text-sm font-semibold ${assigned ? "text-primary" : "text-neon-orange"}`}>

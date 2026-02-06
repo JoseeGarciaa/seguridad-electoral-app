@@ -131,17 +131,22 @@ export async function GET(req: NextRequest) {
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""
   const reportsCte = hasDivipoleLocationId
     ? `reports AS (
-      SELECT dpa.divipole_location_id,
+      SELECT COALESCE(vr.divipole_location_id, dpa.divipole_location_id) AS divipole_location_id,
              COUNT(*)::int AS reported_mesas
       FROM vote_reports vr
-      JOIN delegate_polling_assignments dpa ON dpa.id = vr.delegate_assignment_id
-      ${delegateParamIndex ? `WHERE vr.delegate_id = $${delegateParamIndex}` : ""}
-      GROUP BY dpa.divipole_location_id
+      LEFT JOIN delegate_polling_assignments dpa ON dpa.id = vr.delegate_assignment_id
+      WHERE COALESCE(vr.divipole_location_id, dpa.divipole_location_id) IS NOT NULL
+      ${delegateParamIndex ? `AND vr.delegate_id = $${delegateParamIndex}` : ""}
+      GROUP BY COALESCE(vr.divipole_location_id, dpa.divipole_location_id)
     )`
     : `reports AS (
-      SELECT NULL::bigint AS divipole_location_id,
-             0::int AS reported_mesas
-      WHERE false
+      SELECT LOWER(COALESCE(vr.polling_station_code, dpa.polling_station)) AS polling_station_lower,
+             COUNT(*)::int AS reported_mesas
+      FROM vote_reports vr
+      LEFT JOIN delegate_polling_assignments dpa ON dpa.id = vr.delegate_assignment_id
+      WHERE COALESCE(vr.polling_station_code, dpa.polling_station) IS NOT NULL
+      ${delegateParamIndex ? `AND vr.delegate_id = $${delegateParamIndex}` : ""}
+      GROUP BY LOWER(COALESCE(vr.polling_station_code, dpa.polling_station))
     )`
 
   const assignmentsCte = `
@@ -163,8 +168,8 @@ export async function GET(req: NextRequest) {
   `
 
   const assignmentJoin = isAdmin
-    ? `LEFT JOIN latest_assignments la ON ${hasDivipoleLocationId ? "dl.id = la.divipole_location_id" : "LOWER(dl.pp) = la.polling_station_lower"}`
-    : `JOIN latest_assignments la ON ${hasDivipoleLocationId ? "dl.id = la.divipole_location_id" : "LOWER(dl.pp) = la.polling_station_lower"}`
+    ? `LEFT JOIN latest_assignments la ON ${hasDivipoleLocationId ? "dl.id = la.divipole_location_id" : "(LOWER(dl.puesto) = la.polling_station_lower OR LOWER(dl.pp) = la.polling_station_lower)"}`
+    : `JOIN latest_assignments la ON ${hasDivipoleLocationId ? "dl.id = la.divipole_location_id" : "(LOWER(dl.puesto) = la.polling_station_lower OR LOWER(dl.pp) = la.polling_station_lower)"}`
 
   const featuresQuery = `
     ${assignmentsCte}
@@ -189,11 +194,13 @@ export async function GET(req: NextRequest) {
            del.full_name AS delegate_name,
            del.email AS delegate_email,
            del.phone AS delegate_phone,
-           ${hasDivipoleLocationId ? "COALESCE(rep.reported_mesas, 0)::int" : "0::int"} AS reported_mesas
+           ${hasDivipoleLocationId ? "COALESCE(rep.reported_mesas, 0)::int" : "COALESCE(rep.reported_mesas, 0)::int"} AS reported_mesas
       FROM divipole_locations dl
       ${assignmentJoin}
       LEFT JOIN delegates del ON del.id = la.delegate_id
-         ${hasDivipoleLocationId ? "LEFT JOIN reports rep ON rep.divipole_location_id = dl.id" : ""}
+         ${hasDivipoleLocationId
+           ? "LEFT JOIN reports rep ON rep.divipole_location_id = dl.id"
+           : "LEFT JOIN reports rep ON rep.polling_station_lower IS NOT NULL AND (rep.polling_station_lower = LOWER(dl.puesto) OR rep.polling_station_lower = LOWER(dl.pp))"}
       ${whereClause}
       ORDER BY dl.departamento, dl.municipio, dl.puesto
       LIMIT $${values.length + 1}
@@ -205,10 +212,12 @@ export async function GET(req: NextRequest) {
            COALESCE(SUM(dl.mesas), 0)::int AS total_mesas,
            COALESCE(SUM(CASE WHEN dl.latitud IS NOT NULL AND dl.longitud IS NOT NULL AND (dl.latitud <> 0 OR dl.longitud <> 0) THEN 1 ELSE 0 END), 0)::int AS with_coords,
            COALESCE(SUM(dl.total), 0)::int AS total_voters,
-           ${hasDivipoleLocationId ? "COALESCE(SUM(rep.reported_mesas), 0)::int" : "0::int"} AS reported_mesas
+           ${hasDivipoleLocationId ? "COALESCE(SUM(rep.reported_mesas), 0)::int" : "COALESCE(SUM(rep.reported_mesas), 0)::int"} AS reported_mesas
       FROM divipole_locations dl
       ${assignmentJoin}
-      ${hasDivipoleLocationId ? "LEFT JOIN reports rep ON rep.divipole_location_id = dl.id" : ""}
+         ${hasDivipoleLocationId
+           ? "LEFT JOIN reports rep ON rep.divipole_location_id = dl.id"
+           : "LEFT JOIN reports rep ON rep.polling_station_lower IS NOT NULL AND (rep.polling_station_lower = LOWER(dl.puesto) OR rep.polling_station_lower = LOWER(dl.pp))"}
       ${whereClause}
   `
 

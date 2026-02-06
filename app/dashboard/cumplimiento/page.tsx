@@ -4,31 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { CheckCircle, Target, TrendingUp, Shield, Calendar } from "lucide-react";
+import { Target } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
-
-const milestones = [
-  {
-    title: "Cierre de capacitación",
-    date: "20 Ene",
-    progress: 75,
-    tag: "Formación",
-  },
-  {
-    title: "Revisión de evidencias",
-    date: "21 Ene",
-    progress: 52,
-    tag: "Control",
-  },
-  {
-    title: "Entrega de kits",
-    date: "22 Ene",
-    progress: 64,
-    tag: "Logística",
-  },
-];
 
 export default function CumplimientoPage() {
   const [summary, setSummary] = useState({ assigned: 0, reported: 0, missing: 0, coveragePct: 0 })
@@ -101,12 +79,6 @@ export default function CumplimientoPage() {
     },
   ], [summary.assigned, summary.coveragePct, summary.missing, summary.reported, coverageProgress, missingProgress])
 
-  const notify = () =>
-    toast({
-      title: "Registrar avance",
-      description: "Acción pendiente de integración",
-    });
-
   const isAdmin = viewerRole === "admin"
 
   return (
@@ -138,67 +110,7 @@ export default function CumplimientoPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2 bg-zinc-900/60 border-zinc-800">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" /> Hitos y entregables
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {milestones.map((milestone) => (
-              <div
-                key={milestone.title}
-                className="p-3 rounded-lg bg-zinc-800/50 border border-zinc-800 space-y-2"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-cyan-500/20 text-cyan-200">{milestone.tag}</Badge>
-                    <p className="text-sm font-medium text-foreground">{milestone.title}</p>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Calendar className="h-3 w-3" /> {milestone.date}
-                  </div>
-                </div>
-                <Progress value={milestone.progress} className="h-2" />
-                <p className="text-xs text-muted-foreground">Avance {milestone.progress}%</p>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
 
-        <Card className="bg-zinc-900/60 border-zinc-800">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Shield className="h-4 w-4" /> Checklist de control
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {["Protocolos firmados", "Kits entregados", "Testigos acreditados"].map((item, i) => {
-              const percent = [88, 64, 72][i];
-              return (
-                <div key={item} className="space-y-1">
-                  <div className="flex items-center justify-between text-sm text-foreground">
-                    <span>{item}</span>
-                    <Badge className="bg-emerald-500/20 text-emerald-200">{percent}%</Badge>
-                  </div>
-                  <Progress value={percent} className="h-2" />
-                </div>
-              );
-            })}
-            <Button
-              variant="outline"
-              className="w-full bg-zinc-800/50 border-zinc-700"
-              onClick={notify}
-            >
-              <CheckCircle className="h-4 w-4 mr-2" /> Registrar avance (UI)
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Elementos ilustrativos; no se persiste información.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
 
       {isAdmin && (
         <Card className="bg-zinc-900/60 border-zinc-800">

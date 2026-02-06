@@ -243,17 +243,15 @@ export default function TerritorioPage() {
   )
 
   const assignmentStats = useMemo(() => {
-    const mesasAsignadas = filteredFeatures.reduce((acc, feature) => {
-      if (feature.properties.delegateAssigned) {
-        acc += Number(feature.properties.mesas ?? 0)
-      }
-      return acc
-    }, 0)
+    const puestosAsignados = filteredFeatures.filter((feature) => feature.properties.delegateAssigned).length
+    const puestosReportados = filteredFeatures.filter((feature) => Number(feature.properties.reportedMesas ?? 0) > 0).length
+    const cobertura = puestosAsignados === 0 ? 0 : Math.min(100, Math.round((puestosReportados / puestosAsignados) * 100))
 
-    const mesasReportadas = filteredFeatures.reduce((acc, feature) => acc + Number(feature.properties.reportedMesas ?? 0), 0)
-    const cobertura = mesasAsignadas === 0 ? 0 : Math.min(100, Math.round((mesasReportadas / mesasAsignadas) * 100))
-
-    return { mesasAsignadas, mesasReportadas, cobertura }
+    return {
+      mesasAsignadas: puestosAsignados,
+      mesasReportadas: puestosReportados,
+      cobertura,
+    }
   }, [filteredFeatures])
 
   // Persist estado en sessionStorage para reusar al regresar.
