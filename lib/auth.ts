@@ -86,21 +86,32 @@ export async function getCurrentUser() {
   const token = await getSessionToken();
   if (!token) return null;
 
-  const { rows } = await db.query(
-    `SELECT s.id AS session_id, s.expires_at, u.id AS user_id, u.email, u.role, u.is_active, u.last_login_at, u.must_reset_password, u.delegate_id
-     FROM auth_sessions s
-     JOIN users u ON u.id = s.user_id
-     WHERE s.token = $1
-     LIMIT 1`,
-    [token],
-  );
+  let rows: any[] = [];
+  try {
+    const res = await db.query(
+      `SELECT s.id AS session_id, s.expires_at, u.id AS user_id, u.email, u.role, u.is_active, u.last_login_at, u.must_reset_password, u.delegate_id
+       FROM auth_sessions s
+       JOIN users u ON u.id = s.user_id
+       WHERE s.token = $1
+       LIMIT 1`,
+      [token],
+    );
+    rows = res.rows;
+  } catch (err) {
+    console.error("getCurrentUser query error", err);
+    return null;
+  }
 
   const row = rows[0];
   if (!row) return null;
 
   const expiresAt = new Date(row.expires_at);
   if (expiresAt < new Date()) {
-    await db.query("DELETE FROM auth_sessions WHERE id = $1", [row.session_id]);
+    try {
+      await db.query("DELETE FROM auth_sessions WHERE id = $1", [row.session_id]);
+    } catch (err) {
+      console.warn("getCurrentUser cleanup error", err);
+    }
     return null;
   }
 

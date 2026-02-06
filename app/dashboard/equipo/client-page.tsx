@@ -52,6 +52,9 @@ type TeamMember = {
   polling_station_numbers?: number[] | null
   supervisorEmail?: string | null
   supervisor_email?: string | null
+  pollingStationId?: string | null
+  polling_station_id?: string | null
+  pollingStationName?: string | null
 }
 
 type TeamStats = {
@@ -236,6 +239,31 @@ function EquipoInner() {
     }
     loadMunicipalities()
   }, [newMember.departmentCode])
+
+  // Fallback: if we only have the department name (from registros antiguos), infer the code once options arrive
+  useEffect(() => {
+    if (newMember.departmentCode || !newMember.department || departments.length === 0) return
+    const match = departments.find((d) => d.name.toLowerCase() === newMember.department.toLowerCase())
+    if (match) {
+      setNewMember((prev) => ({
+        ...prev,
+        departmentCode: match.code,
+      }))
+    }
+  }, [departments, newMember.department, newMember.departmentCode])
+
+  // Fallback: infer municipality code by name when missing but department already selected
+  useEffect(() => {
+    if (!newMember.departmentCode || newMember.municipalityCode || !newMember.municipality || municipalities.length === 0)
+      return
+    const match = municipalities.find((m) => m.name.toLowerCase() === newMember.municipality.toLowerCase())
+    if (match) {
+      setNewMember((prev) => ({
+        ...prev,
+        municipalityCode: match.code,
+      }))
+    }
+  }, [municipalities, newMember.municipality, newMember.municipalityCode, newMember.departmentCode])
 
   useEffect(() => {
     if (!newMember.departmentCode || !newMember.municipalityCode) {
@@ -1145,7 +1173,12 @@ function EquipoInner() {
             const mesasAsignadas = member.pollingStationNumbers?.length
               ? member.pollingStationNumbers.join(", ")
               : null
-            const puestoAsignado = member.pollingStationCode ?? null
+            const puestoAsignado = (() => {
+              const code = member.pollingStationCode ?? null
+              const name = member.pollingStationName ?? null
+              if (code && name) return `${code} - ${name}`
+              return name ?? code ?? null
+            })()
             return (
             <Card
               key={member.id}
@@ -1232,7 +1265,7 @@ function EquipoInner() {
                         zone: member.zone || "",
                         municipality: member.municipality || "",
                         department: member.department || "",
-                        pollingStationId: "",
+                        pollingStationId: member.pollingStationId ?? member.polling_station_id ?? "",
                         departmentCode: member.departmentCode ?? member.department_code ?? "",
                         municipalityCode: member.municipalityCode ?? member.municipality_code ?? "",
                         pollingStationCode: member.pollingStationCode ?? member.polling_station_code ?? "",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,12 +50,55 @@ export default function ConfiguracionPage() {
     reports: true,
     updates: false,
   });
+  const [assignments, setAssignments] = useState<
+    Array<{
+      id: string
+      puesto?: string | null
+      municipio?: string | null
+      departamento?: string | null
+      mesas?: number | string | null
+    }>
+  >([])
+  const [assignmentsLoading, setAssignmentsLoading] = useState(false)
 
   const notify = (action: string) =>
     toast({
       title: action,
       description: "Acción simulada. Integración pendiente.",
     });
+
+  useEffect(() => {
+    let cancelled = false
+    const loadAssignments = async () => {
+      setAssignmentsLoading(true)
+      try {
+        const res = await fetch("/api/my/assignments", { cache: "no-store" })
+        if (!res.ok) throw new Error("No se pudo cargar tu asignación")
+        const json = await res.json()
+        if (cancelled) return
+        const items = Array.isArray(json) ? json : Array.isArray(json?.items) ? json.items : []
+        const mapped = items.map((m: any) => ({
+          id: String(m.id ?? `${Date.now()}-${Math.random()}`),
+          puesto: m.puesto ?? m.polling_station_code ?? m.divipole_code ?? null,
+          municipio: m.municipio ?? m.municipality ?? null,
+          departamento: m.departamento ?? m.department ?? null,
+          mesas: m.mesas ?? m.mesas_asignadas ?? m.mesas_count ?? null,
+        }))
+        setAssignments(mapped)
+      } catch (err: any) {
+        console.error(err)
+        if (!cancelled) toast({ title: "Asignación", description: err?.message ?? "No se pudo cargar" })
+      } finally {
+        if (!cancelled) setAssignmentsLoading(false)
+      }
+    }
+    loadAssignments()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const assignment = useMemo(() => assignments[0] ?? null, [assignments])
 
   return (
     <div className="space-y-6">
@@ -179,6 +222,44 @@ export default function ConfiguracionPage() {
                 <Save className="h-4 w-4 mr-2" />
                 Guardar Cambios
               </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-r from-slate-900 via-slate-900 to-cyan-900 text-white border border-white/10">
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span>Asignación electoral</span>
+                <Badge className="bg-white/15 text-white border-white/20">Delegado</Badge>
+              </CardTitle>
+              <CardDescription className="text-white/70">
+                Puesto y mesas asignadas a tu perfil
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {assignmentsLoading && (
+                <p className="text-sm text-white/70">Cargando asignación...</p>
+              )}
+              {!assignmentsLoading && !assignment && (
+                <p className="text-sm text-white/80">Sin asignación registrada.</p>
+              )}
+              {!assignmentsLoading && assignment && (
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+                    <p className="text-xs text-white/60">Puesto de votación</p>
+                    <p className="text-lg font-semibold">{assignment.puesto ?? "No asignado"}</p>
+                    <p className="text-xs text-white/50">{assignment.municipio ?? "Municipio no definido"}</p>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+                    <p className="text-xs text-white/60">Departamento</p>
+                    <p className="text-lg font-semibold">{assignment.departamento ?? ""}</p>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+                    <p className="text-xs text-white/60">Mesas asignadas</p>
+                    <p className="text-lg font-semibold">{assignment.mesas ?? "Sin mesas"}</p>
+                    <p className="text-xs text-white/50">Verifica tus mesas antes de reportar</p>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

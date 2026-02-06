@@ -32,8 +32,42 @@ type Feature = {
   }
 }
 
-// Use the MapLibre demo style to avoid glyph/sprite mismatches that can crash on some basemaps
-const TILE_STYLE = "https://demotiles.maplibre.org/style.json"
+// Sanitize incoming features to avoid MapLibre runtime errors when numeric props are missing/undefined.
+function normalizeFeatures(features: Feature[]): Feature[] {
+  return features
+    .filter((f) => Array.isArray(f.geometry.coordinates) && f.geometry.coordinates.length === 2)
+    .map((f) => ({
+      ...f,
+      properties: {
+        ...f.properties,
+        mesas: Number.isFinite(f.properties.mesas) ? Number(f.properties.mesas) : 0,
+        total: Number.isFinite(f.properties.total) ? Number(f.properties.total) : 0,
+        votersPerMesa: Number.isFinite(f.properties.votersPerMesa ?? NaN)
+          ? Number(f.properties.votersPerMesa)
+          : null,
+      },
+    }))
+}
+
+// Raster OSM libre con etiquetas visibles (sin claves ni CORS externas)
+const TILE_STYLE = {
+  version: 8,
+  sources: {
+    osm: {
+      type: "raster",
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tileSize: 256,
+      attribution: "© OpenStreetMap contributors",
+    },
+  },
+  layers: [
+    {
+      id: "osm",
+      type: "raster",
+      source: "osm",
+    },
+  ],
+}
 
 type Props = {
   viewMode: ViewMode
@@ -48,31 +82,44 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MLMap | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [mapError, setMapError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return
+    if (!containerRef.current || mapRef.current || mapError) return
 
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: TILE_STYLE,
-      center: [-74.1, 4.65],
-      zoom: 5,
-      pitch: 0,
-      attributionControl: true,
-    })
+    let map: MLMap | null = null
+
+    try {
+      map = new maplibregl.Map({
+        container: containerRef.current,
+        style: TILE_STYLE,
+        center: [-74.1, 4.65],
+        zoom: 5,
+        pitch: 0,
+        attributionControl: true,
+      })
+    } catch (err) {
+      console.error("MapLibre init error", err)
+      setMapError("No se pudo cargar el mapa")
+      return
+    }
 
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-left")
 
     // Avoid unhandled runtime errors from style/glyph fetch issues
     map.on("error", (e) => {
-      // MapLibre surfaces many recoverable errors; keep them logged without breaking the page
       console.error("MapLibre error", e.error)
+      if (!map) return
+      // Some style errors bubble as runtime exceptions; fail soft by tearing down the map and showing a placeholder.
+      map.remove()
+      mapRef.current = null
+      setMapError("No se pudo renderizar el mapa")
     })
 
     map.on("load", async () => {
       map.addSource("puestos", {
         type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
+        data: { type: "FeatureCollection", features: normalizeFeatures(features) },
         cluster: true,
         clusterMaxZoom: 12,
         clusterRadius: 40,
@@ -127,7 +174,14 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
       addPointsLayer(map, viewMode)
 
       const src = map.getSource("puestos") as GeoJSONSource | undefined
-      src?.setData({ type: "FeatureCollection", features })
+      src?.setData({ type: "FeatureCollection", features: normalizeFeatures(features) })
+
+      // Enfocar a la extensión de los puntos
+      const bounds = new maplibregl.LngLatBounds()
+      normalizeFeatures(features).forEach((f) => bounds.extend(f.geometry.coordinates))
+      if (!bounds.isEmpty()) {
+        map.fitBounds(bounds, { padding: 60, maxZoom: 12, duration: 400 })
+      }
 
       map.on("click", "clusters", (e) => {
         const feature = e.features?.[0]
@@ -176,10 +230,16 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
     mapRef.current = map
 
     return () => {
-      map.remove()
+      try {
+        if (map && (map as any).style) {
+          map.remove()
+        }
+      } catch (err) {
+        console.error("Map cleanup error", err)
+      }
       mapRef.current = null
     }
-  }, [])
+  }, [mapError])
 
   useEffect(() => {
     if (!mapRef.current) return
@@ -190,7 +250,15 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
     if (!mapRef.current) return
     const src = mapRef.current.getSource("puestos") as GeoJSONSource | undefined
     if (!src) return
-    src.setData({ type: "FeatureCollection", features })
+    const normalized = normalizeFeatures(features)
+    src.setData({ type: "FeatureCollection", features: normalized })
+
+    // Ajustar a la extensión cuando cambian los datos
+    if (normalized.length) {
+      const bounds = new maplibregl.LngLatBounds()
+      normalized.forEach((f) => bounds.extend(f.geometry.coordinates))
+      mapRef.current.fitBounds(bounds, { padding: 60, maxZoom: 12, duration: 300 })
+    }
   }, [features])
 
   useEffect(() => {
@@ -218,6 +286,14 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
       `)
       .addTo(mapRef.current)
   }, [selectedId, selectionVersion, features])
+
+  if (mapError) {
+    return (
+      <div className="glass rounded-xl border border-border/50 h-full flex items-center justify-center p-6 text-sm text-muted-foreground">
+        {mapError}
+      </div>
+    )
+  }
 
   return (
     <div className="glass rounded-xl border border-border/50 h-full flex flex-col overflow-hidden">

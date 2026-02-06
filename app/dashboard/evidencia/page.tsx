@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -626,7 +627,13 @@ export default function EvidenciaPage() {
       setDetailLoading(true)
       try {
         const res = await fetch(`/api/vote-reports/${detailItem.voteReportId}`)
-        if (!res.ok) throw new Error("No se pudo obtener el reporte")
+        if (!res.ok) {
+          if (!cancelled) {
+            setReportDetail(null)
+            notify("No se pudo cargar el reporte", "Intenta de nuevo")
+          }
+          return
+        }
         const data = (await res.json()) as VoteReportDetail
         if (!cancelled) setReportDetail(data)
       } catch (err) {
@@ -1437,52 +1444,71 @@ function CandidateVotesPanel({
       </div>
 
       {filteredPartidos.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          <Badge className="bg-zinc-800 border-zinc-700 text-xs">Filtrar por partido</Badge>
-          {filteredPartidos.map((partido) => (
-            <Button
-              key={partido.id}
-              variant={partido.id === selectedPartidoId ? "default" : "outline"}
-              className={`${partido.id === selectedPartidoId ? "bg-emerald-600" : "bg-zinc-800/60 border-zinc-700"} rounded-full px-4 text-xs`}
-              onClick={() => onPartidoChange(partido.id)}
-            >
-              {partido.nombre}
-            </Button>
-          ))}
-          {selectedPartidoId && (
-            <Button variant="ghost" size="sm" className="text-xs" onClick={() => onPartidoChange(undefined)}>
-              Quitar filtro
-            </Button>
-          )}
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">Selecciona el partido para ver sus candidatos</p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <Select value={selectedPartidoId ?? "all"} onValueChange={(value) => onPartidoChange(value === "all" ? undefined : value)}>
+              <SelectTrigger className="w-full bg-zinc-800/60 border-zinc-700">
+                <SelectValue placeholder="Elegir partido" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {filteredPartidos.map((partido) => (
+                  <SelectItem key={partido.id} value={partido.id}>
+                    {partido.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedPartidoId && (
+              <Button variant="outline" size="sm" className="shrink-0" onClick={() => onPartidoChange(undefined)}>
+                Quitar filtro
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
-      {filteredCandidatos.length === 0 && (
+      {!selectedPartidoId && filteredPartidos.length > 0 && (
+        <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-950/40 p-3 text-xs text-muted-foreground">
+          Elige un partido para listar sus candidatos y asignar votos.
+        </div>
+      )}
+
+      {selectedPartidoId && filteredCandidatos.length === 0 && (
+        <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-950/40 p-3 text-xs text-muted-foreground">
+          Sin candidatos cargados para este partido.
+        </div>
+      )}
+
+      {filteredCandidatos.length === 0 && !selectedPartidoId && (
         <CandidateCatalogHint candidatos={candidatos} cargoById={cargoById} partyById={partyById} />
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {filteredCandidatos.map((candidato) => (
-          <div key={candidato.id} className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2">
-            <div>
-              <p className="font-semibold leading-tight">{candidato.full_name ?? candidato.nombre}</p>
-              <p className="text-xs text-muted-foreground flex flex-wrap gap-1">
-                <span>{partyById[candidato.partidoId] ?? candidato.party ?? "Sin partido"}</span>
-                {candidato.ballot_number ? <Badge className="bg-zinc-800 border-zinc-700">Tarjeton {candidato.ballot_number}</Badge> : null}
-              </p>
+      {filteredCandidatos.length > 0 && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {filteredCandidatos.map((candidato) => (
+            <div key={candidato.id} className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2">
+              <div>
+                <p className="font-semibold leading-tight">{candidato.full_name ?? candidato.nombre}</p>
+                <p className="text-xs text-muted-foreground flex flex-wrap gap-1">
+                  <span>{partyById[candidato.partidoId] ?? candidato.party ?? "Sin partido"}</span>
+                  {candidato.ballot_number ? <Badge className="bg-zinc-800 border-zinc-700">Tarjeton {candidato.ballot_number}</Badge> : null}
+                </p>
+              </div>
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                className="w-24 bg-zinc-900 border-zinc-800 text-right"
+                value={candidateVotes[candidato.id] ?? ""}
+                placeholder="0"
+                onChange={(e) => onVoteChange(candidato.id, Number(e.target.value))}
+              />
             </div>
-            <Input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              className="w-24 bg-zinc-900 border-zinc-800 text-right"
-              value={candidateVotes[candidato.id] ?? ""}
-              placeholder="0"
-              onChange={(e) => onVoteChange(candidato.id, Number(e.target.value))}
-            />
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

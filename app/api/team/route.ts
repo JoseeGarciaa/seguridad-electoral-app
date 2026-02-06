@@ -40,6 +40,18 @@ export async function GET(req: NextRequest) {
       const tableRes = await client.query("SELECT to_regclass('public.team_profiles') AS reg")
       const hasTeamProfiles = Boolean(tableRes.rows[0]?.reg)
 
+      const delegateColumnsRes = await client.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'delegates'`
+      )
+      const delegateCols = new Set<string>(delegateColumnsRes.rows.map((r: any) => r.column_name))
+      const hasDepartment = delegateCols.has("department")
+      const hasDeptCode = delegateCols.has("department_code")
+      const hasMunicipalityCode = delegateCols.has("municipality_code")
+      const hasPollingStationCode = delegateCols.has("polling_station_code")
+      const hasPollingStationNumber = delegateCols.has("polling_station_number")
+      const hasDocumentNumber = delegateCols.has("document_number")
+      const hasSupervisor = delegateCols.has("supervisor_id")
+
       const baseQuery = `
         WITH base AS (
           SELECT
@@ -47,25 +59,41 @@ export async function GET(req: NextRequest) {
             d.full_name,
             d.email,
             d.phone,
-            d.municipality,
+            ${hasDepartment ? "COALESCE(d.department, loc.departamento)" : "loc.departamento"} AS department,
+            COALESCE(d.municipality, loc.municipio) AS municipality,
+            ${hasDeptCode ? "COALESCE(d.department_code, loc.dd)" : "loc.dd"} AS department_code,
+            ${hasMunicipalityCode ? "COALESCE(d.municipality_code, loc.mm)" : "loc.mm"} AS municipality_code,
             ${hasTeamProfiles ? "COALESCE(tp.role, 'witness')" : "'witness'"} AS role,
             ${hasTeamProfiles ? "COALESCE(tp.status, 'active')" : "'active'"} AS status,
             ${hasTeamProfiles ? "tp.zone" : "NULL"} AS zone,
             ${hasTeamProfiles ? "COALESCE(tp.assigned_polling_stations, COALESCE(a.assigned_count, 0))" : "COALESCE(a.assigned_count, 0)"} AS assigned_polling_stations,
             ${hasTeamProfiles ? "COALESCE(tp.reports_submitted, COALESCE(r.reports_count, 0))" : "COALESCE(r.reports_count, 0)"} AS reports_submitted,
             ${hasTeamProfiles ? "COALESCE(tp.last_active_at, r.last_reported_at, d.updated_at)" : "COALESCE(r.last_reported_at, d.updated_at)"} AS last_active,
-            ${hasTeamProfiles ? "tp.avatar_url" : "NULL"} AS avatar_url
+            ${hasTeamProfiles ? "tp.avatar_url" : "NULL"} AS avatar_url,
+            ${hasPollingStationCode ? "COALESCE(loc.pp, d.polling_station_code)" : "loc.pp"} AS polling_station_code,
+            ${hasPollingStationNumber ? "COALESCE(d.polling_station_number, a.primary_num)" : "a.primary_num"} AS polling_station_number,
+            ${hasDocumentNumber ? "d.document_number" : "NULL"} AS document_number,
+            ${hasSupervisor ? "sup.email" : "NULL"} AS supervisor_email,
+            loc.id AS polling_station_id,
+            loc.puesto AS polling_station_name,
+            loc.direccion AS polling_station_address,
+            loc.mesas AS polling_station_mesas
           FROM delegates d
+          ${hasSupervisor ? "LEFT JOIN delegates sup ON sup.id = d.supervisor_id" : ""}
           ${hasTeamProfiles ? "LEFT JOIN team_profiles tp ON tp.delegate_id = d.id" : ""}
           LEFT JOIN (
             SELECT
               delegate_id,
               COUNT(*) AS assigned_count,
               ARRAY_AGG(DISTINCT polling_station) FILTER (WHERE polling_station IS NOT NULL) AS polling_codes,
-              ARRAY_AGG(polling_station_number ORDER BY polling_station_number) FILTER (WHERE polling_station_number IS NOT NULL) AS polling_nums
+              ARRAY_AGG(polling_station_number ORDER BY polling_station_number) FILTER (WHERE polling_station_number IS NOT NULL) AS polling_nums,
+              MIN(polling_station_number) FILTER (WHERE polling_station_number IS NOT NULL) AS primary_num
             FROM delegate_polling_assignments
             GROUP BY delegate_id
           ) a ON a.delegate_id = d.id
+          ${hasDeptCode && hasMunicipalityCode && hasPollingStationCode
+            ? "LEFT JOIN divipole_locations loc ON loc.dd = d.department_code AND loc.mm = d.municipality_code AND loc.pp = COALESCE(d.polling_station_code, a.polling_codes[1])"
+            : `LEFT JOIN divipole_locations loc ON loc.pp = ${hasPollingStationCode ? "d.polling_station_code" : "a.polling_codes[1]"}`}
           LEFT JOIN (
             SELECT delegate_id, COUNT(*) AS reports_count, MAX(reported_at) AS last_reported_at
             FROM vote_reports
@@ -99,25 +127,46 @@ export async function GET(req: NextRequest) {
       ])
 
       return NextResponse.json({
-        members: listRes.rows.map((row) => ({
-          id: row.id as string,
-          name: row.full_name as string,
-          email: row.email as string,
-          phone: row.phone as string | null,
-          municipality: row.municipality as string | null,
-          role: row.role as string,
-          status: row.status as string,
-          zone: row.zone as string | null,
-          assignedPollingStations: Number(row.assigned_polling_stations ?? 0),
-          reportsSubmitted: Number(row.reports_submitted ?? 0),
-          lastActive: row.last_active ? new Date(row.last_active).toISOString() : null,
-          avatar: row.avatar_url as string | null,
-          pollingStationCode: Array.isArray(row.polling_codes) ? row.polling_codes[0] ?? null : null,
-          pollingStationNumber: Array.isArray(row.polling_nums) ? row.polling_nums[0] ?? null : null,
-          pollingStationNumbers: Array.isArray(row.polling_nums)
+        members: listRes.rows.map((row) => {
+          const pollingStationCode = Array.isArray(row.polling_codes) && row.polling_codes.length
+            ? row.polling_codes[0]
+            : row.polling_station_code ?? null
+          const pollingStationNumber = Array.isArray(row.polling_nums) && row.polling_nums.length
+            ? row.polling_nums[0]
+            : row.polling_station_number ?? null
+          const pollingStationNumbers = Array.isArray(row.polling_nums)
             ? (row.polling_nums as number[]).filter((n) => Number.isInteger(n))
-            : [],
-        })),
+            : Number.isInteger(row.polling_station_number)
+            ? [Number(row.polling_station_number)]
+            : []
+
+          return {
+            id: row.id as string,
+            name: row.full_name as string,
+            email: row.email as string,
+            phone: row.phone as string | null,
+            municipality: row.municipality as string | null,
+            department: row.department as string | null,
+            departmentCode: row.department_code as string | null,
+            municipalityCode: row.municipality_code as string | null,
+            role: row.role as string,
+            status: row.status as string,
+            zone: row.zone as string | null,
+            assignedPollingStations: Number(row.assigned_polling_stations ?? 0),
+            reportsSubmitted: Number(row.reports_submitted ?? 0),
+            lastActive: row.last_active ? new Date(row.last_active).toISOString() : null,
+            avatar: row.avatar_url as string | null,
+            documentNumber: row.document_number as string | null,
+            supervisorEmail: row.supervisor_email as string | null,
+            pollingStationId: row.polling_station_id as string | null,
+            pollingStationName: row.polling_station_name as string | null,
+            pollingStationAddress: row.polling_station_address as string | null,
+            pollingStationMesas: Number(row.polling_station_mesas ?? 0) || null,
+            pollingStationCode,
+            pollingStationNumber,
+            pollingStationNumbers,
+          }
+        }),
         stats: {
           total: Number(statsRes.rows[0]?.total ?? 0),
           active: Number(statsRes.rows[0]?.active ?? 0),

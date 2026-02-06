@@ -12,10 +12,10 @@ type Props = {
   onSearchChange: (v: string) => void
   viewMode: ViewMode
   onViewModeChange: (v: ViewMode) => void
-  departments: string[]
-  municipalities: string[]
-  selectedDepartment: string | null
-  selectedMunicipality: string | null
+  departments: Array<{ code: string; name: string }>
+  municipalities: Array<{ code: string; name: string; departmentCode?: string }>
+  selectedDepartment: string | null // code
+  selectedMunicipality: string | null // code
   onDepartmentChange: (v: string | null) => void
   onMunicipalityChange: (v: string | null) => void
 }
@@ -62,8 +62,8 @@ export function TerritoryFilters({
               <SelectContent>
                 <SelectItem value={ALL_VALUE}>Todos</SelectItem>
                 {departments.map((dept) => (
-                  <SelectItem key={dept} value={dept}>
-                    {dept}
+                  <SelectItem key={dept.code} value={dept.code}>
+                    {dept.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -84,8 +84,8 @@ export function TerritoryFilters({
               <SelectContent>
                 <SelectItem value={ALL_VALUE}>Todos</SelectItem>
                 {municipalities.map((city) => (
-                  <SelectItem key={city} value={city}>
-                    {city}
+                  <SelectItem key={city.code} value={city.code}>
+                    {city.name}
                   </SelectItem>
                 ))}
               </SelectContent>
