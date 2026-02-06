@@ -52,19 +52,28 @@ export async function GET(req: NextRequest) {
         a.id,
         COALESCE(a.polling_station, dl.puesto) AS polling_station,
         a.polling_station_number,
-        dl.municipio AS municipality,
+        COALESCE(dl.municipio, d.municipality) AS municipality,
+        COALESCE(dl.departamento, d.department) AS department,
         dl.total AS total_voters,
         dl.direccion AS address
       FROM delegate_polling_assignments a
+      JOIN delegates d ON d.id = a.delegate_id
       LEFT JOIN divipole_locations dl ON dl.id = a.divipole_location_id
       WHERE a.delegate_id = $1
       ORDER BY COALESCE(a.polling_station, dl.puesto), a.polling_station_number
     `
     : `
-      SELECT id, polling_station, polling_station_number, NULL::text AS municipality, NULL::int AS total_voters, NULL::text AS address
-      FROM delegate_polling_assignments
-      WHERE delegate_id = $1
-      ORDER BY polling_station, polling_station_number
+      SELECT a.id,
+             a.polling_station,
+             a.polling_station_number,
+             d.municipality AS municipality,
+             d.department AS department,
+             NULL::int AS total_voters,
+             NULL::text AS address
+      FROM delegate_polling_assignments a
+      JOIN delegates d ON d.id = a.delegate_id
+      WHERE a.delegate_id = $1
+      ORDER BY a.polling_station, a.polling_station_number
     `
 
   const client = await pool.connect()
@@ -80,6 +89,7 @@ export async function GET(req: NextRequest) {
         id: String(row.id),
         label,
         municipio: (row.municipality as string | null) ?? null,
+        department: (row.department as string | null) ?? null,
         total_voters: (row.total_voters as number | null) ?? null,
         address: (row.address as string | null) ?? null,
       }

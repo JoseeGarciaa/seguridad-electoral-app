@@ -242,18 +242,6 @@ export default function TerritorioPage() {
     [statsSource],
   )
 
-  const assignmentStats = useMemo(() => {
-    const puestosAsignados = filteredFeatures.filter((feature) => feature.properties.delegateAssigned).length
-    const puestosReportados = filteredFeatures.filter((feature) => Number(feature.properties.reportedMesas ?? 0) > 0).length
-    const cobertura = puestosAsignados === 0 ? 0 : Math.min(100, Math.round((puestosReportados / puestosAsignados) * 100))
-
-    return {
-      mesasAsignadas: puestosAsignados,
-      mesasReportadas: puestosReportados,
-      cobertura,
-    }
-  }, [filteredFeatures])
-
   // Persist estado en sessionStorage para reusar al regresar.
   useEffect(() => {
     if (!hasHydrated) return
@@ -289,9 +277,6 @@ export default function TerritorioPage() {
           totalMesas={stats.mesas}
           totalVotantes={stats.votantes}
           puestosConCoord={stats.puestosConCoord}
-          mesasAsignadas={assignmentStats.mesasAsignadas}
-          mesasReportadas={assignmentStats.mesasReportadas}
-          cobertura={assignmentStats.cobertura}
         />
       )}
 

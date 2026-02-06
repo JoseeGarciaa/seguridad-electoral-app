@@ -39,6 +39,7 @@ type AlertItem = {
   level: "crítica" | "alta" | "media"
   category: string
   municipality: string
+  department?: string
   time: string
   status: "abierta" | "en análisis" | "enviada" | "atendida" | "resuelta"
   detail: string
@@ -52,6 +53,7 @@ type MesaAsignada = {
   label?: string
   polling_station_code?: string
   municipality?: string
+  department?: string
 }
 
 const levelColor: Record<string, string> = {
@@ -161,6 +163,7 @@ export default function AlertasPage() {
           label: m.label ?? m.nombre_mesa ?? m.nombre ?? m.codigo ?? "Mesa",
           polling_station_code: m.polling_station_code ?? m.codigo_puesto ?? m.puesto ?? null,
           municipality: m.municipality ?? m.municipio ?? null,
+          department: m.department ?? m.departamento ?? null,
         }))
         setMesas(mapped)
       } catch (err: any) {
@@ -194,10 +197,23 @@ export default function AlertasPage() {
         map.set(code, label)
       }
     })
-    return Array.from(map.entries()).map(([code, label]) => ({ code, label }))
+    return Array.from(map.entries()).map(([code, label]) => {
+      const match = mesas.find((m) => m.polling_station_code === code)
+      return {
+        code,
+        label,
+        municipality: match?.municipality ?? null,
+        department: match?.department ?? null,
+      }
+    })
   }, [mesas])
 
   const isAdmin = viewerRole === "admin"
+  const headerGridClass = isAdmin ? "grid gap-4 md:grid-cols-4" : "grid gap-4 md:grid-cols-3"
+  const statusGridClass = isAdmin ? "grid gap-3 grid-cols-2 md:grid-cols-4" : "grid gap-3 sm:grid-cols-2"
+  const resolvedCount = useMemo(() => {
+    return data.filter((item) => (item.statusLabel ?? item.status) === "resuelta").length
+  }, [data])
 
   const onFilesSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -227,6 +243,8 @@ export default function AlertasPage() {
     const mesaObj = mesas.find((m) => m.id === selectedMesa)
     const puestoObj = puestos.find((p) => p.code === selectedPuesto)
     const pollingStationCode = scopeType === "mesa" ? mesaObj?.polling_station_code : puestoObj?.code
+    const municipality = scopeType === "mesa" ? mesaObj?.municipality ?? null : puestoObj?.municipality ?? null
+    const department = scopeType === "mesa" ? mesaObj?.department ?? null : puestoObj?.department ?? null
 
     if (scopeType === "mesa" && !mesaObj) {
       toast({ title: "Alerta", description: "Selecciona la mesa asignada" })
@@ -242,10 +260,13 @@ export default function AlertasPage() {
       const res = await fetch("/api/alerts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           scopeType,
           pollingStationCode,
           mesaLabel: mesaObj?.label,
+          municipality,
+          department,
           notes,
           photos: photoData,
           level: levelValue,
@@ -289,6 +310,7 @@ export default function AlertasPage() {
       const res = await fetch("/api/alerts", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ id: alerta.id, status: nextStatus }),
       })
 
@@ -333,7 +355,7 @@ export default function AlertasPage() {
             <Badge className="bg-white/15 text-white border-white/20">Tiempo real</Badge>
           </CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-3">
+        <CardContent className={headerGridClass}>
           {!isAdmin && (
             <div className="md:col-span-2">
               <div className="rounded-xl border border-white/10 bg-white/5 p-5 backdrop-blur">
@@ -452,9 +474,9 @@ export default function AlertasPage() {
             </div>
           )}
 
-          <div className="space-y-3">
+          <div className={`space-y-3 ${isAdmin ? "md:col-span-4" : ""}`}>
             <p className="text-sm text-white/70">Estado rapido</p>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className={statusGridClass}>
               <Card className="bg-white/10 border-white/10 text-white">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
@@ -493,7 +515,7 @@ export default function AlertasPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-white/70">Resueltas</p>
-                      <p className="text-2xl font-semibold">0</p>
+                      <p className="text-2xl font-semibold">{resolvedCount}</p>
                     </div>
                     <CheckCircle className="h-5 w-5" />
                   </div>
@@ -558,7 +580,7 @@ export default function AlertasPage() {
                 <div className="space-y-1">
                   <h3 className="font-semibold text-foreground">{alerta.title}</h3>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <MapPin className="h-3 w-3" /> {alerta.municipality}
+                    <MapPin className="h-3 w-3" /> {alerta.department ? `${alerta.department} · ${alerta.municipality}` : alerta.municipality}
                     <Clock className="h-3 w-3" /> {alerta.time}
                     {alerta.delegateName && <span className="truncate">· {alerta.delegateName}</span>}
                   </div>
@@ -624,7 +646,7 @@ export default function AlertasPage() {
               {selected && <Badge className={levelColor[selected.level] ?? "bg-zinc-700"}>{selected.level}</Badge>}
             </DialogTitle>
             <DialogDescription className="text-xs">
-              {selected?.municipality} • {selected?.time} {selected?.delegateName ? `• ${selected.delegateName}` : ""}
+              {selected?.department ? `${selected.department} · ${selected.municipality}` : selected?.municipality} • {selected?.time} {selected?.delegateName ? `• ${selected.delegateName}` : ""}
             </DialogDescription>
           </DialogHeader>
 

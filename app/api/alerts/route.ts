@@ -49,6 +49,8 @@ export async function POST(req: NextRequest) {
     scopeType,
     pollingStationCode,
     mesaLabel,
+    municipality,
+    department,
     notes,
     photos = [],
     level,
@@ -56,6 +58,8 @@ export async function POST(req: NextRequest) {
     scopeType?: "puesto" | "mesa"
     pollingStationCode?: string
     mesaLabel?: string
+    municipality?: string | null
+    department?: string | null
     notes?: string
     photos?: string[]
     level?: "crítica" | "alta" | "media"
@@ -91,6 +95,7 @@ export async function POST(req: NextRequest) {
   const tags = [
     `scope:${scopeType}`,
     `level:${normalizedLevel}`,
+    department ? `dept:${department}` : null,
     pollingStationCode ? `puesto:${pollingStationCode}` : null,
     mesaLabel ? `mesa:${mesaLabel}` : null,
   ].filter(Boolean)
@@ -110,7 +115,7 @@ export async function POST(req: NextRequest) {
         evidenceId,
         title,
         detail,
-        null,
+        municipality ?? null,
         pollingStationCode ?? null,
         delegateId,
         "open",
@@ -127,7 +132,8 @@ export async function POST(req: NextRequest) {
         title,
         level: normalizedLevel,
         category: scopeType === "mesa" ? "mesa" : "puesto",
-        municipality: pollingStationCode ?? "Sin puesto",
+        municipality: municipality ?? pollingStationCode ?? "Sin municipio",
+        department: department ?? null,
         time: uploadedAt ?? new Date().toISOString(),
         status: "abierta" as const,
         detail,
@@ -341,7 +347,9 @@ export async function GET(req: NextRequest) {
       const manualAlerts = alertsRes.rows.map((row) => {
         const tags: string[] | null = (row.tags as any) ?? null
         const tagLevel = tags?.find((t) => typeof t === "string" && t.startsWith("level:"))
+        const tagDept = tags?.find((t) => typeof t === "string" && t.startsWith("dept:"))
         const level = tagLevel ? (tagLevel.split(":")[1] as "crítica" | "alta" | "media") : "alta"
+        const department = tagDept ? tagDept.split(":").slice(1).join(":") : null
         const rawStatus = (row.status as string | null)?.toLowerCase() ?? "open"
         const status: "abierta" | "atendida" | "resuelta" =
           rawStatus === "resolved" || rawStatus === "verified"
@@ -358,6 +366,7 @@ export async function GET(req: NextRequest) {
           level,
           category: "alerta",
           municipality: (row.municipality as string | null) ?? row.polling_station ?? "Sin municipio",
+          department,
           time: row.uploaded_at ? new Date(row.uploaded_at).toISOString() : null,
           status,
           detail: row.description as string,
