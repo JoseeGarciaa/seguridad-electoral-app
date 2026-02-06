@@ -1,7 +1,7 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { MapPin, CheckCircle, ChevronRight, Search } from "lucide-react"
+import { CheckCircle, ChevronRight, Search, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 type Feature = {
@@ -20,6 +20,7 @@ type Feature = {
     delegateEmail?: string | null
     delegatePhone?: string | null
     votersPerMesa?: number | null
+    reportedMesas?: number | null
   }
 }
 
@@ -65,6 +66,8 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
                 puesto.properties.votersPerMesa ??
                 (puesto.properties.total && puesto.properties.mesas ? puesto.properties.total / puesto.properties.mesas : null)
               const delegateLabel = puesto.properties.delegateName || "Sin testigo electoral"
+              const assigned = Boolean(puesto.properties.delegateAssigned)
+              const reportedMesas = Number(puesto.properties.reportedMesas ?? 0)
 
               return (
                 <motion.div
@@ -93,7 +96,11 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <CheckCircle className="w-4 h-4 text-neon-green" />
+                      {assigned ? (
+                        <CheckCircle className="w-4 h-4 text-neon-green" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-neon-orange" />
+                      )}
                       <ChevronRight
                         className={`w-4 h-4 text-muted-foreground transition-transform ${
                           selectedId === puesto.properties.id ? "rotate-90" : ""
@@ -127,12 +134,22 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
                         </div>
                         <div className="bg-secondary/50 rounded p-2 col-span-2">
                           <p className="text-[10px] text-muted-foreground">Delegado asignado</p>
-                          <p className={`text-sm font-semibold ${puesto.properties.delegateAssigned ? "text-primary" : "text-neon-orange"}`}>
+                          <p className={`text-sm font-semibold ${assigned ? "text-primary" : "text-neon-orange"}`}>
                             {delegateLabel}
                           </p>
                           {puesto.properties.delegateEmail && (
                             <p className="text-xs text-muted-foreground">{puesto.properties.delegateEmail}</p>
                           )}
+                        </div>
+                        <div className="bg-secondary/50 rounded p-2">
+                          <p className="text-[10px] text-muted-foreground">Mesas reportadas</p>
+                          <p className="text-sm font-semibold text-foreground">{formatter.format(reportedMesas)}</p>
+                        </div>
+                        <div className="bg-secondary/50 rounded p-2">
+                          <p className="text-[10px] text-muted-foreground">Estado</p>
+                          <p className={`text-sm font-semibold ${assigned ? "text-primary" : "text-neon-orange"}`}>
+                            {assigned ? "Asignado" : "Sin asignar"}
+                          </p>
                         </div>
                       </div>
                     </motion.div>

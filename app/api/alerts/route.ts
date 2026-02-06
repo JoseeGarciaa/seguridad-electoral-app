@@ -145,6 +145,59 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function PATCH(req: NextRequest) {
+  const user = await getCurrentUser()
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  if (!pool) {
+    return NextResponse.json({ error: "DB no disponible" }, { status: 503 })
+  }
+
+  const body = await req.json().catch(() => null)
+  if (!body || !body.id || !body.status) {
+    return NextResponse.json({ error: "id y status requeridos" }, { status: 400 })
+  }
+
+  const statusMap: Record<string, string> = {
+    abierta: "open",
+    atendida: "in_progress",
+    resuelta: "resolved",
+  }
+
+  const desired = statusMap[String(body.status).toLowerCase()]
+  if (!desired) {
+    return NextResponse.json({ error: "status inválido" }, { status: 400 })
+  }
+
+  await ensureEvidencesTable()
+
+  try {
+    const client = await pool.connect()
+    try {
+      const { rowCount, rows } = await client.query(
+        `UPDATE evidences SET status = $2 WHERE id = $1 AND type = 'alert' RETURNING id, status`,
+        [body.id, desired],
+      )
+
+      if (rowCount === 0) {
+        return NextResponse.json({ error: "Alerta no encontrada" }, { status: 404 })
+      }
+
+      const dbStatus = (rows[0]?.status as string | null) ?? desired
+      const mapped = dbStatus === "resolved" || dbStatus === "verified" ? "resuelta" : dbStatus === "in_progress" ? "atendida" : "abierta"
+
+      return NextResponse.json({ id: body.id, status: mapped })
+    } finally {
+      client.release()
+    }
+  } catch (error) {
+    console.error("Alerts PATCH error", error)
+    return NextResponse.json({ error: "No se pudo actualizar la alerta" }, { status: 500 })
+  }
+}
+
 function sanitizeFilename(input: string) {
   return input.replace(/[^a-zA-Z0-9_-]/g, "_") || "alert"
 }
@@ -263,8 +316,8 @@ export async function GET(req: NextRequest) {
         client.query(listQuery, values),
         client.query(statsQuery, delegateId ? [delegateId] : []),
         client.query(
-          `SELECT e.id, e.title, e.description, e.municipality, e.polling_station, e.uploaded_at, e.tags,
-                  COALESCE(d.full_name, 'Delegado') AS delegate_name
+          `SELECT e.id, e.title, e.description, e.municipality, e.polling_station, e.uploaded_at, e.tags, e.url, e.status,
+            COALESCE(d.full_name, 'Delegado') AS delegate_name
              FROM evidences e
              LEFT JOIN delegates d ON d.id = e.uploaded_by_id
             WHERE type = 'alert'
@@ -289,17 +342,28 @@ export async function GET(req: NextRequest) {
         const tags: string[] | null = (row.tags as any) ?? null
         const tagLevel = tags?.find((t) => typeof t === "string" && t.startsWith("level:"))
         const level = tagLevel ? (tagLevel.split(":")[1] as "crítica" | "alta" | "media") : "alta"
+        const rawStatus = (row.status as string | null)?.toLowerCase() ?? "open"
+        const status: "abierta" | "atendida" | "resuelta" =
+          rawStatus === "resolved" || rawStatus === "verified"
+            ? "resuelta"
+            : rawStatus === "in_progress"
+              ? "atendida"
+              : "abierta"
+
+        const photo = (row.url as string | null) ?? null
+
         return {
-        id: row.id as string,
-        title: row.title as string,
-        level,
-        category: "alerta",
-        municipality: (row.municipality as string | null) ?? row.polling_station ?? "Sin municipio",
-        time: row.uploaded_at ? new Date(row.uploaded_at).toISOString() : null,
-        status: "abierta" as const,
-        detail: row.description as string,
-        delegateName: row.delegate_name as string,
-      }
+          id: row.id as string,
+          title: row.title as string,
+          level,
+          category: "alerta",
+          municipality: (row.municipality as string | null) ?? row.polling_station ?? "Sin municipio",
+          time: row.uploaded_at ? new Date(row.uploaded_at).toISOString() : null,
+          status,
+          detail: row.description as string,
+          delegateName: row.delegate_name as string,
+          photos: photo ? [photo] : [],
+        }
       })
 
       const combined = [...manualAlerts, ...voteReportAlerts].sort((a, b) => {
@@ -309,13 +373,14 @@ export async function GET(req: NextRequest) {
       })
 
       const manualCriticas = manualAlerts.filter((m) => m.level === "crítica").length
+      const manualAbiertas = manualAlerts.filter((m) => m.status !== "resuelta").length
       const total = Number(statsRes.rows[0]?.total ?? 0) + manualAlerts.length
       return NextResponse.json({
         items: combined,
         stats: {
           total,
           criticas: Number(statsRes.rows[0]?.criticas ?? 0) + manualCriticas,
-          abiertas: Number(statsRes.rows[0]?.abiertas ?? 0) + manualAlerts.length,
+          abiertas: Number(statsRes.rows[0]?.abiertas ?? 0) + manualAbiertas,
         },
       })
     } finally {

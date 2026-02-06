@@ -1,17 +1,12 @@
 "use client"
 
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Search, Layers, Map } from "lucide-react"
+import { Search } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-
-type ViewMode = "circle" | "heatmap" | "3d"
 
 type Props = {
   search: string
   onSearchChange: (v: string) => void
-  viewMode: ViewMode
-  onViewModeChange: (v: ViewMode) => void
   departments: Array<{ code: string; name: string }>
   municipalities: Array<{ code: string; name: string; departmentCode?: string }>
   selectedDepartment: string | null // code
@@ -23,8 +18,6 @@ type Props = {
 export function TerritoryFilters({
   search,
   onSearchChange,
-  viewMode,
-  onViewModeChange,
   departments,
   municipalities,
   selectedDepartment,
@@ -48,7 +41,7 @@ export function TerritoryFilters({
           />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {/* Department filter */}
           <div className="flex flex-col gap-1">
             <p className="text-xs text-muted-foreground">Departamento</p>
@@ -90,28 +83,6 @@ export function TerritoryFilters({
                 ))}
               </SelectContent>
             </Select>
-          </div>
-
-          {/* View Mode */}
-          <div className="flex items-end gap-2">
-            <Button
-              variant={viewMode === "heatmap" ? "secondary" : "outline"}
-              size="sm"
-              className="gap-2 flex-1"
-              onClick={() => onViewModeChange("heatmap")}
-            >
-              <Layers className="w-4 h-4" />
-              Heatmap
-            </Button>
-            <Button
-              variant={viewMode === "3d" ? "secondary" : "outline"}
-              size="sm"
-              className="gap-2 bg-transparent flex-1"
-              onClick={() => onViewModeChange("3d")}
-            >
-              <Map className="w-4 h-4" />
-              3D
-            </Button>
           </div>
         </div>
       </div>

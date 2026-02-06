@@ -201,6 +201,7 @@ type MemberPayload = {
   polling_station_code?: string | null
   polling_station_number?: number | null
   polling_station_numbers?: number[] | null
+  polling_station_id?: string | null
 }
 
 async function upsertUserForDelegate(
@@ -265,8 +266,10 @@ type DelegateMeta = {
   hasMunicipalityCode: boolean
   hasPollingStationCode: boolean
   hasPollingStationNumber: boolean
+  hasDelegatePollingStationId: boolean
   hasAddress: boolean
   hasTeamProfiles: boolean
+  hasDpaLocationId: boolean
 }
 
 async function resolveSupervisor(client: any, email?: string | null): Promise<string | null> {
@@ -343,6 +346,11 @@ async function upsertDelegateAndProfile(client: any, payload: MemberPayload, met
     : tableNumber === null || tableNumber === undefined
     ? []
     : [tableNumber]
+  const pollingStationId = payload.polling_station_id ?? null
+
+  if (meta.hasDpaLocationId && pollingStationId === null && assignmentNumbers.length) {
+    throw new Error("Selecciona un puesto de votación válido")
+  }
 
   const { deptCode, muniCode } = await validateCodes(
     client,
@@ -398,6 +406,10 @@ async function upsertDelegateAndProfile(client: any, payload: MemberPayload, met
   if (meta.hasPollingStationCode) {
     columns.push("polling_station_code")
     values.push(payload.polling_station_code ?? null)
+  }
+  if (meta.hasDelegatePollingStationId) {
+    columns.push("polling_station_id")
+    values.push(pollingStationId)
   }
   if (meta.hasPollingStationNumber) {
     columns.push("polling_station_number")
@@ -473,9 +485,12 @@ async function upsertDelegateAndProfile(client: any, payload: MemberPayload, met
   await client.query(`DELETE FROM delegate_polling_assignments WHERE delegate_id = $1`, [savedDelegateId])
   if (assignments.length) {
     const conflict = await client.query(
-      `SELECT polling_station_number FROM delegate_polling_assignments
-       WHERE polling_station = $1 AND polling_station_number = ANY($2)`,
-      [payload.polling_station_code ?? null, assignments]
+      meta.hasDpaLocationId
+        ? `SELECT polling_station_number FROM delegate_polling_assignments
+           WHERE divipole_location_id = $1 AND polling_station_number = ANY($2)`
+        : `SELECT polling_station_number FROM delegate_polling_assignments
+           WHERE polling_station = $1 AND polling_station_number = ANY($2)`,
+      [meta.hasDpaLocationId ? pollingStationId : payload.polling_station_code ?? null, assignments]
     )
     if (conflict.rowCount) {
       throw new Error("Algunas mesas ya están asignadas a otro testigo")
@@ -484,9 +499,14 @@ async function upsertDelegateAndProfile(client: any, payload: MemberPayload, met
     for (const num of assignments) {
       const assignmentId = crypto.randomUUID()
       await client.query(
-        `INSERT INTO delegate_polling_assignments (id, delegate_id, polling_station, polling_station_number)
-         VALUES ($1,$2,$3,$4)`,
-        [assignmentId, savedDelegateId, payload.polling_station_code ?? null, num]
+        meta.hasDpaLocationId
+          ? `INSERT INTO delegate_polling_assignments (id, delegate_id, polling_station, polling_station_number, divipole_location_id)
+             VALUES ($1,$2,$3,$4,$5)`
+          : `INSERT INTO delegate_polling_assignments (id, delegate_id, polling_station, polling_station_number)
+             VALUES ($1,$2,$3,$4)`,
+        meta.hasDpaLocationId
+          ? [assignmentId, savedDelegateId, payload.polling_station_code ?? null, num, pollingStationId]
+          : [assignmentId, savedDelegateId, payload.polling_station_code ?? null, num]
       )
     }
   }
@@ -532,6 +552,10 @@ export async function POST(req: NextRequest) {
     )
     const delegateCols = new Set<string>(delegateColumnsRes.rows.map((r: any) => r.column_name))
     const teamProfilesRes = await client.query("SELECT to_regclass('public.team_profiles') AS reg")
+    const dpaColumnsRes = await client.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'delegate_polling_assignments'`
+    )
+    const dpaCols = new Set<string>(dpaColumnsRes.rows.map((r: any) => r.column_name))
     const meta: DelegateMeta = {
       hasRole: delegateCols.has("role"),
       hasZone: delegateCols.has("zone"),
@@ -540,8 +564,10 @@ export async function POST(req: NextRequest) {
       hasMunicipalityCode: delegateCols.has("municipality_code"),
       hasPollingStationCode: delegateCols.has("polling_station_code"),
       hasPollingStationNumber: delegateCols.has("polling_station_number"),
+      hasDelegatePollingStationId: delegateCols.has("polling_station_id"),
       hasAddress: delegateCols.has("address"),
       hasTeamProfiles: Boolean(teamProfilesRes.rows[0]?.reg),
+      hasDpaLocationId: dpaCols.has("divipole_location_id"),
     }
 
     await client.query("BEGIN")
@@ -588,6 +614,10 @@ export async function PATCH(req: NextRequest) {
     )
     const delegateCols = new Set<string>(delegateColumnsRes.rows.map((r: any) => r.column_name))
     const teamProfilesRes = await client.query("SELECT to_regclass('public.team_profiles') AS reg")
+    const dpaColumnsRes = await client.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'delegate_polling_assignments'`
+    )
+    const dpaCols = new Set<string>(dpaColumnsRes.rows.map((r: any) => r.column_name))
     const meta: DelegateMeta = {
       hasRole: delegateCols.has("role"),
       hasZone: delegateCols.has("zone"),
@@ -596,8 +626,10 @@ export async function PATCH(req: NextRequest) {
       hasMunicipalityCode: delegateCols.has("municipality_code"),
       hasPollingStationCode: delegateCols.has("polling_station_code"),
       hasPollingStationNumber: delegateCols.has("polling_station_number"),
+      hasDelegatePollingStationId: delegateCols.has("polling_station_id"),
       hasAddress: delegateCols.has("address"),
       hasTeamProfiles: Boolean(teamProfilesRes.rows[0]?.reg),
+      hasDpaLocationId: dpaCols.has("divipole_location_id"),
     }
 
     const delegateUpdates: string[] = []
@@ -622,10 +654,15 @@ export async function PATCH(req: NextRequest) {
     )
     const existingDelegate = existingDelegateRes.rows[0] ?? {}
     const existingAssignmentsRes = await client.query(
-      `SELECT polling_station, polling_station_number FROM delegate_polling_assignments WHERE delegate_id = $1`,
+      meta.hasDpaLocationId
+        ? `SELECT polling_station, polling_station_number, divipole_location_id FROM delegate_polling_assignments WHERE delegate_id = $1`
+        : `SELECT polling_station, polling_station_number FROM delegate_polling_assignments WHERE delegate_id = $1`,
       [id]
     )
     const existingAssignmentCode = existingAssignmentsRes.rows[0]?.polling_station ?? existingDelegate.polling_station_code ?? null
+    const existingAssignmentLocationId = meta.hasDpaLocationId
+      ? existingAssignmentsRes.rows[0]?.divipole_location_id ?? null
+      : null
     const existingAssignmentNums = existingAssignmentsRes.rows
       .map((r: any) => Number(r.polling_station_number))
       .filter((n) => Number.isInteger(n))
@@ -649,6 +686,11 @@ export async function PATCH(req: NextRequest) {
       : existingAssignmentNums
 
     const nextCode = changes.polling_station_code !== undefined ? changes.polling_station_code : existingAssignmentCode
+    const nextLocationId = meta.hasDpaLocationId
+      ? changes.polling_station_id !== undefined
+        ? changes.polling_station_id
+        : existingAssignmentLocationId
+      : null
     const assignmentNumbers = sanitizedNumbers.length ? Array.from(new Set(sanitizedNumbers)) : []
     const primaryNumber = assignmentNumbers[0] ?? null
 
@@ -663,6 +705,9 @@ export async function PATCH(req: NextRequest) {
     }
     if (meta.hasPollingStationNumber) {
       pushUpdate("polling_station_number", primaryNumber)
+    }
+    if (meta.hasDelegatePollingStationId) {
+      pushUpdate("polling_station_id", nextLocationId ?? null)
     }
 
     await client.query("BEGIN")
@@ -691,11 +736,17 @@ export async function PATCH(req: NextRequest) {
     }
 
     await client.query(`DELETE FROM delegate_polling_assignments WHERE delegate_id = $1`, [id])
-    if (nextCode && assignmentNumbers.length) {
+    if ((meta.hasDpaLocationId ? nextLocationId : nextCode) && assignmentNumbers.length) {
+      if (meta.hasDpaLocationId && !nextLocationId) {
+        throw new Error("Selecciona un puesto de votación válido")
+      }
       const conflict = await client.query(
-        `SELECT polling_station_number FROM delegate_polling_assignments
-         WHERE polling_station = $1 AND polling_station_number = ANY($2) AND delegate_id <> $3`,
-        [nextCode, assignmentNumbers, id]
+        meta.hasDpaLocationId
+          ? `SELECT polling_station_number FROM delegate_polling_assignments
+             WHERE divipole_location_id = $1 AND polling_station_number = ANY($2) AND delegate_id <> $3`
+          : `SELECT polling_station_number FROM delegate_polling_assignments
+             WHERE polling_station = $1 AND polling_station_number = ANY($2) AND delegate_id <> $3`,
+        [meta.hasDpaLocationId ? nextLocationId : nextCode, assignmentNumbers, id]
       )
       if (conflict.rowCount) {
         throw new Error("Algunas mesas ya están asignadas a otro testigo")
@@ -704,9 +755,14 @@ export async function PATCH(req: NextRequest) {
       for (const num of assignmentNumbers) {
         const assignmentId = crypto.randomUUID()
         await client.query(
-          `INSERT INTO delegate_polling_assignments (id, delegate_id, polling_station, polling_station_number)
-           VALUES ($1,$2,$3,$4)`,
-          [assignmentId, id, nextCode, num]
+          meta.hasDpaLocationId
+            ? `INSERT INTO delegate_polling_assignments (id, delegate_id, polling_station, polling_station_number, divipole_location_id)
+               VALUES ($1,$2,$3,$4,$5)`
+            : `INSERT INTO delegate_polling_assignments (id, delegate_id, polling_station, polling_station_number)
+               VALUES ($1,$2,$3,$4)`,
+          meta.hasDpaLocationId
+            ? [assignmentId, id, nextCode, num, nextLocationId]
+            : [assignmentId, id, nextCode, num]
         )
       }
     }

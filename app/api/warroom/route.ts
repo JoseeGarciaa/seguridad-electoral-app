@@ -142,23 +142,26 @@ export async function GET() {
       LIMIT 60
     `
     : `
-      WITH totals AS (
-        SELECT municipio AS municipality, SUM(mesas) AS total_mesas
-        FROM divipole_locations
-        GROUP BY municipio
+      WITH assigned AS (
+        SELECT COALESCE(dl.municipio, dpa.municipality, 'Municipio') AS municipality,
+               COUNT(*) AS assigned_mesas
+        FROM delegate_polling_assignments dpa
+        LEFT JOIN divipole_locations dl ON dl.id = dpa.divipole_location_id
+        GROUP BY COALESCE(dl.municipio, dpa.municipality, 'Municipio')
       ), reported AS (
         SELECT municipality, COUNT(*) AS reported_mesas
         FROM vote_reports
         GROUP BY municipality
       )
-      SELECT t.municipality AS name,
+      SELECT a.municipality AS name,
              COALESCE(r.reported_mesas, 0) AS reported,
-             t.total_mesas AS total,
-             CASE WHEN t.total_mesas = 0 THEN 0
-                  ELSE ROUND((COALESCE(r.reported_mesas, 0)::numeric / t.total_mesas) * 100)
+             a.assigned_mesas AS total,
+             CASE WHEN a.assigned_mesas = 0 THEN 0
+                  ELSE ROUND((COALESCE(r.reported_mesas, 0)::numeric / a.assigned_mesas) * 100)
              END AS coverage
-      FROM totals t
-      LEFT JOIN reported r ON r.municipality = t.municipality
+      FROM assigned a
+      LEFT JOIN reported r ON r.municipality = a.municipality
+      WHERE a.assigned_mesas > 0
       ORDER BY coverage DESC NULLS LAST
       LIMIT 60
     `

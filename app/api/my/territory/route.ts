@@ -24,6 +24,7 @@ type Feature = {
     delegateEmail?: string | null
     delegatePhone?: string | null
     hasCoords?: boolean
+    reportedMesas?: number
   }
 }
 
@@ -49,6 +50,7 @@ type Row = {
   delegate_name: string | null
   delegate_email: string | null
   delegate_phone: string | null
+  reported_mesas: number | null
 }
 
 type TotalsRow = {
@@ -56,6 +58,7 @@ type TotalsRow = {
   total_mesas: number
   with_coords: number
   total_voters: number
+  reported_mesas: number
 }
 
 export async function GET(req: NextRequest) {
@@ -87,6 +90,12 @@ export async function GET(req: NextRequest) {
   const search = url.searchParams.get("search")
   const limitParam = Number(url.searchParams.get("limit") ?? 15000)
   const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1000), 50000) : 15000
+
+  // Algunos despliegues no tienen la columna divipole_location_id en delegate_polling_assignments; evitar romper si falta.
+  const divipoleColumnCheck = await pool.query(
+    `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'delegate_polling_assignments' AND column_name = 'divipole_location_id' LIMIT 1`,
+  )
+  const hasDivipoleLocationId = divipoleColumnCheck.rows.length > 0
 
   const conditions: string[] = []
   const values: Array<string | number | null> = []
@@ -120,22 +129,42 @@ export async function GET(req: NextRequest) {
   }
 
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""
+  const reportsCte = hasDivipoleLocationId
+    ? `reports AS (
+      SELECT dpa.divipole_location_id,
+             COUNT(*)::int AS reported_mesas
+      FROM vote_reports vr
+      JOIN delegate_polling_assignments dpa ON dpa.id = vr.delegate_assignment_id
+      ${delegateParamIndex ? `WHERE vr.delegate_id = $${delegateParamIndex}` : ""}
+      GROUP BY dpa.divipole_location_id
+    )`
+    : `reports AS (
+      SELECT NULL::bigint AS divipole_location_id,
+             0::int AS reported_mesas
+      WHERE false
+    )`
+
   const assignmentsCte = `
     WITH latest_assignments AS (
-      SELECT DISTINCT ON (LOWER(polling_station))
+      SELECT DISTINCT ON (${hasDivipoleLocationId ? "divipole_location_id" : "LOWER(polling_station)"})
         id,
         delegate_id,
         polling_station,
         polling_station_number,
-        LOWER(polling_station) AS polling_station_lower,
+        ${hasDivipoleLocationId ? "divipole_location_id" : "LOWER(polling_station) AS polling_station_lower"},
         updated_at,
         created_at
       FROM delegate_polling_assignments
-      WHERE polling_station IS NOT NULL
+      WHERE ${hasDivipoleLocationId ? "divipole_location_id IS NOT NULL" : "polling_station IS NOT NULL"}
       ${delegateParamIndex ? `AND delegate_id = $${delegateParamIndex}` : ""}
-      ORDER BY LOWER(polling_station), updated_at DESC NULLS LAST, created_at DESC NULLS LAST
-    )
+      ORDER BY ${hasDivipoleLocationId ? "divipole_location_id" : "LOWER(polling_station)"}, updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+    ),
+    ${reportsCte}
   `
+
+  const assignmentJoin = isAdmin
+    ? `LEFT JOIN latest_assignments la ON ${hasDivipoleLocationId ? "dl.id = la.divipole_location_id" : "LOWER(dl.pp) = la.polling_station_lower"}`
+    : `JOIN latest_assignments la ON ${hasDivipoleLocationId ? "dl.id = la.divipole_location_id" : "LOWER(dl.pp) = la.polling_station_lower"}`
 
   const featuresQuery = `
     ${assignmentsCte}
@@ -159,10 +188,12 @@ export async function GET(req: NextRequest) {
            del.id AS delegate_id,
            del.full_name AS delegate_name,
            del.email AS delegate_email,
-           del.phone AS delegate_phone
+           del.phone AS delegate_phone,
+           ${hasDivipoleLocationId ? "COALESCE(rep.reported_mesas, 0)::int" : "0::int"} AS reported_mesas
       FROM divipole_locations dl
-      LEFT JOIN latest_assignments la ON LOWER(dl.pp) = la.polling_station_lower
+      ${assignmentJoin}
       LEFT JOIN delegates del ON del.id = la.delegate_id
+         ${hasDivipoleLocationId ? "LEFT JOIN reports rep ON rep.divipole_location_id = dl.id" : ""}
       ${whereClause}
       ORDER BY dl.departamento, dl.municipio, dl.puesto
       LIMIT $${values.length + 1}
@@ -173,9 +204,11 @@ export async function GET(req: NextRequest) {
     SELECT COUNT(*)::int AS total_puestos,
            COALESCE(SUM(dl.mesas), 0)::int AS total_mesas,
            COALESCE(SUM(CASE WHEN dl.latitud IS NOT NULL AND dl.longitud IS NOT NULL AND (dl.latitud <> 0 OR dl.longitud <> 0) THEN 1 ELSE 0 END), 0)::int AS with_coords,
-           COALESCE(SUM(dl.total), 0)::int AS total_voters
+           COALESCE(SUM(dl.total), 0)::int AS total_voters,
+           ${hasDivipoleLocationId ? "COALESCE(SUM(rep.reported_mesas), 0)::int" : "0::int"} AS reported_mesas
       FROM divipole_locations dl
-      LEFT JOIN latest_assignments la ON LOWER(dl.pp) = la.polling_station_lower
+      ${assignmentJoin}
+      ${hasDivipoleLocationId ? "LEFT JOIN reports rep ON rep.divipole_location_id = dl.id" : ""}
       ${whereClause}
   `
 
@@ -222,6 +255,7 @@ export async function GET(req: NextRequest) {
         delegateEmail: row.delegate_email,
         delegatePhone: row.delegate_phone,
         hasCoords,
+        reportedMesas: Number(row.reported_mesas ?? 0),
       },
     }
   })
@@ -232,6 +266,7 @@ export async function GET(req: NextRequest) {
           total_mesas: Number(totalsRow.total_mesas ?? 0),
           with_coords: Number(totalsRow.with_coords ?? 0),
           total_voters: Number(totalsRow.total_voters ?? 0),
+          reported_mesas: Number(totalsRow.reported_mesas ?? 0),
         }
       : rows.reduce(
           (acc, row) => {
@@ -239,12 +274,14 @@ export async function GET(req: NextRequest) {
             const mesasCount = Number(row.mesas ?? 0)
             const totalVoters = Number(row.total ?? 0)
             const hasCoords = row.latitud !== null && row.longitud !== null && (Number(row.latitud) !== 0 || Number(row.longitud) !== 0)
+            const reportedMesas = Number((row as any).reported_mesas ?? 0)
             acc.total_mesas += mesasCount
             acc.with_coords += hasCoords ? 1 : 0
             acc.total_voters += totalVoters
+            acc.reported_mesas += reportedMesas
             return acc
           },
-          { total_puestos: 0, total_mesas: 0, with_coords: 0, total_voters: 0 },
+          { total_puestos: 0, total_mesas: 0, with_coords: 0, total_voters: 0, reported_mesas: 0 },
         )
 
     return NextResponse.json({ features, totals })

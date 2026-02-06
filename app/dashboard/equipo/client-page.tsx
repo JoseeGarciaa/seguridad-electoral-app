@@ -32,7 +32,6 @@ type TeamMember = {
   municipality: string | null
   role: string
   status: string
-  zone: string | null
   assignedPollingStations: number
   reportsSubmitted: number
   lastActive: string | null
@@ -50,8 +49,6 @@ type TeamMember = {
   polling_station_number?: number | null
   pollingStationNumbers?: number[] | null
   polling_station_numbers?: number[] | null
-  supervisorEmail?: string | null
-  supervisor_email?: string | null
   pollingStationId?: string | null
   polling_station_id?: string | null
   pollingStationName?: string | null
@@ -147,7 +144,6 @@ function EquipoInner() {
     phone: "",
     role: "witness",
     status: "active",
-    zone: "",
     municipality: "",
     department: "",
     departmentCode: "",
@@ -156,7 +152,6 @@ function EquipoInner() {
     pollingStationCode: "",
     pollingStationNumber: "",
     pollingStationNumbers: [] as string[],
-    supervisorEmail: "",
   })
 
   const notifyError = (message: string) =>
@@ -353,7 +348,7 @@ function EquipoInner() {
         phone: newMember.phone.trim() || null,
         role: newMember.role,
         status: newMember.status,
-        zone: newMember.zone.trim() || null,
+        polling_station_id: newMember.pollingStationId || null,
         department: newMember.department.trim() || null,
         municipality: newMember.municipality.trim() || null,
         department_code: newMember.departmentCode.trim() || null,
@@ -361,7 +356,6 @@ function EquipoInner() {
         polling_station_code: newMember.pollingStationCode.trim() || null,
         polling_station_number: Number.isNaN(pollingStationNumber) ? null : pollingStationNumber,
         polling_station_numbers: pollingNumbers,
-        supervisor_email: newMember.supervisorEmail.trim() || null,
       }
       if (newMember.documentNumber.trim()) {
         changes.document_number = newMember.documentNumber.trim()
@@ -390,7 +384,6 @@ function EquipoInner() {
         phone: "",
         role: "witness",
         status: "active",
-        zone: "",
         municipality: "",
         department: "",
         departmentCode: "",
@@ -399,7 +392,6 @@ function EquipoInner() {
         pollingStationCode: "",
         pollingStationNumber: "",
         pollingStationNumbers: [],
-        supervisorEmail: "",
       })
       loadTeam()
     } catch (err) {
@@ -477,7 +469,7 @@ function EquipoInner() {
         password: newMember.password.trim(),
         phone: newMember.phone.trim() || null,
         role: newMember.role,
-        zone: newMember.zone.trim() || null,
+        polling_station_id: newMember.pollingStationId || null,
         municipality: newMember.municipality.trim() || null,
         department: newMember.department.trim() || null,
         department_code: newMember.departmentCode.trim() || null,
@@ -485,7 +477,6 @@ function EquipoInner() {
         polling_station_code: newMember.pollingStationCode.trim() || null,
         polling_station_number: Number.isNaN(pollingStationNumber) ? null : pollingStationNumber,
         polling_station_numbers: pollingNumbers,
-        supervisor_email: newMember.supervisorEmail.trim() || null,
         status: newMember.status,
       },
     }
@@ -512,7 +503,6 @@ function EquipoInner() {
         phone: "",
         role: "witness",
         status: "active",
-        zone: "",
         municipality: "",
         department: "",
         departmentCode: "",
@@ -521,7 +511,6 @@ function EquipoInner() {
         pollingStationCode: "",
         pollingStationNumber: "",
         pollingStationNumbers: [],
-        supervisorEmail: "",
       })
       loadTeam()
     } catch (err) {
@@ -539,8 +528,7 @@ function EquipoInner() {
         !q ||
         member.name.toLowerCase().includes(q) ||
         member.email.toLowerCase().includes(q) ||
-        (member.municipality ?? "").toLowerCase().includes(q) ||
-        (member.zone ?? "").toLowerCase().includes(q)
+        (member.municipality ?? "").toLowerCase().includes(q)
       const matchesRole = roleFilter === "all" || member.role === roleFilter
       const matchesStatus = statusFilter === "all" || member.status === statusFilter
       return matchesSearch && matchesRole && matchesStatus
@@ -606,14 +594,6 @@ function EquipoInner() {
                   placeholder="Teléfono"
                   value={newMember.phone}
                   onChange={(e) => setNewMember((p) => ({ ...p, phone: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Zona</label>
-                <Input
-                  placeholder="Zona"
-                  value={newMember.zone}
-                  onChange={(e) => setNewMember((p) => ({ ...p, zone: e.target.value }))}
                 />
               </div>
               <div className="space-y-1">
@@ -747,14 +727,6 @@ function EquipoInner() {
                     })}
                   </div>
                 )}
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Email del supervisor</label>
-                <Input
-                  placeholder="Email del supervisor"
-                  value={newMember.supervisorEmail}
-                  onChange={(e) => setNewMember((p) => ({ ...p, supervisorEmail: e.target.value }))}
-                />
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Rol</label>
@@ -845,14 +817,6 @@ function EquipoInner() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Zona</label>
-                <Input
-                  placeholder="Zona"
-                  value={newMember.zone}
-                  onChange={(e) => setNewMember((p) => ({ ...p, zone: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Departamento (Divipole)</label>
                 <Select
                   value={newMember.departmentCode}
@@ -983,14 +947,6 @@ function EquipoInner() {
                     })}
                   </div>
                 )}
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Email del supervisor</label>
-                <Input
-                  placeholder="Email del supervisor"
-                  value={newMember.supervisorEmail}
-                  onChange={(e) => setNewMember((p) => ({ ...p, supervisorEmail: e.target.value }))}
-                />
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Rol</label>
@@ -1111,7 +1067,7 @@ function EquipoInner() {
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <Input
-            placeholder="Buscar por nombre, email, municipio o zona"
+            placeholder="Buscar por nombre, email o municipio"
             className="bg-zinc-800/50 border-zinc-700"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -1211,9 +1167,7 @@ function EquipoInner() {
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <MapPin className="h-4 w-4" />
-                    <span>
-                      {member.zone ?? "Sin zona"} · {member.municipality ?? "Sin municipio"}
-                    </span>
+                    <span>{member.municipality ?? "Sin municipio"}</span>
                   </div>
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Phone className="h-4 w-4" />
@@ -1262,7 +1216,6 @@ function EquipoInner() {
                         phone: member.phone || "",
                         role: member.role,
                         status: member.status,
-                        zone: member.zone || "",
                         municipality: member.municipality || "",
                         department: member.department || "",
                         pollingStationId: member.pollingStationId ?? member.polling_station_id ?? "",
@@ -1280,7 +1233,6 @@ function EquipoInner() {
                           if (member.polling_station_number) return String(member.polling_station_number)
                           return ""
                         })(),
-                        supervisorEmail: member.supervisorEmail ?? member.supervisor_email ?? "",
                       })
                       setEditOpen(true)
                     }}

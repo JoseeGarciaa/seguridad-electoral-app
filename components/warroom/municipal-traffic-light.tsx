@@ -19,11 +19,15 @@ const statusBg = {
 export function MunicipalTrafficLight() {
   const { data, loading, error } = useWarRoomData()
   const municipalities = data?.municipalities ?? []
+  const assignedMunicipalities = useMemo(
+    () => municipalities.filter((m) => m.total > 0),
+    [municipalities],
+  )
   const grouped = useMemo(() => ({
-    green: municipalities.filter((m) => m.status === "green"),
-    yellow: municipalities.filter((m) => m.status === "yellow"),
-    red: municipalities.filter((m) => m.status === "red"),
-  }), [municipalities])
+    green: assignedMunicipalities.filter((m) => m.status === "green"),
+    yellow: assignedMunicipalities.filter((m) => m.status === "yellow"),
+    red: assignedMunicipalities.filter((m) => m.status === "red"),
+  }), [assignedMunicipalities])
 
   return (
     <div className="glass rounded-xl border border-border/50 p-4">
@@ -53,7 +57,10 @@ export function MunicipalTrafficLight() {
       <div className="grid grid-cols-3 lg:grid-cols-4 gap-2">
         {error && <p className="text-xs text-destructive col-span-3">{error}</p>}
         {loading && <div className="col-span-3 h-16 rounded-lg bg-secondary/50 animate-pulse" />}
-        {!loading && municipalities.map((municipality, index) => (
+        {!loading && assignedMunicipalities.length === 0 && !error && (
+          <p className="text-xs text-muted-foreground col-span-3">Sin municipios con delegados asignados.</p>
+        )}
+        {!loading && assignedMunicipalities.map((municipality, index) => (
           <motion.div
             key={municipality.name}
             initial={{ opacity: 0, scale: 0.9 }}

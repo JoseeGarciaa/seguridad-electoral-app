@@ -27,16 +27,17 @@ type Feature = {
     delegateEmail?: string | null
     delegatePhone?: string | null
     votersPerMesa?: number | null
+    reportedMesas?: number
   }
 }
 
-type Totals = { total_puestos: number; total_mesas: number; with_coords: number; total_voters: number }
+type Totals = { total_puestos: number; total_mesas: number; with_coords: number; total_voters: number; reported_mesas?: number }
 
 export default function TerritorioPage() {
   const [viewMode, setViewMode] = useState<"circle" | "heatmap" | "3d">("circle")
   const [search, setSearch] = useState("")
   const [features, setFeatures] = useState<Feature[]>([])
-  const [totals, setTotals] = useState<Totals>({ total_puestos: 0, total_mesas: 0, with_coords: 0, total_voters: 0 })
+  const [totals, setTotals] = useState<Totals>({ total_puestos: 0, total_mesas: 0, with_coords: 0, total_voters: 0, reported_mesas: 0 })
   const [loading, setLoading] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectionVersion, setSelectionVersion] = useState(0)
@@ -133,7 +134,7 @@ export default function TerritorioPage() {
     const fetchData = async () => {
       if (!selectedDepartment || !selectedMunicipality) {
         setFeatures([])
-        setTotals({ total_puestos: 0, total_mesas: 0, with_coords: 0, total_voters: 0 })
+        setTotals({ total_puestos: 0, total_mesas: 0, with_coords: 0, total_voters: 0, reported_mesas: 0 })
         return
       }
       const fetchKey = `${selectedDepartment}|${selectedMunicipality}|${search.trim().toLowerCase()}`
@@ -159,6 +160,7 @@ export default function TerritorioPage() {
           total_mesas: Number(data.totals?.total_mesas ?? 0),
           with_coords: Number(data.totals?.with_coords ?? 0),
           total_voters: Number((data as any)?.totals?.total_voters ?? (data as any)?.totals?.total_votes ?? 0),
+          reported_mesas: Number((data as any)?.totals?.reported_mesas ?? 0),
         })
         lastFetchedKeyRef.current = fetchKey
       } catch (error) {
@@ -209,11 +211,12 @@ export default function TerritorioPage() {
         acc.total_puestos += 1
         acc.total_mesas += Number(feature.properties.mesas ?? 0)
         acc.total_voters += Number(feature.properties.total ?? 0)
+        acc.reported_mesas += Number(feature.properties.reportedMesas ?? 0)
         const [lng, lat] = feature.geometry.coordinates
         if (lng !== 0 && lat !== 0) acc.with_coords += 1
         return acc
       },
-      { total_puestos: 0, total_mesas: 0, with_coords: 0, total_voters: 0 },
+      { total_puestos: 0, total_mesas: 0, with_coords: 0, total_voters: 0, reported_mesas: 0 },
     )
   }, [filteredFeatures])
 
@@ -234,9 +237,24 @@ export default function TerritorioPage() {
       mesas: statsSource.total_mesas,
       votantes: statsSource.total_voters,
       puestosConCoord: statsSource.with_coords,
+      mesasReportadas: statsSource.reported_mesas ?? 0,
     }),
     [statsSource],
   )
+
+  const assignmentStats = useMemo(() => {
+    const mesasAsignadas = filteredFeatures.reduce((acc, feature) => {
+      if (feature.properties.delegateAssigned) {
+        acc += Number(feature.properties.mesas ?? 0)
+      }
+      return acc
+    }, 0)
+
+    const mesasReportadas = filteredFeatures.reduce((acc, feature) => acc + Number(feature.properties.reportedMesas ?? 0), 0)
+    const cobertura = mesasAsignadas === 0 ? 0 : Math.min(100, Math.round((mesasReportadas / mesasAsignadas) * 100))
+
+    return { mesasAsignadas, mesasReportadas, cobertura }
+  }, [filteredFeatures])
 
   // Persist estado en sessionStorage para reusar al regresar.
   useEffect(() => {
@@ -273,6 +291,9 @@ export default function TerritorioPage() {
           totalMesas={stats.mesas}
           totalVotantes={stats.votantes}
           puestosConCoord={stats.puestosConCoord}
+          mesasAsignadas={assignmentStats.mesasAsignadas}
+          mesasReportadas={assignmentStats.mesasReportadas}
+          cobertura={assignmentStats.cobertura}
         />
       )}
 
@@ -280,8 +301,6 @@ export default function TerritorioPage() {
       <TerritoryFilters
         search={search}
         onSearchChange={setSearch}
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
         departments={departments}
         municipalities={municipalities}
         selectedDepartment={selectedDepartment}

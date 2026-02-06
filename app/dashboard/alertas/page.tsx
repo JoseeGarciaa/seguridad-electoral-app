@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -32,10 +40,11 @@ type AlertItem = {
   category: string
   municipality: string
   time: string
-  status: "abierta" | "en análisis" | "enviada"
+  status: "abierta" | "en análisis" | "enviada" | "atendida" | "resuelta"
   detail: string
   photos?: string[]
   delegateName?: string
+  statusLabel?: "abierta" | "atendida" | "resuelta"
 }
 
 type MesaAsignada = {
@@ -55,6 +64,8 @@ const statusColor: Record<string, string> = {
   abierta: "bg-zinc-500/20 text-zinc-100",
   "en análisis": "bg-purple-500/20 text-purple-200",
   enviada: "bg-emerald-500/20 text-emerald-200",
+  atendida: "bg-amber-500/20 text-amber-200",
+  resuelta: "bg-emerald-500/20 text-emerald-200",
 };
 
 export default function AlertasPage() {
@@ -72,24 +83,41 @@ export default function AlertasPage() {
   const [submitting, setSubmitting] = useState(false)
   const [levelValue, setLevelValue] = useState<"crítica" | "alta" | "media">("alta")
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [selected, setSelected] = useState<AlertItem | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [updating, setUpdating] = useState(false)
+
+  const mapApiAlerts = useCallback((payload: any) => {
+    const items: AlertItem[] = Array.isArray(payload?.items) ? payload.items : []
+    const statsPayload = {
+      total: Number(payload?.stats?.total ?? items.length),
+      criticas: Number(payload?.stats?.criticas ?? 0),
+      abiertas: Number(payload?.stats?.abiertas ?? 0),
+    }
+    return { items, statsPayload }
+  }, [])
+
+  const fetchAlerts = useCallback(async () => {
+    const res = await fetch("/api/alerts", { cache: "no-store" })
+    if (!res.ok) throw new Error("No se pudo cargar alertas")
+    const json = await res.json()
+    return mapApiAlerts(json)
+  }, [mapApiAlerts])
+
+  const fetchAlertsRef = useRef(fetchAlerts)
+  useEffect(() => {
+    fetchAlertsRef.current = fetchAlerts
+  }, [fetchAlerts])
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
       setLoading(true)
       try {
-        const res = await fetch("/api/alerts", { cache: "no-store" })
-        if (!res.ok) throw new Error("No se pudo cargar alertas")
-        const json = await res.json()
+        const { items, statsPayload } = await fetchAlertsRef.current()
         if (cancelled) return
-
-        const items: AlertItem[] = Array.isArray(json.items) ? json.items : []
         setData(items)
-        setStats({
-          total: Number(json.stats?.total ?? items.length),
-          criticas: Number(json.stats?.criticas ?? 0),
-          abiertas: Number(json.stats?.abiertas ?? 0),
-        })
+        setStats(statsPayload)
       } catch (err: any) {
         console.error(err)
         toast({ title: "Alertas", description: err?.message ?? "No se pudo cargar" })
@@ -102,6 +130,17 @@ export default function AlertasPage() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (loading) return
+    const hash = typeof window !== "undefined" ? window.location.hash.replace("#", "") : ""
+    if (!hash) return
+    const found = data.find((d) => d.id === hash)
+    if (found) {
+      setSelected(found)
+      setDetailOpen(true)
+    }
+  }, [loading, data])
 
   useEffect(() => {
     let cancelled = false
@@ -232,6 +271,48 @@ export default function AlertasPage() {
       toast({ title: "Alerta", description: err?.message ?? "No se pudo crear" })
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleStatusChange = async (alerta: AlertItem, nextStatus: "atendida" | "resuelta") => {
+    if (alerta.category !== "alerta") {
+      toast({ title: "Alertas", description: "Solo las alertas manuales se pueden marcar" })
+      return
+    }
+
+    setUpdating(true)
+    try {
+      const res = await fetch("/api/alerts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: alerta.id, status: nextStatus }),
+      })
+
+      if (!res.ok) {
+        const error = await res.json().catch(() => null)
+        throw new Error(error?.error ?? "No se pudo actualizar")
+      }
+
+      const json = await res.json()
+      const updatedStatus = (json.status as AlertItem["statusLabel"]) ?? nextStatus
+
+      setData((prev) => prev.map((item) => (item.id === alerta.id ? { ...item, status: updatedStatus, statusLabel: updatedStatus } : item)))
+      setSelected((prev) => (prev && prev.id === alerta.id ? { ...prev, status: updatedStatus, statusLabel: updatedStatus } : prev))
+
+      // Refresh from server to ensure persistence across navigations
+      try {
+        const { items, statsPayload } = await fetchAlerts()
+        setData(items)
+        setStats(statsPayload)
+        setSelected((prev) => (prev ? items.find((i) => i.id === prev.id) ?? prev : prev))
+      } catch (refreshErr) {
+        console.error(refreshErr)
+      }
+      toast({ title: "Alertas", description: "Estado actualizado" })
+    } catch (err: any) {
+      toast({ title: "Alertas", description: err?.message ?? "No se pudo actualizar" })
+    } finally {
+      setUpdating(false)
     }
   }
 
@@ -454,9 +535,17 @@ export default function AlertasPage() {
             <CardContent className="p-4 text-sm text-muted-foreground">Sin alertas de incumplimiento.</CardContent>
           </Card>
         )}
-        {!loading && filtered.map((alerta) => (
-          <Card key={alerta.id} className="bg-zinc-900/60 border-zinc-800 overflow-hidden">
-            <div className="h-1 w-full bg-gradient-to-r from-cyan-500 via-amber-500 to-red-500" />
+        {!loading && filtered.map((alerta) => {
+          const isCritica = alerta.level === "crítica"
+          const statusDisplay = alerta.statusLabel ?? alerta.status
+
+          return (
+          <Card
+            key={alerta.id}
+            id={alerta.id}
+            className={`bg-zinc-900/60 border-zinc-800 overflow-hidden ${isCritica ? "border-red-500/70 ring-2 ring-red-500/40" : ""}`}
+          >
+            <div className={`h-1 w-full bg-gradient-to-r from-cyan-500 via-amber-500 to-red-500 ${isCritica ? "bg-red-600" : ""}`} />
             <CardContent className="p-4 space-y-3">
               <div className="flex items-start justify-between">
                 <div className="space-y-1">
@@ -470,14 +559,120 @@ export default function AlertasPage() {
                 <Badge className={levelColor[alerta.level] ?? "bg-zinc-700"}>{alerta.level}</Badge>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">{alerta.detail}</p>
+
+              {alerta.photos && alerta.photos.length > 0 && (
+                <div className="flex gap-2 overflow-x-auto py-1">
+                  {alerta.photos.map((src, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => { setSelected(alerta); setDetailOpen(true) }}
+                      className="focus:outline-none"
+                    >
+                      <img
+                        src={src}
+                        alt={`Foto ${idx + 1}`}
+                        className="h-20 w-28 object-cover rounded-md border border-zinc-800 hover:border-zinc-600"
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="flex items-center justify-between text-xs">
-                <Badge className="bg-zinc-800/80 border-zinc-700">{alerta.category}</Badge>
-                <Badge className={statusColor[alerta.status] ?? "bg-zinc-700"}>{alerta.status}</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-zinc-800/80 border-zinc-700">{alerta.category}</Badge>
+                  <Badge className={statusColor[statusDisplay] ?? "bg-zinc-700"}>{statusDisplay}</Badge>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    className="text-xs text-cyan-400 hover:underline"
+                    onClick={() => {
+                      setSelected(alerta)
+                      setDetailOpen(true)
+                    }}
+                  >
+                    Ver detalle
+                  </button>
+                  {alerta.category === "alerta" && (
+                    <button
+                      className="text-xs text-emerald-400 hover:underline"
+                      onClick={() => handleStatusChange(alerta, "atendida")}
+                      disabled={updating}
+                    >
+                      Marcar atendida
+                    </button>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
-        ))}
+        )})}
       </div>
+
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {selected?.title}
+              {selected && <Badge className={levelColor[selected.level] ?? "bg-zinc-700"}>{selected.level}</Badge>}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {selected?.municipality} • {selected?.time} {selected?.delegateName ? `• ${selected.delegateName}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 text-sm text-foreground">
+            <p className="text-muted-foreground">{selected?.detail || "Sin notas"}</p>
+
+            {selected?.photos && selected.photos.length > 0 && (
+              <div className="grid grid-cols-2 gap-2">
+                {selected.photos.map((src, idx) => (
+                  <a
+                    key={idx}
+                    href={src}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block"
+                  >
+                    <img
+                      src={src}
+                      alt={`Foto ${idx + 1}`}
+                      className="h-32 w-full object-cover rounded-md border border-border/50 hover:border-primary/60"
+                    />
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Badge className="bg-zinc-800/80 border-zinc-700">{selected?.category}</Badge>
+              <Badge className={statusColor[selected?.statusLabel ?? selected?.status ?? ""] ?? "bg-zinc-700"}>
+                {selected?.statusLabel ?? selected?.status}
+              </Badge>
+            </div>
+            {selected?.category === "alerta" && (
+              <div className="flex gap-2">
+                <button
+                  className="inline-flex items-center rounded-md bg-amber-500 px-3 py-2 text-xs font-medium text-black hover:bg-amber-400 disabled:opacity-60"
+                  onClick={() => handleStatusChange(selected, "atendida")}
+                  disabled={updating}
+                >
+                  Marcar atendida
+                </button>
+                <button
+                  className="inline-flex items-center rounded-md bg-emerald-500 px-3 py-2 text-xs font-medium text-black hover:bg-emerald-400 disabled:opacity-60"
+                  onClick={() => handleStatusChange(selected, "resuelta")}
+                  disabled={updating}
+                >
+                  Marcar resuelta
+                </button>
+              </div>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

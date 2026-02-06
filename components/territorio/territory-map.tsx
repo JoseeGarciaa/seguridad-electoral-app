@@ -3,7 +3,7 @@
 import "maplibre-gl/dist/maplibre-gl.css"
 import { useEffect, useRef, useState } from "react"
 import maplibregl, { Map as MLMap, GeoJSONSource } from "maplibre-gl"
-import { Maximize2, Minimize2, Layers } from "lucide-react"
+import { Maximize2, Minimize2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 type ViewMode = "circle" | "heatmap" | "3d"
@@ -29,6 +29,7 @@ type Feature = {
     delegateEmail?: string | null
     delegatePhone?: string | null
     votersPerMesa?: number | null
+    reportedMesas?: number | null
   }
 }
 
@@ -302,21 +303,12 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
           <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
           <span className="text-sm font-medium text-foreground">Mapa Territorial</span>
           <span className="text-xs text-muted-foreground">• datos en vivo</span>
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground ml-3">
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#22c55e]" />Asignado</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#f59e0b]" />Sin asignar</span>
+          </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => {
-              if (!mapRef.current) return
-              const next = viewMode === "heatmap" ? "circle" : "heatmap"
-              onViewModeChange?.(next)
-              applyViewMode(mapRef.current, next)
-            }}
-          >
-            <Layers className="w-4 h-4" />
-          </Button>
           <Button
             variant="ghost"
             size="icon"

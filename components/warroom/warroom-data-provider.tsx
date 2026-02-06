@@ -26,6 +26,8 @@ export type WarRoomAlert = {
   title: string
   message: string
   time: string
+  status?: "abierta" | "atendida" | "resuelta"
+  category?: string
 }
 
 export type WarRoomMunicipality = {
