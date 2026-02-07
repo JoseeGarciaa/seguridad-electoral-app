@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { pool } from "@/lib/pg"
 import { getCurrentUser, DELEGATE_ROLE } from "@/lib/auth"
 import { getStorageProvider, uploadFile } from "@/lib/storage"
+import { emitWarRoomUpdate } from "@/lib/warroom-events"
 
 const dataUrlRegex = /^data:(?<mime>[^;]+);base64,(?<data>.+)$/i
 let hasEvidencesTable: boolean | null = null
@@ -141,6 +142,8 @@ export async function POST(req: NextRequest) {
         photos: uploadedUrls,
       }
 
+      emitWarRoomUpdate({ ts: Date.now(), type: "alert", source: "alerts-post" })
+
       return NextResponse.json(item)
     } finally {
       client.release()
@@ -193,6 +196,8 @@ export async function PATCH(req: NextRequest) {
 
       const dbStatus = (rows[0]?.status as string | null) ?? desired
       const mapped = dbStatus === "resolved" || dbStatus === "verified" ? "resuelta" : dbStatus === "in_progress" ? "atendida" : "abierta"
+
+      emitWarRoomUpdate({ ts: Date.now(), type: "alert", source: "alerts-patch" })
 
       return NextResponse.json({ id: body.id, status: mapped })
     } finally {

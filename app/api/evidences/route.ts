@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser, DELEGATE_ROLE } from "@/lib/auth"
 import { pool } from "@/lib/pg"
 import { getStorageProvider, uploadFile } from "@/lib/storage"
+import { emitWarRoomUpdate } from "@/lib/warroom-events"
 
 const fallbackData = {
   items: [
@@ -350,6 +351,8 @@ export async function POST(req: NextRequest) {
       }
 
       const row = rows[0]
+
+      emitWarRoomUpdate({ ts: Date.now(), type: "evidence", source: "evidences-post" })
 
       return NextResponse.json({
         id: evidenceId,

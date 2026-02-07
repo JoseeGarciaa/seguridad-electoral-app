@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { assertPositiveInt, getCurrentUser } from "@/lib/auth"
 import { pool } from "@/lib/pg"
 import { getStorageProvider, uploadFile } from "@/lib/storage"
+import { emitWarRoomUpdate } from "@/lib/warroom-events"
 
 let hasDivipoleColumn: boolean | null = null
 let hasVotePartyDetails: boolean | null = null
@@ -10,6 +11,7 @@ let hasAssignmentDivipole: boolean | null = null
 let candidateHasPosition: boolean | null = null
 let candidateHasParty: boolean | null = null
 let hasEvidencesTable: boolean | null = null
+let hasVoteReportAssignmentUnique: boolean | null = null
 
 const dataUrlRegex = /^data:(?<mime>[^;]+);base64,(?<data>.+)$/i
 
@@ -104,6 +106,23 @@ async function ensureVotePartyDetails(): Promise<boolean> {
   return hasVotePartyDetails
 }
 
+async function ensureVoteReportAssignmentUnique(): Promise<boolean> {
+  if (hasVoteReportAssignmentUnique !== null) return hasVoteReportAssignmentUnique
+  const res = await pool!.query(
+    `SELECT 1
+       FROM pg_index i
+       JOIN pg_class c ON c.oid = i.indrelid
+       JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey)
+      WHERE c.relname = 'vote_reports'
+        AND i.indisunique
+        AND array_length(i.indkey, 1) = 1
+        AND a.attname = 'delegate_assignment_id'
+      LIMIT 1`,
+  )
+  hasVoteReportAssignmentUnique = Boolean(res.rowCount)
+  return hasVoteReportAssignmentUnique
+}
+
 function isUuid(value: string): boolean {
   return /^[0-9a-fA-F-]{36}$/.test(value)
 }
@@ -131,9 +150,22 @@ export async function POST(req: NextRequest) {
     if (!delegateId) {
       return NextResponse.json({ error: "Perfil de testigo incompleto" }, { status: 403 })
     }
-    const { delegate_assignment_id, divipole_location_id, notes, details, photos, existing_photo_urls } = await req.json()
+    const payload = await req.json()
+    const delegate_assignment_id = typeof payload?.delegate_assignment_id === "string" ? payload.delegate_assignment_id : ""
+    const notes = typeof payload?.notes === "string" ? payload.notes : null
+    const details = Array.isArray(payload?.details) ? payload.details : []
+    const photos = Array.isArray(payload?.photos) ? payload.photos : []
+    const existing_photo_urls = payload?.existing_photo_urls
+    const divipoleRaw = payload?.divipole_location_id
+    const parsedDivipole = divipoleRaw === null || divipoleRaw === undefined || divipoleRaw === ""
+      ? null
+      : Number(divipoleRaw)
 
-    if (!delegate_assignment_id || !Array.isArray(details) || details.length === 0) {
+    if (parsedDivipole !== null && !Number.isFinite(parsedDivipole)) {
+      return NextResponse.json({ error: "divipole_location_id invalido" }, { status: 400 })
+    }
+
+    if (!delegate_assignment_id || details.length === 0) {
       return NextResponse.json({ error: "delegate_assignment_id y details requeridos" }, { status: 400 })
     }
 
@@ -141,10 +173,10 @@ export async function POST(req: NextRequest) {
       ? existing_photo_urls.filter((p: any) => typeof p === "string" && p.length > 0)
       : []
 
-    if ((!Array.isArray(photos) || photos.length === 0) && existingPhotos.length === 0) {
+    if (photos.length === 0 && existingPhotos.length === 0) {
       return NextResponse.json({ error: "Debe incluir al menos una foto del E14" }, { status: 400 })
     }
-    if (Array.isArray(photos) && photos.length > 4) {
+    if (photos.length > 4) {
       return NextResponse.json({ error: "Máximo 4 fotos por mesa" }, { status: 400 })
     }
 
@@ -212,17 +244,50 @@ export async function POST(req: NextRequest) {
       null
     const resolvedAddress = assignmentRow.dl_address ?? assignmentRow.delegate_address ?? ""
     const resolvedDivipoleId = includeAssignmentDivipole
-      ? assignmentRow.divipole_location_id ?? divipole_location_id ?? null
+      ? assignmentRow.divipole_location_id ?? parsedDivipole ?? null
       : null
 
     const includeDivipole = await ensureDivipoleColumn()
+    const hasAssignmentUnique = await ensureVoteReportAssignmentUnique()
 
     client = await pool!.connect()
     await client.query("BEGIN")
 
     const canWritePartyDetails = await ensureVotePartyDetails()
 
-    // Upsert atomically to avoid duplicate-key errors when the same mesa is reported twice
+    const insertQuery = includeDivipole
+      ? `INSERT INTO vote_reports (
+           id, delegate_id, delegate_assignment_id, divipole_location_id, polling_station_code, department, municipality, address, total_votes, reported_at, notes
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,now(),$9)
+         RETURNING id`
+      : `INSERT INTO vote_reports (
+           id, delegate_id, delegate_assignment_id, polling_station_code, department, municipality, address, total_votes, reported_at, notes
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,0,now(),$8)
+         RETURNING id`
+
+    const updateQuery = includeDivipole
+      ? `UPDATE vote_reports
+         SET delegate_id = $1,
+           divipole_location_id = $3,
+           polling_station_code = $4,
+           department = $5,
+           municipality = $6,
+           address = $7,
+           notes = $8,
+           reported_at = now()
+       WHERE delegate_assignment_id = $2
+       RETURNING id`
+      : `UPDATE vote_reports
+         SET delegate_id = $1,
+           polling_station_code = $3,
+           department = $4,
+           municipality = $5,
+           address = $6,
+           notes = $7,
+           reported_at = now()
+       WHERE delegate_assignment_id = $2
+       RETURNING id`
+
     const upsertQuery = includeDivipole
       ? `INSERT INTO vote_reports (
            id, delegate_id, delegate_assignment_id, divipole_location_id, polling_station_code, department, municipality, address, total_votes, reported_at, notes
@@ -273,7 +338,43 @@ export async function POST(req: NextRequest) {
           resolvedAddress,
           notes ?? null,
         ]
-    const upserted = await client.query(upsertQuery, upsertParams)
+    let upserted = { rowCount: 0, rows: [] as any[] }
+    if (hasAssignmentUnique) {
+      try {
+        upserted = await client.query(upsertQuery, upsertParams)
+      } catch (error: any) {
+        if (error?.code !== "42P10") throw error
+        hasVoteReportAssignmentUnique = false
+        await client.query("ROLLBACK")
+        await client.query("BEGIN")
+      }
+    }
+    if (!hasVoteReportAssignmentUnique) {
+      const updateParams = includeDivipole
+        ? [
+            delegateId,
+            delegate_assignment_id,
+            resolvedDivipoleId,
+            resolvedPollingStation,
+            resolvedDepartment,
+            resolvedMunicipality,
+            resolvedAddress,
+            notes ?? null,
+          ]
+        : [
+            delegateId,
+            delegate_assignment_id,
+            resolvedPollingStation,
+            resolvedDepartment,
+            resolvedMunicipality,
+            resolvedAddress,
+            notes ?? null,
+          ]
+      upserted = await client.query(updateQuery, updateParams)
+      if (upserted.rowCount === 0) {
+        upserted = await client.query(insertQuery, upsertParams)
+      }
+    }
     const finalReportId = (upserted.rows[0]?.id as string | undefined) ?? reportId
 
     await client.query(`DELETE FROM vote_details WHERE vote_report_id = $1`, [finalReportId])
@@ -283,18 +384,20 @@ export async function POST(req: NextRequest) {
 
     const aggregatedByCandidate = new Map<string, number>()
     for (const d of details) {
-      if (!isUuid(d.candidate_id)) {
+      const candidateId = typeof d?.candidate_id === "string" ? d.candidate_id : ""
+      const votes = Number(d?.votes)
+      if (!isUuid(candidateId)) {
         await client.query("ROLLBACK")
         return NextResponse.json({ error: "candidate_id invalido" }, { status: 400 })
       }
       try {
-        assertPositiveInt(d.votes, "votes")
+        assertPositiveInt(votes, "votes")
       } catch (error: any) {
         await client.query("ROLLBACK")
         return NextResponse.json({ error: error.message }, { status: 400 })
       }
-      const current = aggregatedByCandidate.get(d.candidate_id) ?? 0
-      aggregatedByCandidate.set(d.candidate_id, current + d.votes)
+      const current = aggregatedByCandidate.get(candidateId) ?? 0
+      aggregatedByCandidate.set(candidateId, current + votes)
     }
 
     const candidateIds = Array.from(aggregatedByCandidate.keys())
@@ -423,6 +526,8 @@ export async function POST(req: NextRequest) {
       await client.query(`UPDATE vote_reports SET photo_url = COALESCE(photo_url, $1) WHERE id = $2`, [existingPhotos[0], finalReportId])
     }
     await client.query("COMMIT")
+
+    emitWarRoomUpdate({ ts: Date.now(), type: "votes", source: "vote-report" })
 
     return NextResponse.json({ report_id: finalReportId, total_votes: total, photos: uploadedUrls, evidencesSaved: hasEvidences })
   } catch (error: any) {

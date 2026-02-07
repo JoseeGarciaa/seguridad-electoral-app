@@ -87,25 +87,58 @@ export function WarRoomDataProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     let mounted = true
-    fetchWarRoom()
-      .then((payload) => {
+    let inFlight = false
+    let source: EventSource | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+    const refresh = async () => {
+      if (!mounted || inFlight) return
+      inFlight = true
+      try {
+        const payload = await fetchWarRoom()
         if (!mounted) return
         setData(payload)
         setLoading(false)
-      })
-      .catch((err) => {
+        setError(null)
+      } catch (err: any) {
         if (!mounted) return
-        setError(err.message)
+        setError(err?.message ?? "Error cargando datos")
         setLoading(false)
+      } finally {
+        inFlight = false
+      }
+    }
+
+    const startStream = () => {
+      if (!mounted || typeof window === "undefined" || !("EventSource" in window)) return
+      source = new EventSource("/api/warroom/stream")
+      source.addEventListener("update", () => {
+        refresh()
       })
+      source.addEventListener("ready", () => {
+        refresh()
+      })
+      source.onerror = () => {
+        source?.close()
+        source = null
+        if (!mounted) return
+        if (reconnectTimer) clearTimeout(reconnectTimer)
+        reconnectTimer = setTimeout(startStream, 5_000)
+      }
+    }
+
+    refresh()
+    startStream()
+
     const interval = setInterval(() => {
-      fetchWarRoom()
-        .then((payload) => mounted && setData(payload))
-        .catch((err) => mounted && setError(err.message))
+      refresh()
     }, 30_000)
+
     return () => {
       mounted = false
       clearInterval(interval)
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (source) source.close()
     }
   }, [])
 
