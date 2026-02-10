@@ -105,7 +105,7 @@ export function DashboardHeader({ user }: HeaderProps) {
             </button>
             
             <div>
-              <h1 className="text-lg font-semibold text-foreground">{getPageTitle()}</h1>
+              <h1 className="text-xl font-semibold text-foreground">{getPageTitle()}</h1>
               <p className="text-xs text-muted-foreground hidden sm:block">
                 Bienvenido, {user.name || "Usuario"}
               </p>

@@ -184,8 +184,8 @@ export function DashboardSidebar({ user }: SidebarProps) {
                     : "text-sidebar-foreground/60"
                 )}
               >
-                <item.icon className="w-5 h-5" />
-                <span className="text-xs">{item.name.split(" ")[0]}</span>
+                <item.icon className="w-6 h-6" />
+                <span className="text-sm">{item.name.split(" ")[0]}</span>
               </Link>
             )
           })}

@@ -43,10 +43,10 @@ export function DashboardStats({ stats }: { stats: DashboardStatItem[] }) {
             <p className="text-2xl lg:text-3xl font-bold text-foreground">
               {stat.value}
             </p>
-            <p className="text-sm font-medium text-foreground mt-1">
+            <p className="text-base sm:text-sm font-medium text-foreground mt-1">
               {stat.name}
             </p>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="text-sm sm:text-xs text-muted-foreground mt-0.5">
               {stat.description}
             </p>
           </div>
