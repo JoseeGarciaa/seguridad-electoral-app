@@ -53,7 +53,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background grid-background flex items-center justify-center px-4 py-6 sm:py-10">
+    <div className="min-h-screen h-[100dvh] overflow-hidden bg-background grid-background flex items-center justify-center px-4 py-4 sm:py-10">
       {/* Background Effects */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <motion.div
@@ -86,13 +86,13 @@ export default function LoginPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative w-full max-w-6xl"
+        className="relative w-full max-w-6xl h-full"
       >
-        <div className="grid grid-cols-1 md:grid-cols-[1.05fr_1fr] gap-6 items-stretch">
+        <div className="flex flex-col gap-4 md:gap-6 md:grid md:grid-cols-[1.05fr_1fr] items-stretch h-full">
         {/* Login Card */}
-        <div className="glass rounded-2xl border border-border/50 p-6 sm:p-8 shadow-lg h-full">
+        <div className="order-2 md:order-1 glass rounded-2xl border border-border/50 p-5 sm:p-8 shadow-lg h-full">
           {/* Header */}
-          <div className="text-center mb-8">
+          <div className="text-center mb-6">
             <Link href="/" className="inline-flex items-center gap-2 mb-6">
               <div className="relative">
                 <Shield className="w-10 h-10 text-primary" />
@@ -115,14 +115,14 @@ export default function LoginPage() {
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-6 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive"
+              className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive"
             >
               {error}
             </motion.div>
           )}
 
           {/* Form */}
-          <form action={handleSubmit} className="space-y-4">
+          <form action={handleSubmit} className="space-y-3">
             {!isLogin && (
               <div className="space-y-2">
                 <Label htmlFor="name" className="text-sm text-foreground">Nombre</Label>
@@ -187,7 +187,7 @@ export default function LoginPage() {
           </form>
 
           {/* Toggle */}
-          <div className="mt-6 text-center">
+          <div className="mt-4 text-center">
             <button
               type="button"
               onClick={() => {
@@ -204,7 +204,7 @@ export default function LoginPage() {
           </div>
 
           {/* Back to home */}
-          <div className="mt-4 text-center">
+          <div className="mt-2 text-center">
             <Link href="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
               ← Volver al inicio
             </Link>
@@ -212,7 +212,7 @@ export default function LoginPage() {
         </div>
 
         {/* Collage */}
-        <div className="glass rounded-2xl border border-border/50 overflow-hidden shadow-lg bg-secondary/40 h-full min-h-[420px] sm:min-h-[540px]">
+        <div className="order-1 md:order-2 glass rounded-2xl border border-border/50 overflow-hidden shadow-lg bg-secondary/40 h-[38dvh] md:h-full sm:min-h-[540px] aspect-video md:aspect-auto">
           <div className="relative h-full bg-gradient-to-br from-primary/15 via-background/5 to-accent/10 flex items-center justify-center">
             {collageImages.map((src, index) => (
               <motion.div
@@ -229,12 +229,12 @@ export default function LoginPage() {
                     fill
                     priority={index === 0}
                     sizes="(max-width: 768px) 100vw, 50vw"
-                    className="object-contain"
+                    className="object-cover md:object-contain"
                   />
                 </div>
               </motion.div>
             ))}
-            <div className="absolute inset-x-0 bottom-0 flex justify-center gap-2 pb-3">
+            <div className="absolute inset-x-0 bottom-0 flex justify-center gap-2 pb-2">
               {collageImages.map((_, index) => (
                 <button
                   key={index}
@@ -247,7 +247,7 @@ export default function LoginPage() {
               ))}
             </div>
           </div>
-            <div className="p-4 border-t border-border/40 text-sm text-muted-foreground flex items-center gap-2">
+            <div className="p-3 border-t border-border/40 text-sm text-muted-foreground flex items-center gap-2">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
