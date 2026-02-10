@@ -16,6 +16,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isStandalone, setIsStandalone] = useState(false)
   const router = useRouter()
 
   // Collage images from public/; cycles every 3.5s.
@@ -30,6 +31,13 @@ export default function LoginPage() {
     }, 3500)
     return () => clearInterval(id)
   }, [collageImages.length])
+
+  useEffect(() => {
+    const standalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      ("standalone" in navigator && (navigator as Navigator & { standalone?: boolean }).standalone)
+    setIsStandalone(Boolean(standalone))
+  }, [])
 
   async function handleSubmit(formData: FormData) {
     setLoading(true)
@@ -86,11 +94,11 @@ export default function LoginPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative w-full max-w-md lg:max-w-6xl h-full mx-auto"
+        className={`relative w-full ${isStandalone ? "max-w-md" : "max-w-md lg:max-w-6xl"} h-full mx-auto`}
       >
-        <div className="flex flex-col gap-4 lg:gap-6 lg:grid lg:grid-cols-[1.05fr_1fr] items-stretch h-full">
+        <div className={`flex flex-col gap-4 ${isStandalone ? "items-center" : "lg:gap-6 lg:grid lg:grid-cols-[1.05fr_1fr]"} items-stretch h-full`}>
         {/* Login Card */}
-        <div className="order-2 lg:order-1 glass rounded-2xl border border-border/50 p-5 sm:p-8 shadow-lg w-full">
+        <div className={`order-2 lg:order-1 glass rounded-2xl border border-border/50 p-5 sm:p-8 shadow-lg w-full ${isStandalone ? "max-w-md" : ""}`}>
           {/* Header */}
           <div className="text-center mb-6">
             <Link href="/" className="inline-flex items-center gap-2 mb-6">
@@ -211,50 +219,52 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Collage */}
-        <div className="order-1 lg:order-2 glass rounded-2xl border border-border/50 overflow-hidden shadow-lg bg-secondary/40 w-full aspect-[4/3] sm:aspect-video lg:aspect-auto lg:h-full lg:min-h-[540px]">
-          <div className="relative h-full bg-gradient-to-br from-primary/15 via-background/5 to-accent/10 flex items-center justify-center">
-            {collageImages.map((src, index) => (
-              <motion.div
-                key={src}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: index === active ? 1 : 0 }}
-                transition={{ duration: 0.6 }}
-                className="absolute inset-0"
-              >
-                <div className="absolute inset-0 flex items-center justify-center p-3 md:p-4">
-                  <Image
-                    src={src}
-                    alt="Collage de territorio"
-                    fill
-                    priority={index === 0}
-                    sizes="(max-width: 768px) 100vw, 50vw"
-                    className="object-cover lg:object-contain"
-                  />
-                </div>
-              </motion.div>
-            ))}
-            <div className="absolute inset-x-0 bottom-0 flex justify-center gap-2 pb-2">
-              {collageImages.map((_, index) => (
-                <button
-                  key={index}
-                  aria-label={`Ver imagen ${index + 1}`}
-                  onClick={() => setActive(index)}
-                  className={`h-1.5 w-6 rounded-full transition-all ${
-                    index === active ? "bg-primary" : "bg-primary/30"
-                  }`}
-                />
+        {/* Collage (web only) */}
+        {!isStandalone && (
+          <div className="order-1 lg:order-2 hidden lg:block glass rounded-2xl border border-border/50 overflow-hidden shadow-lg bg-secondary/40 w-full aspect-[4/3] sm:aspect-video lg:aspect-auto lg:h-full lg:min-h-[540px]">
+            <div className="relative h-full bg-gradient-to-br from-primary/15 via-background/5 to-accent/10 flex items-center justify-center">
+              {collageImages.map((src, index) => (
+                <motion.div
+                  key={src}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: index === active ? 1 : 0 }}
+                  transition={{ duration: 0.6 }}
+                  className="absolute inset-0"
+                >
+                  <div className="absolute inset-0 flex items-center justify-center p-3 md:p-4">
+                    <Image
+                      src={src}
+                      alt="Collage de territorio"
+                      fill
+                      priority={index === 0}
+                      sizes="(max-width: 768px) 100vw, 50vw"
+                      className="object-cover lg:object-contain"
+                    />
+                  </div>
+                </motion.div>
               ))}
+              <div className="absolute inset-x-0 bottom-0 flex justify-center gap-2 pb-2">
+                {collageImages.map((_, index) => (
+                  <button
+                    key={index}
+                    aria-label={`Ver imagen ${index + 1}`}
+                    onClick={() => setActive(index)}
+                    className={`h-1.5 w-6 rounded-full transition-all ${
+                      index === active ? "bg-primary" : "bg-primary/30"
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="p-3 border-t border-border/40 text-sm text-muted-foreground flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+              </span>
+              Collage de territorio (alta resolución).
             </div>
           </div>
-            <div className="p-3 border-t border-border/40 text-sm text-muted-foreground flex items-center gap-2">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-            </span>
-            Collage de territorio (alta resolución).
-          </div>
-        </div>
+        )}
         </div>
       </motion.div>
     </div>
