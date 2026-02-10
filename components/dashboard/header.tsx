@@ -106,7 +106,7 @@ export function DashboardHeader({ user }: HeaderProps) {
             
             <div>
               <h1 className="text-xl font-semibold text-foreground">{getPageTitle()}</h1>
-              <p className="text-xs text-muted-foreground hidden sm:block">
+              <p className="text-sm text-muted-foreground hidden sm:block">
                 Bienvenido, {user.name || "Usuario"}
               </p>
             </div>
@@ -132,7 +132,7 @@ export function DashboardHeader({ user }: HeaderProps) {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
               </span>
-              <span className="text-xs font-medium text-primary">EN VIVO</span>
+              <span className="text-sm font-medium text-primary">EN VIVO</span>
             </div>
 
             {/* Notifications */}

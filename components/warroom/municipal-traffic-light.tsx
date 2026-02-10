@@ -34,10 +34,10 @@ export function MunicipalTrafficLight() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-sm font-semibold text-foreground">Semáforo Municipal</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Cobertura de testigos por municipio</p>
+          <h3 className="text-base font-semibold text-foreground">Semáforo Municipal</h3>
+          <p className="text-sm text-muted-foreground mt-0.5">Cobertura de testigos por municipio</p>
         </div>
-        <div className="flex items-center gap-3 text-xs">
+        <div className="flex items-center gap-3 text-sm">
           <div className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-neon-green" />
             <span className="text-muted-foreground">{"≥85%"}</span>
@@ -55,10 +55,10 @@ export function MunicipalTrafficLight() {
 
       {/* Grid of municipalities */}
       <div className="grid grid-cols-3 lg:grid-cols-4 gap-2">
-        {error && <p className="text-xs text-destructive col-span-3">{error}</p>}
+        {error && <p className="text-sm text-destructive col-span-3">{error}</p>}
         {loading && <div className="col-span-3 h-16 rounded-lg bg-secondary/50 animate-pulse" />}
         {!loading && assignedMunicipalities.length === 0 && !error && (
-          <p className="text-xs text-muted-foreground col-span-3">Sin municipios con delegados asignados.</p>
+          <p className="text-sm text-muted-foreground col-span-3">Sin municipios con delegados asignados.</p>
         )}
         {!loading && assignedMunicipalities.map((municipality, index) => (
           <motion.div
@@ -70,9 +70,9 @@ export function MunicipalTrafficLight() {
           >
             <div className="flex items-center justify-between mb-1">
               <span className={`w-2 h-2 rounded-full ${statusColors[municipality.status as keyof typeof statusColors]}`} />
-              <span className="text-xs font-bold text-foreground">{municipality.coverage}%</span>
+              <span className="text-sm font-bold text-foreground">{municipality.coverage}%</span>
             </div>
-            <p className="text-xs font-medium text-foreground truncate">{municipality.name}</p>
+            <p className="text-sm font-medium text-foreground truncate">{municipality.name}</p>
           </motion.div>
         ))}
       </div>
@@ -81,15 +81,15 @@ export function MunicipalTrafficLight() {
       <div className="mt-4 pt-4 border-t border-border/50 grid grid-cols-3 gap-4">
         <div className="text-center">
           <p className="text-2xl font-bold text-neon-green">{grouped.green.length}</p>
-          <p className="text-xs text-muted-foreground">Óptimo</p>
+          <p className="text-sm text-muted-foreground">Óptimo</p>
         </div>
         <div className="text-center">
           <p className="text-2xl font-bold text-neon-orange">{grouped.yellow.length}</p>
-          <p className="text-xs text-muted-foreground">Atención</p>
+          <p className="text-sm text-muted-foreground">Atención</p>
         </div>
         <div className="text-center">
           <p className="text-2xl font-bold text-destructive">{grouped.red.length}</p>
-          <p className="text-xs text-muted-foreground">Crítico</p>
+          <p className="text-sm text-muted-foreground">Crítico</p>
         </div>
       </div>
     </div>

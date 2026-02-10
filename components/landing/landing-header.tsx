@@ -19,20 +19,20 @@ export function LandingHeader() {
               <Shield className="w-7 h-7 sm:w-8 sm:h-8 text-primary" />
               <div className="absolute inset-0 blur-md bg-primary/30" />
             </div>
-            <span className="font-bold text-base sm:text-lg tracking-tight text-foreground">
+            <span className="font-bold text-lg sm:text-lg tracking-tight text-foreground">
               DEFENSA ELECTORAL
             </span>
           </Link>
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-8">
-            <Link href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <Link href="#features" className="text-base text-muted-foreground hover:text-foreground transition-colors">
               Funciones
             </Link>
-            <Link href="#stats" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <Link href="#stats" className="text-base text-muted-foreground hover:text-foreground transition-colors">
               Impacto
             </Link>
-            <Link href="#contact" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <Link href="#contact" className="text-base text-muted-foreground hover:text-foreground transition-colors">
               Contacto
             </Link>
           </nav>
@@ -71,13 +71,13 @@ export function LandingHeader() {
             className="md:hidden glass border-t border-border/50"
           >
             <div className="px-4 py-6 space-y-4">
-              <Link href="#features" className="block text-sm text-muted-foreground hover:text-foreground">
+              <Link href="#features" className="block text-base text-muted-foreground hover:text-foreground">
                 Funciones
               </Link>
-              <Link href="#stats" className="block text-sm text-muted-foreground hover:text-foreground">
+              <Link href="#stats" className="block text-base text-muted-foreground hover:text-foreground">
                 Impacto
               </Link>
-              <Link href="#contact" className="block text-sm text-muted-foreground hover:text-foreground">
+              <Link href="#contact" className="block text-base text-muted-foreground hover:text-foreground">
                 Contacto
               </Link>
               <div className="pt-4 border-t border-border/50 space-y-2">

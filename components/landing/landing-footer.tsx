@@ -12,7 +12,7 @@ export function LandingFooter() {
               <Shield className="w-6 h-6 text-primary" />
               <span className="font-bold text-foreground">DEFENSA ELECTORAL</span>
             </Link>
-            <p className="text-sm text-muted-foreground max-w-md">
+            <p className="text-base text-muted-foreground max-w-md">
               War Room digital premium para campañas políticas en Colombia. 
               Control total del territorio, evidencia en tiempo real, cero improvisación.
             </p>
@@ -23,17 +23,17 @@ export function LandingFooter() {
             <h4 className="font-semibold text-foreground mb-4">Producto</h4>
             <ul className="space-y-2">
               <li>
-                <Link href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <Link href="#features" className="text-base text-muted-foreground hover:text-foreground transition-colors">
                   Funciones
                 </Link>
               </li>
               <li>
-                <Link href="#stats" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <Link href="#stats" className="text-base text-muted-foreground hover:text-foreground transition-colors">
                   Impacto
                 </Link>
               </li>
               <li>
-                <Link href="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <Link href="/login" className="text-base text-muted-foreground hover:text-foreground transition-colors">
                   Acceder
                 </Link>
               </li>
@@ -45,17 +45,17 @@ export function LandingFooter() {
             <h4 className="font-semibold text-foreground mb-4">Legal</h4>
             <ul className="space-y-2">
               <li>
-                <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <Link href="#" className="text-base text-muted-foreground hover:text-foreground transition-colors">
                   Privacidad
                 </Link>
               </li>
               <li>
-                <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <Link href="#" className="text-base text-muted-foreground hover:text-foreground transition-colors">
                   Términos
                 </Link>
               </li>
               <li>
-                <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <Link href="#" className="text-base text-muted-foreground hover:text-foreground transition-colors">
                   Cuentas Claras
                 </Link>
               </li>
@@ -65,11 +65,11 @@ export function LandingFooter() {
 
         {/* Bottom */}
         <div className="mt-12 pt-8 border-t border-border/50 flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-base text-muted-foreground">
             &copy; {new Date().getFullYear()} Defensa Electoral. Todos los derechos reservados.
           </p>
           <div className="flex items-center gap-4">
-            <span className="text-xs text-muted-foreground">
+            <span className="text-sm text-muted-foreground">
               Hecho en Colombia
             </span>
           </div>

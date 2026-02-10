@@ -16,14 +16,14 @@ export function CandidateComparison() {
       <div className="p-4 border-b border-border/50">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-foreground">Comparativo de Candidatos</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <h3 className="text-base font-semibold text-foreground">Comparativo de Candidatos</h3>
+            <p className="text-sm text-muted-foreground mt-0.5">
               {loading ? "Cargando..." : `${totalVotes.toLocaleString()} votos contabilizados`}
             </p>
           </div>
           <div className="text-right">
-            <p className="text-xs text-muted-foreground">Reportes verificados</p>
-            <p className="text-lg font-bold text-foreground">{loading ? "--" : data?.stats.reports ?? 0}</p>
+            <p className="text-sm text-muted-foreground">Reportes verificados</p>
+            <p className="text-xl font-bold text-foreground">{loading ? "--" : data?.stats.reports ?? 0}</p>
           </div>
         </div>
       </div>
@@ -33,7 +33,7 @@ export function CandidateComparison() {
         <div className="h-8 rounded-lg overflow-hidden flex">
           {loading && <div className="w-full bg-secondary animate-pulse" />}
           {!loading && candidates.length === 0 && (
-            <div className="w-full bg-secondary/40 text-center text-xs text-muted-foreground flex items-center justify-center">
+            <div className="w-full bg-secondary/40 text-center text-sm text-muted-foreground flex items-center justify-center">
               Sin datos de votos
             </div>
           )}
@@ -53,7 +53,7 @@ export function CandidateComparison() {
       {/* Candidate List */}
       <div className="flex-1 overflow-y-auto p-4">
         <div className="space-y-4">
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && <p className="text-sm text-destructive">{error}</p>}
           {loading && <div className="h-24 rounded-lg bg-secondary/50 animate-pulse" />}
           {!loading && candidates.map((candidate, index) => (
             <motion.div
@@ -70,25 +70,25 @@ export function CandidateComparison() {
                   <div className={`w-3 h-3 rounded-full ${candidate.color ?? "bg-primary"}`} />
                   <div>
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-foreground">{candidate.name}</p>
+                      <p className="text-base font-medium text-foreground">{candidate.name}</p>
                       {index === 0 && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-primary/20 text-primary font-medium">
+                        <span className="px-1.5 py-0.5 rounded text-xs bg-primary/20 text-primary font-medium">
                           NUESTRO
                         </span>
                       )}
                     </div>
-                    {candidate.party && <p className="text-xs text-muted-foreground">{candidate.party}</p>}
+                    {candidate.party && <p className="text-sm text-muted-foreground">{candidate.party}</p>}
                   </div>
                 </div>
                 <div className="text-right">
                   <div className="flex items-center gap-2">
-                    <p className="text-lg font-bold text-foreground">{candidate.percentage}%</p>
-                    <div className={`flex items-center gap-0.5 text-xs ${index === 0 ? "text-neon-green" : "text-destructive"}`}>
-                      {index === 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                    <p className="text-xl font-bold text-foreground">{candidate.percentage}%</p>
+                    <div className={`flex items-center gap-0.5 text-sm ${index === 0 ? "text-neon-green" : "text-destructive"}`}>
+                      {index === 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
                       {index === 0 ? "+" : "-"}
                     </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">{candidate.votes.toLocaleString()} votos</p>
+                  <p className="text-sm text-muted-foreground">{candidate.votes.toLocaleString()} votos</p>
                 </div>
               </div>
 
@@ -108,7 +108,7 @@ export function CandidateComparison() {
 
       {/* Footer */}
       <div className="p-3 border-t border-border/50 bg-secondary/20">
-        <p className="text-[10px] text-muted-foreground text-center">
+        <p className="text-xs text-muted-foreground text-center">
           Última actualización: {data?.stats.lastUpdated ? new Date(data.stats.lastUpdated).toLocaleTimeString("es-CO") : "--"}
         </p>
       </div>

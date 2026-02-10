@@ -62,7 +62,7 @@ export function CTASection() {
 
           {/* Trust indicators */}
           <div className="mt-10 pt-8 border-t border-border/50">
-            <div className="flex flex-wrap justify-center gap-x-8 gap-y-4 text-sm text-muted-foreground">
+            <div className="flex flex-wrap justify-center gap-x-8 gap-y-4 text-base text-muted-foreground">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-primary" />
                 <span>Configuración en minutos</span>

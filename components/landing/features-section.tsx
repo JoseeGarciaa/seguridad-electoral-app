@@ -90,7 +90,7 @@ export function FeaturesSection() {
           className="text-center mb-16"
         >
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 mb-6">
-            <span className="text-sm font-medium text-primary">MÓDULOS DISPONIBLES</span>
+            <span className="text-base font-medium text-primary">MÓDULOS DISPONIBLES</span>
           </div>
           <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4 text-balance">
             Todo lo que necesitas para ganar
@@ -122,7 +122,7 @@ export function FeaturesSection() {
                 </h3>
                 
                 {/* Description */}
-                <p className="text-sm text-muted-foreground leading-relaxed">
+                <p className="text-base text-muted-foreground leading-relaxed">
                   {feature.description}
                 </p>
               </div>

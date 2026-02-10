@@ -36,17 +36,17 @@ export function EvidenceGallery() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-sm font-semibold text-foreground">Evidencias Recientes</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Actas y fotos de mesas</p>
+          <h3 className="text-base font-semibold text-foreground">Evidencias Recientes</h3>
+          <p className="text-sm text-muted-foreground mt-0.5">Actas y fotos de mesas</p>
         </div>
-        <Button variant="secondary" size="sm" className="text-xs">
+        <Button variant="secondary" size="sm" className="text-sm">
           Ver todas
         </Button>
       </div>
 
       {/* Gallery Grid */}
       <div className="grid grid-cols-3 lg:grid-cols-6 gap-2">
-        {error && <p className="text-xs text-destructive col-span-3">{error}</p>}
+        {error && <p className="text-sm text-destructive col-span-3">{error}</p>}
         {loading && <div className="col-span-3 h-24 rounded-lg bg-secondary/50 animate-pulse" />}
         {!loading && evidences.map((evidence, index) => {
           const status = statusConfig[evidence.status as keyof typeof statusConfig]
@@ -66,7 +66,7 @@ export function EvidenceGallery() {
                     <div className="w-8 h-8 mx-auto rounded-lg bg-primary/10 flex items-center justify-center mb-1">
                       <Eye className="w-4 h-4 text-primary" />
                     </div>
-                    <p className="text-[10px] text-muted-foreground">Acta</p>
+                    <p className="text-xs text-muted-foreground">Acta</p>
                   </div>
                 )}
               </div>
@@ -76,9 +76,9 @@ export function EvidenceGallery() {
               </div>
 
               <div className="absolute inset-0 bg-background/90 opacity-0 group-hover:opacity-100 transition-opacity p-2 flex flex-col justify-end">
-                <p className="text-xs font-medium text-foreground truncate">{evidence.puesto}</p>
-                <p className="text-[10px] text-muted-foreground">{evidence.mesa}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">{evidence.user}</p>
+                <p className="text-sm font-medium text-foreground truncate">{evidence.puesto}</p>
+                <p className="text-xs text-muted-foreground">{evidence.mesa}</p>
+                <p className="text-xs text-muted-foreground mt-1">{evidence.user}</p>
               </div>
             </motion.div>
           )
@@ -86,7 +86,7 @@ export function EvidenceGallery() {
       </div>
 
       {/* Summary Stats */}
-      <div className="mt-4 pt-4 border-t border-border/50 flex items-center justify-between text-xs">
+      <div className="mt-4 pt-4 border-t border-border/50 flex items-center justify-between text-sm">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1">
             <span className="text-muted-foreground">{loading ? "--" : `${evidences.filter(e => e.status === "verified").length} verificadas`}</span>

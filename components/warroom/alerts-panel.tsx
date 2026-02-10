@@ -147,13 +147,13 @@ export function AlertsPanel() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-neon-orange" />
-            <h3 className="text-sm font-semibold text-foreground">Alertas</h3>
+            <h3 className="text-base font-semibold text-foreground">Alertas</h3>
           </div>
           <div className="flex items-center gap-2">
-            <span className="px-2 py-0.5 rounded-full bg-destructive/20 text-destructive text-xs font-medium">
+            <span className="px-2 py-0.5 rounded-full bg-destructive/20 text-destructive text-sm sm:text-xs font-medium">
               {loading ? "--" : `${criticalCount} crítica`}
             </span>
-            <span className="px-2 py-0.5 rounded-full bg-neon-orange/20 text-neon-orange text-xs font-medium">
+            <span className="px-2 py-0.5 rounded-full bg-neon-orange/20 text-neon-orange text-sm sm:text-xs font-medium">
               {loading ? "--" : `${warningCount} avisos`}
             </span>
           </div>
@@ -163,7 +163,7 @@ export function AlertsPanel() {
       {/* Alerts List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         <AnimatePresence>
-          {(alertsError || warroomError) && <p className="text-xs text-destructive px-2">{alertsError || warroomError}</p>}
+          {(alertsError || warroomError) && <p className="text-sm text-destructive px-2">{alertsError || warroomError}</p>}
           {loading && <div className="h-16 rounded-lg bg-secondary/50 animate-pulse" />}
           {!loading && renderAlerts.map((alert, index) => {
             const isNotice = (alert.category ?? "").toLowerCase() === "votos"
@@ -186,19 +186,19 @@ export function AlertsPanel() {
                 <div className="flex items-start gap-2">
                   <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${styles.icon}`} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground">{alert.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{alert.message}</p>
+                    <p className="text-base font-medium text-foreground">{alert.title}</p>
+                    <p className="text-sm text-muted-foreground mt-0.5">{alert.message}</p>
                     <div className="flex items-center justify-between mt-2">
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {alert.time ? formatTime(alert.time) : "--"}
                       </span>
                       {isNotice ? (
-                        <span className="text-[10px] text-muted-foreground">Aviso</span>
+                        <span className="text-xs text-muted-foreground">Aviso</span>
                       ) : (
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 text-xs px-2"
+                          className="h-8 text-sm px-3"
                           onClick={() => handleAlert(alert.id)}
                         >
                           Atender
@@ -215,7 +215,7 @@ export function AlertsPanel() {
 
       {/* Footer */}
       <div className="p-3 border-t border-border/50">
-        <Button variant="secondary" size="sm" className="w-full text-xs" onClick={() => handleAlert()}>
+        <Button variant="secondary" size="sm" className="w-full text-sm" onClick={() => handleAlert()}>
           Ver todas las alertas
         </Button>
       </div>

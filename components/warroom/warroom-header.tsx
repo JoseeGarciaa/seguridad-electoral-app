@@ -51,12 +51,12 @@ export function WarRoomHeader({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-foreground">{title}</h1>
-              <span className="px-2 py-0.5 rounded-full bg-destructive/20 text-destructive text-xs font-medium animate-pulse">
+              <h1 className="text-2xl font-bold text-foreground">{title}</h1>
+              <span className="px-2 py-0.5 rounded-full bg-destructive/20 text-destructive text-sm sm:text-xs font-medium animate-pulse">
                 {badgeLabel}
               </span>
             </div>
-            <p className="text-sm text-muted-foreground">{subtitle}</p>
+            <p className="text-base sm:text-sm text-muted-foreground">{subtitle}</p>
           </div>
         </div>
 
@@ -68,10 +68,10 @@ export function WarRoomHeader({
                 <stat.icon className="w-4 h-4 text-primary" />
               </div>
               <div>
-                <p className="text-lg font-bold text-foreground">
+                <p className="text-xl font-bold text-foreground">
                   {loading ? "--" : stat.label === "Cobertura" ? `${stat.value}%` : Number(stat.value).toLocaleString("es-CO")}
                 </p>
-                <p className="text-[10px] text-muted-foreground">{stat.label}</p>
+                <p className="text-xs sm:text-[10px] text-muted-foreground">{stat.label}</p>
               </div>
             </div>
           ))}
@@ -81,12 +81,12 @@ export function WarRoomHeader({
         <div className="flex items-center gap-3">
           <Clock className="w-5 h-5 text-muted-foreground" />
           <div className="text-right">
-            <p className="text-2xl font-mono font-bold text-foreground">
+            <p className="text-2xl sm:text-3xl font-mono font-bold text-foreground">
               {time
                 ? time.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
                 : '--:--:--'}
             </p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm sm:text-xs text-muted-foreground">
               {time
                 ? time.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })
                 : 'Cargando fecha'}

@@ -58,13 +58,13 @@ export function HeroSection() {
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.2 }}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 mb-6 text-sm sm:text-base"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 mb-6 text-base"
             >
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
               </span>
-              <span className="text-sm font-medium text-primary">CENTRO DE COMANDO ACTIVO</span>
+              <span className="text-base font-medium text-primary">CENTRO DE COMANDO ACTIVO</span>
             </motion.div>
 
             {/* Main Headline */}
@@ -74,7 +74,7 @@ export function HeroSection() {
               <span className="block">Cero sorpresas.</span>
             </h1>
 
-            <p className="text-base sm:text-lg text-muted-foreground mb-8 max-w-2xl mx-auto lg:mx-0 text-pretty leading-relaxed">
+            <p className="text-lg sm:text-lg text-muted-foreground mb-8 max-w-2xl mx-auto lg:mx-0 text-pretty leading-relaxed">
               War Room digital premium para campañas políticas en Colombia. 
               Control total del territorio, evidencia en tiempo real, cero improvisación.
             </p>
@@ -103,15 +103,15 @@ export function HeroSection() {
             >
               <div>
                 <div className="text-2xl sm:text-3xl font-bold text-foreground">100%</div>
-                <div className="text-sm text-muted-foreground">Cobertura DIVIPOLE</div>
+                <div className="text-base text-muted-foreground">Cobertura DIVIPOLE</div>
               </div>
               <div>
                 <div className="text-2xl sm:text-3xl font-bold text-foreground">Tiempo Real</div>
-                <div className="text-sm text-muted-foreground">Evidencia Electoral</div>
+                <div className="text-base text-muted-foreground">Evidencia Electoral</div>
               </div>
               <div>
                 <div className="text-2xl sm:text-3xl font-bold text-foreground">Cero</div>
-                <div className="text-sm text-muted-foreground">Excel Necesario</div>
+                <div className="text-base text-muted-foreground">Excel Necesario</div>
               </div>
             </motion.div>
           </motion.div>

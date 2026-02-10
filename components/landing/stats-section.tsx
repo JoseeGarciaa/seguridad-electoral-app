@@ -122,12 +122,12 @@ export function StatsSection() {
                 </div>
                 
                 {/* Label */}
-                <div className="text-sm font-medium text-foreground mb-1">
+                <div className="text-base font-medium text-foreground mb-1">
                   {stat.label}
                 </div>
                 
                 {/* Description */}
-                <div className="text-xs text-muted-foreground">
+                <div className="text-sm text-muted-foreground">
                   {stat.description}
                 </div>
               </div>

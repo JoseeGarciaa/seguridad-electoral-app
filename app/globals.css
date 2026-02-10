@@ -150,7 +150,7 @@
 
 @layer base {
   html {
-    font-size: clamp(16px, 3.8vw, 18px);
+    font-size: clamp(17px, 4.2vw, 19px);
   }
   * {
     @apply border-border outline-ring/50;
@@ -194,7 +194,7 @@
     background-size: 36px 36px;
   }
   html {
-    font-size: 17px;
+    font-size: 18px;
   }
   body {
     line-height: 1.6;
