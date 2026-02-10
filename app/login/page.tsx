@@ -19,14 +19,7 @@ export default function LoginPage() {
   const router = useRouter()
 
   // Collage images from public/; cycles every 3.5s.
-  const collageImages = [
-    "/k1.jpg",
-    "/k2.jpg",
-    "/k3.jpg",
-    "/k4.jpg",
-    "/k5.jpg",
-    "/k6.jpg",
-  ]
+  const collageImages = ["/123.jpeg"]
   const [active, setActive] = useState(0)
 
   // Simple auto-advance for collage; pauses on empty list.
