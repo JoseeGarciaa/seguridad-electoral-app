@@ -16,7 +16,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [isStandalone, setIsStandalone] = useState(false)
+  const [isStandalone, setIsStandalone] = useState<boolean | null>(null)
   const router = useRouter()
 
   // Collage images from public/; cycles every 3.5s.
@@ -220,7 +220,7 @@ export default function LoginPage() {
         </div>
 
         {/* Collage (web only) */}
-        {!isStandalone && (
+        {isStandalone === false && (
           <div className="order-1 glass rounded-2xl border border-border/50 overflow-hidden shadow-lg bg-secondary/40 w-full aspect-video">
             <div className="relative h-full bg-gradient-to-br from-primary/15 via-background/5 to-accent/10 flex items-center justify-center">
               {collageImages.map((src, index) => (
