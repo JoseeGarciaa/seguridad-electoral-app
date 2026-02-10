@@ -86,11 +86,11 @@ export default function LoginPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative w-full max-w-6xl h-full"
+        className="relative w-full max-w-md lg:max-w-6xl h-full mx-auto"
       >
         <div className="flex flex-col gap-4 lg:gap-6 lg:grid lg:grid-cols-[1.05fr_1fr] items-stretch h-full">
         {/* Login Card */}
-        <div className="order-2 md:order-1 glass rounded-2xl border border-border/50 p-5 sm:p-8 shadow-lg h-full">
+        <div className="order-2 lg:order-1 glass rounded-2xl border border-border/50 p-5 sm:p-8 shadow-lg w-full">
           {/* Header */}
           <div className="text-center mb-6">
             <Link href="/" className="inline-flex items-center gap-2 mb-6">
@@ -212,7 +212,7 @@ export default function LoginPage() {
         </div>
 
         {/* Collage */}
-        <div className="order-1 lg:order-2 glass rounded-2xl border border-border/50 overflow-hidden shadow-lg bg-secondary/40 h-[38dvh] lg:h-full sm:min-h-[540px] aspect-video lg:aspect-auto">
+        <div className="order-1 lg:order-2 glass rounded-2xl border border-border/50 overflow-hidden shadow-lg bg-secondary/40 w-full h-[32dvh] min-h-[220px] max-h-[36dvh] lg:h-full lg:max-h-none lg:min-h-[540px] aspect-video lg:aspect-auto">
           <div className="relative h-full bg-gradient-to-br from-primary/15 via-background/5 to-accent/10 flex items-center justify-center">
             {collageImages.map((src, index) => (
               <motion.div
