@@ -94,11 +94,11 @@ export default function LoginPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className={`relative w-full ${isStandalone ? "max-w-[520px]" : "max-w-[520px] sm:max-w-md lg:max-w-6xl"} mx-auto flex flex-col justify-center`}
+        className={`relative w-full ${isStandalone ? "max-w-[620px]" : "max-w-[620px] sm:max-w-lg lg:max-w-6xl"} mx-auto flex flex-col justify-center`}
       >
         <div className={`flex flex-col gap-4 ${isStandalone ? "items-center" : ""} items-stretch`}>
         {/* Login Card */}
-        <div className={`order-2 glass rounded-2xl border border-border/50 p-6 sm:p-10 shadow-lg w-full ${isStandalone ? "max-w-[520px]" : ""}`}>
+        <div className={`order-2 glass rounded-2xl border border-border/50 p-7 sm:p-12 shadow-lg w-full ${isStandalone ? "max-w-[620px]" : ""}`}>
           {/* Header */}
           <div className="text-center mb-6">
             <Link href="/" className="inline-flex items-center gap-2 mb-6">
