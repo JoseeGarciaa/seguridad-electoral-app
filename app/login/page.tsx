@@ -61,7 +61,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen h-[100dvh] overflow-hidden bg-background grid-background flex items-center justify-center px-4 py-4 sm:py-10">
+    <div className="min-h-[100dvh] overflow-hidden bg-background grid-background flex items-center justify-center px-4 py-6 sm:py-10">
       {/* Background Effects */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <motion.div
@@ -94,11 +94,11 @@ export default function LoginPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className={`relative w-full ${isStandalone ? "max-w-md" : "max-w-md lg:max-w-6xl"} h-full mx-auto`}
+        className={`relative w-full ${isStandalone ? "max-w-[520px]" : "max-w-[520px] sm:max-w-md lg:max-w-6xl"} mx-auto flex flex-col justify-center`}
       >
-        <div className={`flex flex-col gap-4 ${isStandalone ? "items-center" : ""} items-stretch h-full`}>
+        <div className={`flex flex-col gap-4 ${isStandalone ? "items-center" : ""} items-stretch`}>
         {/* Login Card */}
-        <div className={`order-2 glass rounded-2xl border border-border/50 p-5 sm:p-8 shadow-lg w-full ${isStandalone ? "max-w-md" : ""}`}>
+        <div className={`order-2 glass rounded-2xl border border-border/50 p-6 sm:p-10 shadow-lg w-full ${isStandalone ? "max-w-[520px]" : ""}`}>
           {/* Header */}
           <div className="text-center mb-6">
             <Link href="/" className="inline-flex items-center gap-2 mb-6">
