@@ -212,7 +212,7 @@ export default function LoginPage() {
         </div>
 
         {/* Collage */}
-        <div className="order-1 lg:order-2 glass rounded-2xl border border-border/50 overflow-hidden shadow-lg bg-secondary/40 w-full h-[32dvh] min-h-[220px] max-h-[36dvh] lg:h-full lg:max-h-none lg:min-h-[540px] aspect-video lg:aspect-auto">
+        <div className="order-1 lg:order-2 glass rounded-2xl border border-border/50 overflow-hidden shadow-lg bg-secondary/40 w-full aspect-[4/3] sm:aspect-video lg:aspect-auto lg:h-full lg:min-h-[540px]">
           <div className="relative h-full bg-gradient-to-br from-primary/15 via-background/5 to-accent/10 flex items-center justify-center">
             {collageImages.map((src, index) => (
               <motion.div
