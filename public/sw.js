@@ -1,10 +1,23 @@
-const CACHE_NAME = "defensa-electoral-v1";
+const CACHE_NAME = "defensa-electoral-v2";
 const PRECACHE_URLS = [
   "/",
   "/manifest.webmanifest",
   "/icon.svg",
   "/apple-icon.png",
   "/placeholder-logo.png"
+];
+
+const CACHEABLE_EXTENSIONS = [
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".svg",
+  ".ico",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".css"
 ];
 
 self.addEventListener("install", (event) => {
@@ -29,6 +42,32 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+
+  const url = new URL(event.request.url);
+  const isSameOrigin = url.origin === self.location.origin;
+  const isNextAsset = url.pathname.startsWith("/_next/");
+  const isApiRoute = url.pathname.startsWith("/api/");
+  const isSwFile = url.pathname === "/sw.js";
+  const hasCacheableExtension = CACHEABLE_EXTENSIONS.some((ext) => url.pathname.endsWith(ext));
+
+  if (!isSameOrigin || isNextAsset || isApiRoute || isSwFile) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => response)
+        .catch(() => caches.match("/"))
+    );
+    return;
+  }
+
+  if (!hasCacheableExtension && !PRECACHE_URLS.includes(url.pathname)) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
