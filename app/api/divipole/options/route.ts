@@ -38,7 +38,13 @@ export async function GET(req: NextRequest) {
     try {
       if (!dept) {
         const { rows } = await client.query<DepartmentRow>(
-          `SELECT DISTINCT dd, departamento FROM divipole_locations ORDER BY departamento`
+          `SELECT
+             dd,
+             MIN(TRIM(departamento)) AS departamento
+           FROM divipole_locations
+           WHERE dd IS NOT NULL AND dd <> ''
+           GROUP BY dd
+           ORDER BY MIN(TRIM(departamento))`
         )
         return NextResponse.json({
           departments: rows.map((r) => ({ code: r.dd, name: r.departamento })),
@@ -47,7 +53,14 @@ export async function GET(req: NextRequest) {
 
       if (dept && !muni) {
         const { rows } = await client.query<MunicipalityRow>(
-          `SELECT DISTINCT dd, mm, municipio FROM divipole_locations WHERE dd = $1 ORDER BY municipio`,
+          `SELECT
+             dd,
+             mm,
+             MIN(TRIM(municipio)) AS municipio
+           FROM divipole_locations
+           WHERE dd = $1 AND mm IS NOT NULL AND mm <> ''
+           GROUP BY dd, mm
+           ORDER BY MIN(TRIM(municipio))`,
           [dept]
         )
         return NextResponse.json({
@@ -57,22 +70,39 @@ export async function GET(req: NextRequest) {
 
       // Puestos deben ser únicos por (dd, mm, pp); no agregamos ni mezclamos otros municipios/departamentos
       const { rows } = await client.query<PuestoRow>(
-        `SELECT
-            id,
-            dd,
-            mm,
-            pp,
-            departamento,
-            municipio,
-            puesto,
-            direccion,
-            mesas,
-            total,
-            latitud,
-            longitud
-         FROM divipole_locations
-         WHERE dd = $1 AND mm = $2
-         ORDER BY puesto` ,
+        `WITH unique_puestos AS (
+           SELECT DISTINCT ON (dd, mm, pp)
+             id,
+             dd,
+             mm,
+             pp,
+             TRIM(departamento) AS departamento,
+             TRIM(municipio) AS municipio,
+             TRIM(puesto) AS puesto,
+             direccion,
+             mesas,
+             total,
+             latitud,
+             longitud
+           FROM divipole_locations
+           WHERE dd = $1 AND mm = $2 AND pp IS NOT NULL AND pp <> ''
+           ORDER BY dd, mm, pp, id
+         )
+         SELECT
+           id,
+           dd,
+           mm,
+           pp,
+           departamento,
+           municipio,
+           puesto,
+           direccion,
+           mesas,
+           total,
+           latitud,
+           longitud
+         FROM unique_puestos
+         ORDER BY puesto`,
         [dept, muni]
       )
 
