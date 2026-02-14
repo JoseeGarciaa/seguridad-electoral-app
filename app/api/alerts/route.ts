@@ -81,13 +81,17 @@ export async function POST(req: NextRequest) {
     if (typeof photo !== "string" || !photo.startsWith("data:")) continue
     const parsed = parseDataUrl(photo)
     if (!parsed) continue
-    const filename = `${sanitizeFilename(mesaLabel || pollingStationCode || "alerta")}-${Date.now()}-${idx}.${parsed.ext}`
-    try {
-      const uploaded = await uploadFile(parsed.buffer, filename, "evidences/alerts")
-      uploadedUrls.push(uploaded.url)
-    } catch (err) {
-      console.error("upload alert photo failed", err)
+    let finalUrl = photo
+    if (storageProvider !== "local") {
+      const filename = `${sanitizeFilename(mesaLabel || pollingStationCode || "alerta")}-${Date.now()}-${idx}.${parsed.ext}`
+      try {
+        const uploaded = await uploadFile(parsed.buffer, filename, "evidences/alerts")
+        finalUrl = uploaded.url
+      } catch (err) {
+        console.error("upload alert photo failed", err)
+      }
     }
+    uploadedUrls.push(finalUrl)
   }
 
   const title = notes?.trim() ? notes.trim().slice(0, 80) : "Alerta manual"
@@ -328,9 +332,11 @@ export async function GET(req: NextRequest) {
         client.query(statsQuery, delegateId ? [delegateId] : []),
         client.query(
           `SELECT e.id, e.title, e.description, e.municipality, e.polling_station, e.uploaded_at, e.tags, e.url, e.status, e.vote_report_id,
+            vr.photo_url AS report_photo_url,
             COALESCE(d.full_name, 'Delegado') AS delegate_name
              FROM evidences e
              LEFT JOIN delegates d ON d.id = e.uploaded_by_id
+             LEFT JOIN vote_reports vr ON vr.id = e.vote_report_id
             WHERE type = 'alert'
               AND ($1::boolean OR NOT (COALESCE(e.tags, '{}'::text[]) @> ARRAY['audience:admin']::text[]))
             ORDER BY uploaded_at DESC
@@ -378,6 +384,20 @@ export async function GET(req: NextRequest) {
               : "abierta"
 
         const photo = (row.url as string | null) ?? null
+        const reportPhoto = (row.report_photo_url as string | null) ?? null
+
+        const orderedPhotos = [photo, reportPhoto]
+          .filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+          .sort((a, b) => {
+            const score = (value: string) => {
+              if (value.startsWith("data:image")) return 0
+              if (value.startsWith("http://") || value.startsWith("https://")) return 1
+              if (value.startsWith("/api/")) return 2
+              if (value.startsWith("/vote-evidence/")) return 3
+              return 4
+            }
+            return score(a) - score(b)
+          })
 
         return {
           id: row.id as string,
@@ -390,7 +410,7 @@ export async function GET(req: NextRequest) {
           status,
           detail: row.description as string,
           delegateName: row.delegate_name as string,
-          photos: photo ? [photo] : [],
+          photos: orderedPhotos.length > 0 ? [orderedPhotos[0]] : [],
           reportId,
           reportUrl: reportId ? `/dashboard/reportes?reportId=${encodeURIComponent(reportId)}#reporte-${reportId}` : null,
         }

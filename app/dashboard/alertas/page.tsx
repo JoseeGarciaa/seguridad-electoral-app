@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -73,6 +73,26 @@ const statusColor: Record<string, string> = {
   resuelta: "bg-emerald-500/20 text-emerald-200",
 };
 
+function buildLocalPhotoFallbackUrl(src: string): string | null {
+  if (!src) return null
+  const normalized = src.trim().replace(/\\/g, "/")
+  if (!normalized) return null
+
+  const encodedPath = encodeURIComponent(normalized)
+  return `/api/storage/local?path=${encodedPath}`
+}
+
+function getPreferredPhotoSource(src: string): string {
+  if (!src) return "/placeholder.jpg"
+  if (src.startsWith("data:")) return src
+  if (src.startsWith("http://") || src.startsWith("https://")) return src
+  if (src.startsWith("/api/")) return src
+  if (src.startsWith("/vote-evidence/")) {
+    return buildLocalPhotoFallbackUrl(src) ?? src
+  }
+  return src
+}
+
 export default function AlertasPage() {
   const router = useRouter()
   const [data, setData] = useState<AlertItem[]>([])
@@ -93,6 +113,79 @@ export default function AlertasPage() {
   const [selected, setSelected] = useState<AlertItem | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [updating, setUpdating] = useState(false)
+  const [photoDataUrls, setPhotoDataUrls] = useState<Record<string, string>>({})
+
+  const fetchImageAsDataUrl = useCallback(async (url?: string | null) => {
+    if (!url) return null
+    if (url.startsWith("data:")) return url
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const blob = await res.blob()
+    return await new Promise<string | null>((resolve) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : null)
+      reader.onerror = () => resolve(null)
+      reader.readAsDataURL(blob)
+    })
+  }, [])
+
+  const resolvePhotoForRender = useCallback(async (src?: string | null) => {
+    if (!src) return null
+    if (photoDataUrls[src]) return photoDataUrls[src]
+    const preferredSrc = getPreferredPhotoSource(src)
+    const direct = await fetchImageAsDataUrl(preferredSrc)
+    if (direct) {
+      setPhotoDataUrls((prev) => ({ ...prev, [src]: direct }))
+      return direct
+    }
+    const fallbackUrl = buildLocalPhotoFallbackUrl(src)
+    if (!fallbackUrl) return null
+    const fallback = await fetchImageAsDataUrl(fallbackUrl)
+    if (fallback) {
+      setPhotoDataUrls((prev) => ({ ...prev, [src]: fallback }))
+      return fallback
+    }
+    return null
+  }, [fetchImageAsDataUrl, photoDataUrls])
+
+  const handleEvidenceImageError = useCallback((event: SyntheticEvent<HTMLImageElement>) => {
+    const img = event.currentTarget
+    const originalSrc = img.dataset.originalSrc ?? ""
+    if (!originalSrc) {
+      img.src = "/placeholder.jpg"
+      return
+    }
+
+    if (img.dataset.fallbackApplied === "1") {
+      img.src = "/placeholder.jpg"
+      return
+    }
+
+    const fallback = buildLocalPhotoFallbackUrl(originalSrc)
+    if (fallback && fallback !== (img.getAttribute("src") ?? "")) {
+      img.dataset.fallbackApplied = "1"
+      img.src = fallback
+      return
+    }
+
+    img.src = "/placeholder.jpg"
+  }, [])
+
+  useEffect(() => {
+    if (!selected?.photos?.length) return
+    let cancelled = false
+    const run = async () => {
+      for (const src of selected.photos ?? []) {
+        if (cancelled) return
+        if (!src || photoDataUrls[src]) continue
+        await resolvePhotoForRender(src)
+      }
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [photoDataUrls, resolvePhotoForRender, selected?.photos])
 
   const mapApiAlerts = useCallback((payload: any) => {
     const items: AlertItem[] = Array.isArray(payload?.items) ? payload.items : []
@@ -105,7 +198,10 @@ export default function AlertasPage() {
   }, [])
 
   const fetchAlerts = useCallback(async () => {
-    const res = await fetch("/api/alerts", { cache: "no-store" })
+    const res = await fetch("/api/alerts", { cache: "no-store", credentials: "include" })
+    if (res.status === 401 || res.status === 403) {
+      throw new Error("AUTH_REQUIRED")
+    }
     if (!res.ok) throw new Error("No se pudo cargar alertas")
     const json = await res.json()
     return mapApiAlerts(json)
@@ -127,6 +223,15 @@ export default function AlertasPage() {
         setStats(statsPayload)
         setViewerRole(viewerRole ?? null)
       } catch (err: any) {
+        if (err?.message === "AUTH_REQUIRED") {
+          if (!cancelled) {
+            setData([])
+            setStats({ total: 0, criticas: 0, abiertas: 0 })
+            setViewerRole(null)
+            router.replace("/login")
+          }
+          return
+        }
         console.error(err)
         toast({ title: "Alertas", description: err?.message ?? "No se pudo cargar" })
       } finally {
@@ -154,7 +259,14 @@ export default function AlertasPage() {
     let cancelled = false
     const loadMesas = async () => {
       try {
-        const res = await fetch("/api/mesas-asignadas", { cache: "no-store" })
+        const res = await fetch("/api/mesas-asignadas", { cache: "no-store", credentials: "include" })
+        if (res.status === 401 || res.status === 403) {
+          if (!cancelled) {
+            setMesas([])
+            router.replace("/login")
+          }
+          return
+        }
         if (!res.ok) {
           setMesas([])
           return
@@ -603,8 +715,10 @@ export default function AlertasPage() {
                       className="focus:outline-none"
                     >
                       <img
-                        src={src}
+                        src={photoDataUrls[src] ?? getPreferredPhotoSource(src)}
+                        data-original-src={src}
                         alt={`Foto ${idx + 1}`}
+                        onError={handleEvidenceImageError}
                         className="h-20 w-28 object-cover rounded-md border border-zinc-800 hover:border-zinc-600"
                       />
                     </button>
@@ -670,14 +784,16 @@ export default function AlertasPage() {
                 {selected.photos.map((src, idx) => (
                   <a
                     key={idx}
-                    href={src}
+                    href={photoDataUrls[src] ?? getPreferredPhotoSource(src)}
                     target="_blank"
                     rel="noreferrer"
                     className="block"
                   >
                     <img
-                      src={src}
+                      src={photoDataUrls[src] ?? getPreferredPhotoSource(src)}
+                      data-original-src={src}
                       alt={`Foto ${idx + 1}`}
+                      onError={handleEvidenceImageError}
                       className="h-32 w-full object-cover rounded-md border border-border/50 hover:border-primary/60"
                     />
                   </a>
