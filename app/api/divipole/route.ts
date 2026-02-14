@@ -31,8 +31,8 @@ type DivipoleRow = {
   total: number
   hombres: number
   mujeres: number
-  latitud: number
-  longitud: number
+  latitud: number | null
+  longitud: number | null
   dd: string | null
   mm: string | null
   pp: string | null
@@ -281,13 +281,14 @@ export async function GET(request: Request) {
   }
 
   try {
-    const conditions: string[] = ["latitud IS NOT NULL", "longitud IS NOT NULL"]
+    const conditions: string[] = []
     const params: Array<string | number | string[]> = []
     let idx = 1
 
     if (bboxParts) {
       const [minLng, minLat, maxLng, maxLat] = bboxParts
       params.push(minLat, maxLat, minLng, maxLng)
+      conditions.push("latitud IS NOT NULL", "longitud IS NOT NULL")
       conditions.push(`latitud BETWEEN $${idx} AND $${idx + 1}`)
       conditions.push(`longitud BETWEEN $${idx + 2} AND $${idx + 3}`)
       idx += 4
@@ -326,7 +327,7 @@ export async function GET(request: Request) {
          COALESCE(SUM(mesas), 0) AS total_mesas,
          COUNT(*) AS with_coords
        FROM divipole_locations
-       WHERE ${conditions.join(" AND ")}`,
+       ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}`,
       params,
     )
 
@@ -346,8 +347,8 @@ export async function GET(request: Request) {
          dd,
          mm,
          pp
-       FROM divipole_locations
-       WHERE ${conditions.join(" AND ")}
+      FROM divipole_locations
+      ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
        ORDER BY total DESC NULLS LAST
        LIMIT $${idx}`,
       [...params, limit]
@@ -368,7 +369,7 @@ export async function GET(request: Request) {
       type: "Feature" as const,
       geometry: {
         type: "Point" as const,
-        coordinates: [loc.longitud!, loc.latitud!],
+        coordinates: [Number(loc.longitud ?? 0), Number(loc.latitud ?? 0)],
       },
       properties: {
         id: loc.id,
