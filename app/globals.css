@@ -189,26 +189,16 @@
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 640px) and (hover: none) and (pointer: coarse) {
   .grid-background {
     background-size: 36px 36px;
   }
   html {
-    font-size: calc(18px * 1.3);
-    zoom: 1.3;
+    font-size: calc(clamp(17px, 4.2vw, 19px) * 1.3);
   }
   body {
     line-height: 1.6;
     overflow-x: hidden;
-  }
-
-  @supports not (zoom: 1) {
-    body {
-      transform: scale(1.3);
-      transform-origin: top left;
-      width: calc(100% / 1.3);
-      min-height: calc(100dvh / 1.3);
-    }
   }
 }
 
