@@ -16,21 +16,17 @@ import {
   Loader2,
   MapPin,
   Minus,
+  Lock,
   Plus,
   ShieldCheck,
   Smartphone,
   Table,
   X,
 } from "lucide-react"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 
 type Step = "home" | "votos" | "foto" | "confirm" | "done"
+type ListType = "Preferente" | "No Preferente" | null
+type SpecialVoteKey = "blank" | "nulls" | "unmarked"
 
 type Candidate = {
   id: string
@@ -40,6 +36,8 @@ type Candidate = {
   party: string | null
   color: string | null
   region: string | null
+  partyLogo: string | null
+  listType: ListType
 }
 
 type PhotoItem = { file: File; preview: string }
@@ -51,19 +49,99 @@ interface Mesa {
   totalVoters?: number | null
 }
 
+interface CompletedMesa {
+  id: string
+  label: string
+  totalVotos: number
+  note: string
+}
+
+type SpecialVotes = Record<SpecialVoteKey, number>
+
+const EMPTY_SPECIAL_VOTES: SpecialVotes = {
+  blank: 0,
+  nulls: 0,
+  unmarked: 0,
+}
+
+const SPECIAL_VOTE_LABELS: Record<SpecialVoteKey, string> = {
+  blank: "Voto en Blanco",
+  nulls: "Votos Nulos",
+  unmarked: "Votos No Marcados",
+}
+
+const localKey = (mesaId: string) => `testigo-draft-${mesaId}`
+
 const vibrate = (pattern: number | number[]) => {
   if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
     navigator.vibrate(pattern)
   }
 }
 
-const localKey = (mesaId: string) => `testigo-draft-${mesaId}`
+const normalizeListType = (value: any): ListType => {
+  if (typeof value !== "string") return null
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) return null
+  if (normalized.includes("no") && normalized.includes("prefer")) return "No Preferente"
+  if (normalized.includes("prefer")) return "Preferente"
+  return null
+}
 
-interface CompletedMesa {
-  id: string
-  label: string
-  totalVotos: number
-  note: string
+const normalizeNonNegativeInt = (value: any) => {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return 0
+  if (parsed < 0) return 0
+  return Math.min(Math.trunc(parsed), 9999)
+}
+
+const normalizePartyName = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+
+const PARTY_LOGOS: Array<{ tokens: string[]; src: string }> = [
+  { tokens: ["coalicion", "verde"], src: "/Coalición_verde.png" },
+  { tokens: ["alianza", "verde"], src: "/Coalición_verde.png" },
+  { tokens: ["cambio", "radical"], src: "/Cambio_Radical.png" },
+  { tokens: ["partido", "u"], src: "/Logo_Partido_U_Colombia_.png" },
+  { tokens: ["mira", "dignidad", "compromiso"], src: "/Mira_dignidad_compromiso.jpg" },
+  { tokens: ["movimiento", "agrario", "colombiano"], src: "/Movimiento_Agrario_Colombiano.png" },
+  { tokens: ["movimiento", "salvacion", "nacional"], src: "/Movimiento_de_Salvación_Nacional_.png" },
+  { tokens: ["pacto", "historico"], src: "/Pacto_Historico.png" },
+  { tokens: ["centro", "democratico"], src: "/Partido_Centro_Democrático_.png" },
+  { tokens: ["colombia", "renaciente"], src: "/Partido_Colombia_renaciente.png" },
+  { tokens: ["conservador", "colombiano"], src: "/partido_Conservador_Colombiano_.png" },
+  { tokens: ["liberal", "colombia"], src: "/PARTIDO_LIBERAL_COLOMBIA.png" },
+  { tokens: ["nuevo", "liberalismo"], src: "/Partido_Nuevo_liberalismo.png" },
+]
+
+const normalizeLogoSrc = (logo: string | null | undefined) => {
+  if (!logo) return null
+  if (/^(https?:\/\/|data:|blob:)/i.test(logo)) return logo
+  return logo.startsWith("/") ? logo : `/${logo}`
+}
+
+const resolvePartyLogo = (partyName: string | null | undefined, explicitLogo?: string | null) => {
+  const fromApi = normalizeLogoSrc(explicitLogo)
+  if (fromApi) return fromApi
+
+  const normalizedParty = normalizePartyName(partyName ?? "")
+  if (!normalizedParty) return null
+
+  const matched = PARTY_LOGOS.find(({ tokens }) => tokens.every((token) => normalizedParty.includes(token)))
+  return matched?.src ?? null
+}
+
+const safePartyKey = (party: string | null | undefined) =>
+  (party ?? "Independiente").trim().toLowerCase()
+
+const mergeNotesWithSpecialVotes = (baseNote: string, specialVotes: SpecialVotes) => {
+  const summary = `[ResumenMesa] blanco=${specialVotes.blank}; nulos=${specialVotes.nulls}; no_marcados=${specialVotes.unmarked}`
+  const cleanBase = baseNote.trim().replace(/\n?\[ResumenMesa\].*$/i, "")
+  return cleanBase ? `${cleanBase}\n${summary}` : summary
 }
 
 export default function TestigoElectoralPage() {
@@ -74,19 +152,34 @@ export default function TestigoElectoralPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [savingState, setSavingState] = useState<"idle" | "saving" | "saved">("idle")
-  const [focusedCandidate, setFocusedCandidate] = useState<string | null>(null)
   const [photos, setPhotos] = useState<PhotoItem[]>([])
   const [draftVotes, setDraftVotes] = useState<Record<string, number>>({})
+  const [specialVotes, setSpecialVotes] = useState<SpecialVotes>(EMPTY_SPECIAL_VOTES)
   const [note, setNote] = useState("")
   const [completedMesas, setCompletedMesas] = useState<CompletedMesa[]>([])
   const [reportsMap, setReportsMap] = useState<Record<string, { id: string; total: number }>>({})
-  const keypadRef = useRef<HTMLDivElement | null>(null)
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const autosaveVotesRef = useRef<Record<string, number>>({})
+  const autosaveSpecialVotesRef = useRef<SpecialVotes>(EMPTY_SPECIAL_VOTES)
+  const autosaveNoteRef = useRef("")
+  const autoAdvanceTimerRef = useRef<number | null>(null)
 
   const maxPhotos = 4
-
   const currentMesa = mesas[mesaIndex]
   const mesasTotal = mesas.length
   const mesaProgress = mesasTotal ? mesaIndex + 1 : 0
+
+  useEffect(() => {
+    autosaveVotesRef.current = draftVotes
+  }, [draftVotes])
+
+  useEffect(() => {
+    autosaveSpecialVotesRef.current = specialVotes
+  }, [specialVotes])
+
+  useEffect(() => {
+    autosaveNoteRef.current = note
+  }, [note])
 
   useEffect(() => {
     let cancelled = false
@@ -109,7 +202,7 @@ export default function TestigoElectoralPage() {
         }
 
         const mesasJson = await mesasRes.json().catch(() => ({ items: [] }))
-        const catalogosJson = await catalogosRes.json().catch(() => ({ candidatos: [] }))
+        const catalogosJson = await catalogosRes.json().catch(() => ({ candidatos: [], partidos: [] }))
 
         if (cancelled) return
 
@@ -122,24 +215,56 @@ export default function TestigoElectoralPage() {
             }))
           : []
 
+        const partyMetaByName = new Map<string, { logo: string | null; listType: ListType }>()
+        if (Array.isArray(catalogosJson.partidos)) {
+          catalogosJson.partidos.forEach((party: any) => {
+            const partyName = String(party?.party ?? party?.nombre ?? party?.name ?? "Independiente")
+            const logo =
+              (typeof party?.logo === "string" && party.logo) ||
+              (typeof party?.logo_url === "string" && party.logo_url) ||
+              (typeof party?.image_url === "string" && party.image_url) ||
+              (typeof party?.party_logo === "string" && party.party_logo) ||
+              null
+            const listType = normalizeListType(
+              party?.list_type ?? party?.tipo_lista ?? party?.lista_tipo ?? party?.tipo,
+            )
+            partyMetaByName.set(safePartyKey(partyName), { logo: resolvePartyLogo(partyName, logo), listType })
+          })
+        }
+
         const mappedCandidates: Candidate[] = Array.isArray(catalogosJson.candidatos)
-          ? catalogosJson.candidatos.map((c: any) => ({
-              id: String(c.id),
-              fullName: c.full_name ?? c.nombre ?? "Candidato",
-              ballotNumber: typeof c.ballot_number === "number" ? c.ballot_number : null,
-              position: c.position ?? c.cargo ?? null,
-              party: c.party ?? c.partido ?? null,
-              color: c.color ?? null,
-              region: c.region ?? null,
-            }))
+          ? catalogosJson.candidatos.map((c: any) => {
+              const partyName = c.party ?? c.partido ?? "Independiente"
+              const partyMeta = partyMetaByName.get(safePartyKey(partyName))
+              return {
+                id: String(c.id),
+                fullName: c.full_name ?? c.nombre ?? "Candidato",
+                ballotNumber: typeof c.ballot_number === "number" ? c.ballot_number : null,
+                position: c.position ?? c.cargo ?? null,
+                party: partyName,
+                color: c.color ?? null,
+                region: c.region ?? null,
+                partyLogo:
+                  resolvePartyLogo(
+                    partyName,
+                    (typeof c.party_logo === "string" && c.party_logo) ||
+                      (typeof c.logo === "string" && c.logo) ||
+                      (typeof c.logo_url === "string" && c.logo_url) ||
+                      partyMeta?.logo ||
+                      null,
+                  ),
+                listType:
+                  normalizeListType(c.list_type ?? c.tipo_lista ?? c.lista_tipo ?? c.tipo) ??
+                  partyMeta?.listType ??
+                  null,
+              }
+            })
           : []
 
         setMesas(mappedMesas)
         setCandidates(mappedCandidates)
         setMesaIndex(0)
         setStep("home")
-        setFocusedCandidate(mappedCandidates[0]?.id ?? null)
-        // Reset completados mientras llega el estado real
         setCompletedMesas([])
         setReportsMap({})
       } catch (err: any) {
@@ -201,71 +326,194 @@ export default function TestigoElectoralPage() {
     const stored = localStorage.getItem(localKey(currentMesa.id))
     if (stored) {
       const parsed = JSON.parse(stored)
-      setDraftVotes(parsed.votes || {})
-      setNote(parsed.note || "")
+      const parsedVotes = parsed?.votes ?? {}
+      const normalizedVotes: Record<string, number> = {}
+      candidates.forEach((candidate) => {
+        normalizedVotes[candidate.id] = normalizeNonNegativeInt(parsedVotes[candidate.id])
+      })
+      setDraftVotes(normalizedVotes)
+      setSpecialVotes({
+        blank: normalizeNonNegativeInt(parsed?.specialVotes?.blank),
+        nulls: normalizeNonNegativeInt(parsed?.specialVotes?.nulls),
+        unmarked: normalizeNonNegativeInt(parsed?.specialVotes?.unmarked),
+      })
+      setNote(parsed?.note || "")
     } else {
       const zeros: Record<string, number> = {}
-      candidates.forEach((c) => {
-        zeros[c.id] = 0
+      candidates.forEach((candidate) => {
+        zeros[candidate.id] = 0
       })
       setDraftVotes(zeros)
+      setSpecialVotes(EMPTY_SPECIAL_VOTES)
       setNote("")
     }
+
     setPhotos((prev) => {
-      prev.forEach((p) => URL.revokeObjectURL(p.preview))
+      prev.forEach((photo) => URL.revokeObjectURL(photo.preview))
       return []
     })
-    setFocusedCandidate(candidates[0]?.id || null)
   }, [mesaIndex, currentMesa?.id, candidates])
 
   useEffect(() => {
     if (!currentMesa) return
-    localStorage.setItem(localKey(currentMesa.id), JSON.stringify({
-      votes: draftVotes,
-      note,
-    }))
-  }, [draftVotes, note, currentMesa?.id])
+    const timer = window.setInterval(() => {
+      localStorage.setItem(
+        localKey(currentMesa.id),
+        JSON.stringify({
+          votes: autosaveVotesRef.current,
+          specialVotes: autosaveSpecialVotesRef.current,
+          note: autosaveNoteRef.current,
+        }),
+      )
+      setSavingState((prev) => (prev === "saving" ? prev : "saved"))
+    }, 3000)
 
-  const totalVotos = useMemo(
-    () => Object.values(draftVotes).reduce((acc, n) => acc + (isNaN(n) ? 0 : n), 0),
-    [draftVotes]
+    return () => {
+      window.clearInterval(timer)
+      localStorage.setItem(
+        localKey(currentMesa.id),
+        JSON.stringify({
+          votes: autosaveVotesRef.current,
+          specialVotes: autosaveSpecialVotesRef.current,
+          note: autosaveNoteRef.current,
+        }),
+      )
+    }
+  }, [currentMesa?.id])
+
+  useEffect(() => {
+    return () => {
+      if (autoAdvanceTimerRef.current) {
+        window.clearTimeout(autoAdvanceTimerRef.current)
+      }
+    }
+  }, [])
+
+  const groupedParties = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        key: string
+        name: string
+        logo: string | null
+        listType: ListType
+        candidates: Candidate[]
+      }
+    >()
+
+    candidates.forEach((candidate) => {
+      const name = candidate.party ?? "Independiente"
+      const key = safePartyKey(name)
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          name,
+          logo: candidate.partyLogo,
+          listType: candidate.listType,
+          candidates: [candidate],
+        })
+      } else {
+        const item = map.get(key)!
+        item.candidates.push(candidate)
+        if (!item.logo && candidate.partyLogo) item.logo = candidate.partyLogo
+        if (!item.listType && candidate.listType) item.listType = candidate.listType
+      }
+    })
+
+    return Array.from(map.values()).map((party) => ({
+      ...party,
+      candidates: [...party.candidates].sort((a, b) => {
+        const aNumber = a.ballotNumber ?? Number.MAX_SAFE_INTEGER
+        const bNumber = b.ballotNumber ?? Number.MAX_SAFE_INTEGER
+        if (aNumber !== bNumber) return aNumber - bNumber
+        return a.fullName.localeCompare(b.fullName)
+      }),
+    }))
+  }, [candidates])
+
+  const orderedFieldKeys = useMemo(() => {
+    const candidateKeys = groupedParties.flatMap((party) =>
+      party.candidates.map((candidate) => `candidate:${candidate.id}`),
+    )
+    return [...candidateKeys, "special:blank", "special:nulls", "special:unmarked"]
+  }, [groupedParties])
+
+  const totalVotosCandidatos = useMemo(
+    () => Object.values(draftVotes).reduce((acc, value) => acc + (Number.isNaN(value) ? 0 : value), 0),
+    [draftVotes],
   )
 
+  const totalVotosBlanco = specialVotes.blank
+  const totalVotosNulos = specialVotes.nulls
+  const totalVotosNoMarcados = specialVotes.unmarked
+  const totalGeneralVotos = totalVotosCandidatos + totalVotosBlanco + totalVotosNulos + totalVotosNoMarcados
   const mesaCapacity = currentMesa?.totalVoters ?? null
-  const warningOver = mesaCapacity !== null && totalVotos > mesaCapacity
+  const warningOver = mesaCapacity !== null && totalGeneralVotos > mesaCapacity
+  const completedCount = completedMesas.length
+  const pendingCount = Math.max(mesasTotal - completedCount, 0)
+  const isCurrentMesaFinalized = Boolean(currentMesa && reportsMap[currentMesa.id])
 
-  const handleKeypad = (value: string) => {
-    if (!focusedCandidate) return
-    vibrate(10)
-    setDraftVotes((prev) => {
-      const current = prev[focusedCandidate] ?? 0
-      if (value === "back") {
-        const truncated = Math.floor(current / 10)
-        return { ...prev, [focusedCandidate]: truncated }
-      }
-      if (value === "clear") {
-        return { ...prev, [focusedCandidate]: 0 }
-      }
-      const next = Number(`${current}${value}`)
-      return { ...prev, [focusedCandidate]: Math.min(next, 9999) }
-    })
+  const focusField = (fieldKey: string) => {
+    const input = inputRefs.current[fieldKey]
+    if (!input) return
+    input.focus()
+    input.select()
   }
 
-  const increment = (id: string) => {
-    vibrate(5)
-    setDraftVotes((prev) => ({ ...prev, [id]: Math.min((prev[id] || 0) + 1, 9999) }))
-    setFocusedCandidate(id)
+  const focusNextField = (currentFieldKey: string) => {
+    const currentIndex = orderedFieldKeys.findIndex((key) => key === currentFieldKey)
+    if (currentIndex === -1) return
+    const nextKey = orderedFieldKeys[currentIndex + 1]
+    if (!nextKey) return
+    focusField(nextKey)
   }
 
-  const decrement = (id: string) => {
+  const scheduleAutoAdvance = (currentFieldKey: string) => {
+    if (autoAdvanceTimerRef.current) {
+      window.clearTimeout(autoAdvanceTimerRef.current)
+    }
+    autoAdvanceTimerRef.current = window.setTimeout(() => {
+      focusNextField(currentFieldKey)
+    }, 650)
+  }
+
+  const updateCandidateVotes = (candidateId: string, value: number, autoAdvance = false) => {
+    if (isCurrentMesaFinalized) return
+    setSavingState("idle")
+    setDraftVotes((prev) => ({ ...prev, [candidateId]: normalizeNonNegativeInt(value) }))
+    if (autoAdvance) scheduleAutoAdvance(`candidate:${candidateId}`)
+  }
+
+  const updateSpecialVotes = (type: SpecialVoteKey, value: number, autoAdvance = false) => {
+    if (isCurrentMesaFinalized) return
+    setSavingState("idle")
+    setSpecialVotes((prev) => ({ ...prev, [type]: normalizeNonNegativeInt(value) }))
+    if (autoAdvance) scheduleAutoAdvance(`special:${type}`)
+  }
+
+  const incrementCandidate = (candidateId: string) => {
     vibrate(5)
-    setDraftVotes((prev) => ({ ...prev, [id]: Math.max((prev[id] || 0) - 1, 0) }))
-    setFocusedCandidate(id)
+    updateCandidateVotes(candidateId, (draftVotes[candidateId] ?? 0) + 1)
+  }
+
+  const decrementCandidate = (candidateId: string) => {
+    vibrate(5)
+    updateCandidateVotes(candidateId, (draftVotes[candidateId] ?? 0) - 1)
+  }
+
+  const incrementSpecial = (type: SpecialVoteKey) => {
+    vibrate(5)
+    updateSpecialVotes(type, (specialVotes[type] ?? 0) + 1)
+  }
+
+  const decrementSpecial = (type: SpecialVoteKey) => {
+    vibrate(5)
+    updateSpecialVotes(type, (specialVotes[type] ?? 0) - 1)
   }
 
   const clearPhotos = () => {
     setPhotos((prev) => {
-      prev.forEach((p) => URL.revokeObjectURL(p.preview))
+      prev.forEach((photo) => URL.revokeObjectURL(photo.preview))
       return []
     })
   }
@@ -309,6 +557,10 @@ export default function TestigoElectoralPage() {
   }
 
   const goToPhoto = () => {
+    if (isCurrentMesaFinalized) {
+      toast({ title: "Mesa finalizada", description: "Esta mesa ya fue enviada y bloqueada." })
+      return
+    }
     setStep("foto")
     vibrate(15)
   }
@@ -322,17 +574,36 @@ export default function TestigoElectoralPage() {
     setStep("confirm")
   }
 
-  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = () => reject(new Error("No se pudo leer la imagen"))
-    reader.readAsDataURL(file)
-  })
+  const fileToDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = () => reject(new Error("No se pudo leer la imagen"))
+      reader.readAsDataURL(file)
+    })
 
   const handleConfirm = async () => {
     if (!currentMesa) return
+    if (isCurrentMesaFinalized) {
+      toast({ title: "Mesa finalizada", description: "Esta mesa ya fue enviada y no permite edición." })
+      return
+    }
+
+    const primaryConfirm = window.confirm(
+      `¿Finalizar mesa ${currentMesa.label}?\n\nTotal general: ${totalGeneralVotos} votos.\nEsta acción bloqueará la edición posterior.`,
+    )
+    if (!primaryConfirm) return
+
+    if (warningOver && mesaCapacity !== null) {
+      const overConfirm = window.confirm(
+        `El total general (${totalGeneralVotos}) supera votantes estimados (${mesaCapacity}). ¿Deseas continuar?`,
+      )
+      if (!overConfirm) return
+    }
+
     setSavingState("saving")
     vibrate(20)
+
     try {
       if (photos.length === 0) {
         throw new Error("Debes subir al menos una foto del E14")
@@ -341,13 +612,16 @@ export default function TestigoElectoralPage() {
         throw new Error(`Solo se permiten ${maxPhotos} fotos por mesa`)
       }
 
-      const photoPayloads = await Promise.all(photos.map((p) => fileToDataUrl(p.file)))
+      const photoPayloads = await Promise.all(photos.map((photo) => fileToDataUrl(photo.file)))
 
       const payload = {
         delegate_assignment_id: currentMesa.id,
         divipole_location_id: null,
-        notes: note || null,
-        details: candidates.map((c) => ({ candidate_id: c.id, votes: draftVotes[c.id] ?? 0 })),
+        notes: mergeNotesWithSpecialVotes(note, specialVotes),
+        details: candidates.map((candidate) => ({
+          candidate_id: candidate.id,
+          votes: draftVotes[candidate.id] ?? 0,
+        })),
         photos: photoPayloads,
       }
 
@@ -366,12 +640,16 @@ export default function TestigoElectoralPage() {
       const json = await res.json()
       const reportId = json.report_id as string | null
       setSavingState("saved")
-      toast({ title: "Mesa guardada correctamente", description: currentMesa.label })
-      setReportsMap((prev) => ({ ...prev, [currentMesa.id]: { id: reportId ?? currentMesa.id, total: totalVotos } }))
+      toast({ title: "Mesa finalizada", description: `${currentMesa.label} bloqueada correctamente` })
+      setReportsMap((prev) => ({
+        ...prev,
+        [currentMesa.id]: { id: reportId ?? currentMesa.id, total: totalGeneralVotos },
+      }))
       setCompletedMesas((prev) => {
-        const filtered = prev.filter((m) => m.id !== currentMesa.id)
-        return [...filtered, { id: currentMesa.id, label: currentMesa.label, totalVotos, note }]
+        const filtered = prev.filter((mesa) => mesa.id !== currentMesa.id)
+        return [...filtered, { id: currentMesa.id, label: currentMesa.label, totalVotos: totalGeneralVotos, note }]
       })
+      localStorage.removeItem(localKey(currentMesa.id))
       setStep("done")
     } catch (err: any) {
       const message = err?.message ?? "Error al guardar"
@@ -381,54 +659,57 @@ export default function TestigoElectoralPage() {
   }
 
   const goNextMesa = () => {
-    if (mesaIndex < mesasTotal - 1) {
-      setMesaIndex((prev) => prev + 1)
+    const nextIndex = mesas.findIndex((mesa, index) => index > mesaIndex && !reportsMap[mesa.id])
+    if (nextIndex >= 0) {
+      setMesaIndex(nextIndex)
       setSavingState("idle")
       clearPhotos()
       setStep("votos")
+      return
     }
+    setStep("home")
   }
 
   const cancelCurrentMesa = () => {
     if (!currentMesa) return
+    if (isCurrentMesaFinalized) {
+      toast({ title: "Mesa finalizada", description: "No se puede cancelar una mesa finalizada." })
+      return
+    }
     vibrate([10, 20])
     const zeros: Record<string, number> = {}
-    candidates.forEach((c) => {
-      zeros[c.id] = 0
+    candidates.forEach((candidate) => {
+      zeros[candidate.id] = 0
     })
     setDraftVotes(zeros)
+    setSpecialVotes(EMPTY_SPECIAL_VOTES)
     setNote("")
     clearPhotos()
+    setSavingState("idle")
     setStep("home")
     localStorage.removeItem(localKey(currentMesa.id))
     toast({ title: "Registro cancelado", description: `${currentMesa.label} reiniciada` })
   }
 
-  const editMesa = (mesaId: string) => {
-    const index = mesas.findIndex((m) => m.id === mesaId)
-    if (index >= 0) {
-      setMesaIndex(index)
-      setStep("votos")
-    }
-  }
-
-  const nextPendingMesaIndex = useMemo(() => {
-    const completedIds = new Set(completedMesas.map((m) => m.id))
-    const idx = mesas.findIndex((m) => !completedIds.has(m.id))
-    return idx === -1 ? 0 : idx
-  }, [completedMesas, mesas])
-
   const openMesa = (index: number) => {
+    const mesa = mesas[index]
+    if (!mesa) return
+    if (reportsMap[mesa.id]) {
+      toast({ title: "Mesa finalizada", description: "Esta mesa ya fue cerrada y no permite edición." })
+      return
+    }
     setMesaIndex(index)
     setStep("votos")
   }
 
-  const keypadButtons = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "back"]
+  const nextPendingMesaIndex = useMemo(() => {
+    const idx = mesas.findIndex((mesa) => !reportsMap[mesa.id])
+    return idx === -1 ? 0 : idx
+  }, [mesas, reportsMap])
 
-  const statusLabel = step === "done" ? "Confirmado" : savingState === "saving" ? "Enviando" : "Guardado"
-  const statusColor = step === "done" ? "text-emerald-400" : savingState === "saving" ? "text-amber-300" : "text-muted-foreground"
-  const completedCount = completedMesas.length
-  const pendingCount = Math.max(mesasTotal - completedCount, 0)
+  const statusLabel = step === "done" ? "Finalizada" : savingState === "saving" ? "Enviando" : "Borrador"
+  const statusColor =
+    step === "done" ? "text-emerald-400" : savingState === "saving" ? "text-amber-300" : "text-muted-foreground"
 
   if (loading) {
     return (
@@ -456,8 +737,12 @@ export default function TestigoElectoralPage() {
             <CardTitle className="text-lg">No tienes mesas asignadas</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">Revisa con tu líder para asignarte un puesto. Aquí solo verás tus propias mesas.</p>
-            <Button onClick={() => window.location.reload()} className="w-full">Reintentar</Button>
+            <p className="text-sm text-muted-foreground">
+              Revisa con tu líder para asignarte un puesto. Aquí solo verás tus propias mesas.
+            </p>
+            <Button onClick={() => window.location.reload()} className="w-full">
+              Reintentar
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -466,7 +751,6 @@ export default function TestigoElectoralPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-black/40 text-foreground">
-      {/* Sticky header */}
       <div className="sticky top-0 z-30 border-b border-border/60 bg-background/95 backdrop-blur">
         <div className="px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-col gap-1">
@@ -475,42 +759,54 @@ export default function TestigoElectoralPage() {
               Puesto asignado
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary" className="text-sm px-3 py-1">{currentMesa.label}</Badge>
+              <Badge variant="secondary" className="text-sm px-3 py-1">
+                {currentMesa.label}
+              </Badge>
               {currentMesa.municipality && (
-                <Badge variant="outline" className="text-xs px-2 py-1">{currentMesa.municipality}</Badge>
+                <Badge variant="outline" className="text-xs px-2 py-1">
+                  {currentMesa.municipality}
+                </Badge>
               )}
-              <span className="text-xs text-muted-foreground">Mesa {mesaProgress} de {mesasTotal}</span>
+              <span className="text-xs text-muted-foreground">
+                Mesa {mesaProgress} de {mesasTotal}
+              </span>
             </div>
             <div className="flex items-center gap-2 text-xs flex-wrap">
               <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" />
               <span className="font-medium">{statusLabel}</span>
-              <span className={statusColor}>{step === "done" ? "✔️ E14 cargado" : photos.length > 0 ? "E14 listo" : "E14 pendiente"}</span>
+              <span className={statusColor}>
+                {step === "done" ? "✔️ Mesa cerrada" : photos.length > 0 ? "E14 listo" : "E14 pendiente"}
+              </span>
               <span className="text-muted-foreground">Solo ves tus mesas asignadas</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-6 w-6 text-emerald-400" />
-            <Badge variant="outline" className="text-xs">Perfil Testigo</Badge>
+            <Badge variant="outline" className="text-xs">
+              Perfil Testigo
+            </Badge>
           </div>
         </div>
       </div>
 
-      <div className="px-4 pb-8 space-y-4 max-w-2xl mx-auto">
+      <div className={`px-4 pb-24 space-y-4 mx-auto ${step === "votos" ? "max-w-7xl" : "max-w-2xl"}`}>
         <Card className="bg-card/80 border-border/60 shadow-md">
           <CardContent className="py-4">
             <div className="grid grid-cols-2 gap-4 text-center">
               <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
-                <p className="text-xs text-muted-foreground">Mesas subidas</p>
-                <p className="text-2xl font-bold text-emerald-400">{completedCount}/{mesasTotal}</p>
+                <p className="text-xs text-muted-foreground">Mesas finalizadas</p>
+                <p className="text-2xl font-bold text-emerald-400">
+                  {completedCount}/{mesasTotal}
+                </p>
               </div>
               <div className="rounded-lg border border-border/60 bg-muted/10 p-3">
-                <p className="text-xs text-muted-foreground">Faltantes</p>
+                <p className="text-xs text-muted-foreground">Pendientes</p>
                 <p className="text-2xl font-bold text-amber-300">{pendingCount}</p>
               </div>
             </div>
             <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
               <Table className="h-4 w-4" />
-              Selecciona la mesa, escoge el candidato y reporta los votos del E14.
+              Captura por tarjetón: partidos, candidatos y votos especiales.
             </div>
           </CardContent>
         </Card>
@@ -521,29 +817,37 @@ export default function TestigoElectoralPage() {
           </div>
         )}
 
-        {/* Resumen inicial */}
         {step === "home" && (
           <Card className="bg-card border-border/60 shadow-lg">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg">Mesas asignadas</CardTitle>
-              <p className="text-sm text-muted-foreground">Solo ves tu propio puesto y mesas. Retoma la pendiente o abre una nueva.</p>
+              <p className="text-sm text-muted-foreground">
+                Las mesas finalizadas quedan bloqueadas para edición.
+              </p>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2">
-                {mesas.map((m, idx) => {
-                  const completed = completedMesas.find((c) => c.id === m.id)
-                  const isPending = !completed
-                  const statusLabel = completed ? "Completada" : "Pendiente"
-                  const statusTone = completed ? "text-emerald-400" : "text-amber-300"
+                {mesas.map((mesa, index) => {
+                  const completed = completedMesas.find((item) => item.id === mesa.id)
+                  const status = completed ? "Finalizada" : "Pendiente"
                   return (
-                    <div key={m.id} className="rounded-lg border border-border/60 bg-muted/20 p-3 flex items-center justify-between gap-2">
+                    <div
+                      key={mesa.id}
+                      className="rounded-lg border border-border/60 bg-muted/20 p-3 flex items-center justify-between gap-2"
+                    >
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate">{m.label}</p>
-                        <p className="text-xs text-muted-foreground truncate">{m.municipality ?? "Puesto asignado"}</p>
-                        <p className={`text-xs ${statusTone}`}>{statusLabel}</p>
+                        <p className="text-sm font-semibold truncate">{mesa.label}</p>
+                        <p className="text-xs text-muted-foreground truncate">{mesa.municipality ?? "Puesto asignado"}</p>
+                        <p className={`text-xs ${completed ? "text-emerald-400" : "text-amber-300"}`}>{status}</p>
                       </div>
-                      <Button size="sm" className="min-w-[120px]" onClick={() => openMesa(idx)}>
-                        {isPending ? "Abrir" : "Editar"}
+                      <Button
+                        size="sm"
+                        className="min-w-[120px]"
+                        onClick={() => openMesa(index)}
+                        disabled={Boolean(completed)}
+                        variant={completed ? "outline" : "default"}
+                      >
+                        {completed ? "Finalizada" : "Abrir"}
                       </Button>
                     </div>
                   )
@@ -553,132 +857,281 @@ export default function TestigoElectoralPage() {
                 size="lg"
                 className="w-full h-12 text-lg bg-emerald-600 hover:bg-emerald-700"
                 onClick={() => openMesa(nextPendingMesaIndex)}
+                disabled={pendingCount === 0}
               >
-                Reanudar {mesas[nextPendingMesaIndex]?.label}
+                {pendingCount === 0 ? "Todas finalizadas" : `Reanudar ${mesas[nextPendingMesaIndex]?.label}`}
               </Button>
             </CardContent>
           </Card>
         )}
 
-        {/* Paso 1: Votos */}
         {step === "votos" && (
-          <Card className="bg-card border-border/60 shadow-lg">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Smartphone className="h-5 w-5" />
-                Paso 1 · Votos por candidato
-              </CardTitle>
-              <p className="text-sm text-muted-foreground">Registra rápido. Sin scroll, un valor por candidato.</p>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">Selecciona la mesa que vas a reportar</p>
-                <Select value={currentMesa.id} onValueChange={(value) => {
-                  const idx = mesas.findIndex((m) => m.id === value)
-                  if (idx >= 0) {
-                    setMesaIndex(idx)
-                    setStep("votos")
-                  }
-                }}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Mesa asignada" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {mesas.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <div className="rounded-xl border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-300" />
-                  Solo puedes ver y reportar tus mesas asignadas.
-                </div>
+          <div className="relative grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+            {isCurrentMesaFinalized && (
+              <div className="absolute inset-0 z-50 rounded-2xl bg-background/85 backdrop-blur-sm flex items-center justify-center p-4">
+                <Card className="w-full max-w-md border-border/60 shadow-xl">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      <Lock className="h-5 w-5 text-emerald-400" />
+                      Mesa en modo solo lectura
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    <p className="text-muted-foreground">
+                      Esta mesa ya fue finalizada y enviada. La edición está bloqueada para proteger la integridad del reporte.
+                    </p>
+                    <Button className="w-full" onClick={() => setStep("home")}>Volver a mesas asignadas</Button>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+            <div className="space-y-4">
+              <Card className="bg-card border-border/60 shadow-lg">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Smartphone className="h-5 w-5" />
+                    Tarjeta Electoral · Captura de votos
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Ingreso visual por partido, con navegación automática y teclado numérico móvil.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="rounded-xl border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-300" />
+                    Interfaz optimizada para campo: botones grandes, alto contraste y uso táctil.
+                  </div>
+                  {warningOver && mesaCapacity !== null && (
+                    <div className="rounded-xl border border-amber-400/60 bg-amber-400/10 p-3 text-sm text-amber-200">
+                      Advertencia: el total general ({totalGeneralVotos}) supera votantes estimados ({mesaCapacity}).
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                {groupedParties.map((party) => (
+                  <Card key={party.key} className="border-border/60 bg-card/90 shadow-md">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center gap-3">
+                        {party.logo ? (
+                          <img
+                            src={party.logo}
+                            alt={`Logo ${party.name}`}
+                            className="h-12 w-12 rounded-lg border border-border/60 object-cover bg-background"
+                          />
+                        ) : (
+                          <div className="h-12 w-12 rounded-lg border border-border/60 bg-muted flex items-center justify-center text-sm font-bold">
+                            {party.name.slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-base font-semibold leading-tight truncate">{party.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Lista {party.listType ?? "No Preferente"}
+                          </p>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {party.candidates.map((candidate) => {
+                        const votes = draftVotes[candidate.id] ?? 0
+                        return (
+                          <div key={candidate.id} className="rounded-xl border border-border/60 bg-muted/20 p-3 space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold truncate">{candidate.fullName}</p>
+                                <p className="text-[11px] text-muted-foreground truncate">
+                                  {candidate.position ?? "Cargo"}
+                                  {candidate.ballotNumber !== null ? ` · #${candidate.ballotNumber}` : " · S/N"}
+                                </p>
+                              </div>
+                              <Badge variant="outline" className="text-xs px-2 py-1">
+                                {candidate.ballotNumber !== null ? `#${candidate.ballotNumber}` : "S/N"}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-12 w-12 p-0"
+                                onClick={() => decrementCandidate(candidate.id)}
+                                disabled={isCurrentMesaFinalized}
+                              >
+                                <Minus className="h-5 w-5" />
+                              </Button>
+                              <input
+                                ref={(element) => {
+                                  inputRefs.current[`candidate:${candidate.id}`] = element
+                                }}
+                                type="number"
+                                min={0}
+                                max={9999}
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={votes}
+                                onFocus={(event) => event.currentTarget.select()}
+                                onChange={(event) => {
+                                  updateCandidateVotes(candidate.id, normalizeNonNegativeInt(event.target.value), true)
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    event.preventDefault()
+                                    focusNextField(`candidate:${candidate.id}`)
+                                  }
+                                }}
+                                className="h-12 w-full rounded-lg border border-border/60 bg-background px-3 text-center text-2xl font-bold tracking-tight text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                disabled={isCurrentMesaFinalized}
+                                aria-label={`Votos de ${candidate.fullName}`}
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-12 w-12 p-0"
+                                onClick={() => incrementCandidate(candidate.id)}
+                                disabled={isCurrentMesaFinalized}
+                              >
+                                <Plus className="h-5 w-5" />
+                              </Button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
 
-              {candidates.map((candidate) => {
-                const value = draftVotes[candidate.id] ?? 0
-                const isFocused = focusedCandidate === candidate.id
-                return (
-                  <div
-                    key={candidate.id}
-                    className={`flex items-center gap-3 rounded-2xl border border-border/60 bg-muted/30 p-3 ${isFocused ? "ring-2 ring-emerald-500/80" : ""}`}
-                    onClick={() => setFocusedCandidate(candidate.id)}
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        {candidate.color && <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: candidate.color }} />}
-                        <p className="text-sm font-semibold leading-tight truncate">{candidate.fullName}</p>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground">
-                        {candidate.position ? `${candidate.position} · ` : ""}{candidate.party ?? "Independiente"}
-                        {candidate.ballotNumber !== null ? ` · Tarjetón ${candidate.ballotNumber}` : ""}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button size="icon" variant="outline" className="h-12 w-12" onClick={() => decrement(candidate.id)} aria-label="Restar">
-                        <Minus className="h-5 w-5" />
-                      </Button>
-                      <div className="min-w-[88px] text-center">
-                        <div className="text-3xl font-bold tracking-tight">{value}</div>
-                        <p className="text-[10px] text-muted-foreground">votos</p>
-                      </div>
-                      <Button size="icon" variant="outline" className="h-12 w-12" onClick={() => increment(candidate.id)} aria-label="Sumar">
-                        <Plus className="h-5 w-5" />
-                      </Button>
-                    </div>
-                  </div>
-                )
-              })}
-
-              {candidates.length === 0 && (
+              {groupedParties.length === 0 && (
                 <div className="rounded-xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
                   No hay candidatos cargados desde el sistema. Consulta con soporte.
                 </div>
               )}
 
-              <div className="rounded-2xl border border-border/60 bg-background/70 p-3 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold">Total reportado</p>
-                  <p className={`text-xl font-bold ${warningOver ? "text-amber-300" : "text-emerald-300"}`}>{totalVotos} votos</p>
-                  <p className="text-xs text-muted-foreground">Capacidad mesa: {mesaCapacity ?? "No disponible"}</p>
-                </div>
-                {warningOver && mesaCapacity !== null && <span className="text-xs text-amber-300">Supera total de votantes</span>}
-              </div>
-
-              <div className="rounded-2xl border border-border/60 bg-muted/40 p-3">
-                <p className="text-sm font-semibold mb-2">Keypad rápido</p>
-                <div ref={keypadRef} className="grid grid-cols-3 gap-2">
-                  {keypadButtons.map((key) => (
-                    <Button
-                      key={key}
-                      variant={key === "clear" || key === "back" ? "outline" : "default"}
-                      className="h-14 text-xl"
-                      onClick={() => handleKeypad(key)}
-                    >
-                      {key === "back" ? "⌫" : key === "clear" ? "C" : key}
-                    </Button>
+              <Card className="border-border/60 bg-card/90 shadow-md">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Votos especiales</CardTitle>
+                </CardHeader>
+                <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {(Object.keys(SPECIAL_VOTE_LABELS) as SpecialVoteKey[]).map((type) => (
+                    <div key={type} className="rounded-xl border border-border/60 bg-muted/20 p-3 space-y-2">
+                      <p className="text-sm font-semibold">{SPECIAL_VOTE_LABELS[type]}</p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-12 w-12 p-0"
+                          onClick={() => decrementSpecial(type)}
+                          disabled={isCurrentMesaFinalized}
+                        >
+                          <Minus className="h-5 w-5" />
+                        </Button>
+                        <input
+                          ref={(element) => {
+                            inputRefs.current[`special:${type}`] = element
+                          }}
+                          type="number"
+                          min={0}
+                          max={9999}
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={specialVotes[type]}
+                          onFocus={(event) => event.currentTarget.select()}
+                          onChange={(event) => {
+                            updateSpecialVotes(type, normalizeNonNegativeInt(event.target.value), true)
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault()
+                              focusNextField(`special:${type}`)
+                            }
+                          }}
+                          className="h-12 w-full rounded-lg border border-border/60 bg-background px-3 text-center text-2xl font-bold tracking-tight text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          disabled={isCurrentMesaFinalized}
+                          aria-label={SPECIAL_VOTE_LABELS[type]}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-12 w-12 p-0"
+                          onClick={() => incrementSpecial(type)}
+                          disabled={isCurrentMesaFinalized}
+                        >
+                          <Plus className="h-5 w-5" />
+                        </Button>
+                      </div>
+                    </div>
                   ))}
-                </div>
-              </div>
+                </CardContent>
+              </Card>
 
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 pb-16 lg:pb-0">
                 <Button
                   size="lg"
                   className="h-14 text-lg bg-emerald-600 hover:bg-emerald-700"
                   onClick={goToPhoto}
+                  disabled={isCurrentMesaFinalized}
                 >
-                  Continuar a foto del E14 <ChevronRight className="h-5 w-5" />
+                  Continuar con foto E14 <ChevronRight className="h-5 w-5" />
                 </Button>
-                <Button disabled variant="outline" className="h-12 text-sm">Copiar valores anteriores (bloqueado)</Button>
                 <Button variant="destructive" className="h-12 text-sm" onClick={cancelCurrentMesa}>
                   Cancelar registro de esta mesa
                 </Button>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+
+            <div className="hidden lg:block">
+              <Card className="sticky top-24 border-border/60 bg-card/95 shadow-lg">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Resumen de Mesa</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Total votos candidatos</span>
+                    <span className="font-semibold">{totalVotosCandidatos}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Total votos en blanco</span>
+                    <span className="font-semibold">{totalVotosBlanco}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Total votos nulos</span>
+                    <span className="font-semibold">{totalVotosNulos}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Total no marcados</span>
+                    <span className="font-semibold">{totalVotosNoMarcados}</span>
+                  </div>
+                  <Separator className="my-2" />
+                  <div className="flex items-center justify-between text-base">
+                    <span className="font-semibold">TOTAL GENERAL</span>
+                    <span className={`font-bold ${warningOver ? "text-amber-300" : "text-emerald-300"}`}>
+                      {totalGeneralVotos}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Votantes estimados: {mesaCapacity ?? "No disponible"}</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="fixed bottom-3 left-3 right-3 lg:hidden z-40">
+              <Card className="border-border/60 bg-background/95 backdrop-blur shadow-lg">
+                <CardContent className="py-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-semibold">Resumen de Mesa</span>
+                    <span className={`text-lg font-bold ${warningOver ? "text-amber-300" : "text-emerald-300"}`}>
+                      {totalGeneralVotos}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Candidatos {totalVotosCandidatos} · Blanco {totalVotosBlanco} · Nulos {totalVotosNulos} · No marcados {totalVotosNoMarcados}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         )}
 
-        {/* Paso 2: Foto */}
         {step === "foto" && (
           <Card className="bg-card border-border/60 shadow-lg">
             <CardHeader className="pb-2">
@@ -692,13 +1145,16 @@ export default function TestigoElectoralPage() {
               <div className="rounded-2xl border-2 border-dashed border-border/70 bg-muted/30 p-4 flex flex-col items-center gap-3 text-center">
                 {photos.length > 0 ? (
                   <div className="w-full grid gap-2 sm:grid-cols-2">
-                    {photos.map((photo, idx) => (
-                      <div key={`${photo.preview}-${idx}`} className="relative rounded-xl overflow-hidden border border-border/60 bg-black/40">
-                        <img src={photo.preview} alt={`E14 ${idx + 1}`} className="w-full object-contain" />
+                    {photos.map((photo, index) => (
+                      <div
+                        key={`${photo.preview}-${index}`}
+                        className="relative rounded-xl overflow-hidden border border-border/60 bg-black/40"
+                      >
+                        <img src={photo.preview} alt={`E14 ${index + 1}`} className="w-full object-contain" />
                         <button
                           type="button"
                           className="absolute top-2 right-2 rounded-full bg-black/70 text-white p-1"
-                          onClick={() => removePhoto(idx)}
+                          onClick={() => removePhoto(index)}
                           aria-label="Eliminar foto"
                         >
                           <X className="h-4 w-4" />
@@ -711,7 +1167,9 @@ export default function TestigoElectoralPage() {
                     <FileImage className="h-10 w-10 text-muted-foreground" />
                   </div>
                 )}
-                <p className="text-sm font-semibold">Sube fotos del E14 ({photos.length}/{maxPhotos})</p>
+                <p className="text-sm font-semibold">
+                  Sube fotos del E14 ({photos.length}/{maxPhotos})
+                </p>
                 <input
                   type="file"
                   accept="image/*"
@@ -740,15 +1198,14 @@ export default function TestigoElectoralPage() {
           </Card>
         )}
 
-        {/* Paso 3: Confirmación */}
         {step === "confirm" && (
           <Card className="bg-card border-border/60 shadow-lg">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg flex items-center gap-2">
                 <CircleCheck className="h-5 w-5" />
-                Paso 3 · Confirmar y guardar
+                Paso 3 · Finalizar Mesa
               </CardTitle>
-              <p className="text-sm text-muted-foreground">Revisa mesa, totales y foto antes de enviar.</p>
+              <p className="text-sm text-muted-foreground">Confirma totales antes de enviar y bloquear edición.</p>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 space-y-2">
@@ -757,31 +1214,41 @@ export default function TestigoElectoralPage() {
                   <span className="font-semibold">{currentMesa.label}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Total votos</span>
-                  <span className="font-semibold">{totalVotos}</span>
+                  <span className="text-muted-foreground">Total candidatos</span>
+                  <span className="font-semibold">{totalVotosCandidatos}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Voto en blanco</span>
+                  <span className="font-semibold">{totalVotosBlanco}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Votos nulos</span>
+                  <span className="font-semibold">{totalVotosNulos}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Votos no marcados</span>
+                  <span className="font-semibold">{totalVotosNoMarcados}</span>
+                </div>
+                <Separator className="my-2" />
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">TOTAL GENERAL</span>
+                  <span className={`font-semibold ${warningOver ? "text-amber-300" : "text-emerald-400"}`}>
+                    {totalGeneralVotos}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Foto E14</span>
                   <span className="font-semibold text-emerald-400">{photos.length} cargadas</span>
                 </div>
-                <Separator className="my-2" />
-                <div className="space-y-2">
+                <div className="space-y-2 pt-2">
                   <label className="text-xs text-muted-foreground">Nota rápida (hallazgos, incidencias)</label>
                   <textarea
                     value={note}
-                    onChange={(e) => setNote(e.target.value)}
+                    onChange={(event) => setNote(event.target.value)}
                     className="w-full rounded-lg border border-border/60 bg-background/70 p-3 text-sm focus:outline-none"
                     rows={2}
                     placeholder="Ej: Votante sin cédula reportado, jurado cambió a las 2pm"
                   />
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  {candidates.map((c) => (
-                    <div key={c.id} className="flex items-center justify-between bg-background/60 rounded-lg px-3 py-2">
-                      <span className="truncate mr-2">{c.fullName}</span>
-                      <span className="font-semibold">{draftVotes[c.id] ?? 0}</span>
-                    </div>
-                  ))}
                 </div>
               </div>
 
@@ -792,9 +1259,12 @@ export default function TestigoElectoralPage() {
                   onClick={handleConfirm}
                   disabled={savingState === "saving"}
                 >
-                  {savingState === "saving" && <Loader2 className="h-5 w-5 animate-spin" />}Confirmar y guardar
+                  {savingState === "saving" && <Loader2 className="h-5 w-5 animate-spin" />}
+                  Finalizar Mesa
                 </Button>
-                <Button size="lg" variant="outline" className="h-12" onClick={() => setStep("votos")}>Editar</Button>
+                <Button size="lg" variant="outline" className="h-12" onClick={() => setStep("votos")}>
+                  Volver a editar
+                </Button>
                 <Button variant="destructive" className="h-12 text-sm" onClick={cancelCurrentMesa}>
                   Cancelar registro de esta mesa
                 </Button>
@@ -803,43 +1273,44 @@ export default function TestigoElectoralPage() {
           </Card>
         )}
 
-        {/* Paso 4: Siguiente mesa */}
         {step === "done" && (
           <Card className="bg-card border-border/60 shadow-lg text-center">
             <CardHeader>
               <div className="flex flex-col items-center gap-2">
                 <CheckCircle2 className="h-10 w-10 text-emerald-400" />
-                <CardTitle className="text-xl">{currentMesa.label} registrada</CardTitle>
-                <p className="text-sm text-muted-foreground">E14 cargado y votos enviados.</p>
+                <CardTitle className="text-xl">{currentMesa.label} finalizada</CardTitle>
+                <p className="text-sm text-muted-foreground">Votos enviados y edición bloqueada.</p>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Badge variant="secondary">Tiempo óptimo: 1.5s a siguiente</Badge>
+              <Badge variant="secondary">Mesa cerrada correctamente</Badge>
               <Button
                 size="lg"
                 className="w-full h-14 text-lg bg-emerald-600 hover:bg-emerald-700"
                 onClick={goNextMesa}
-                disabled={mesaIndex >= mesasTotal - 1}
+                disabled={pendingCount === 0}
               >
-                Ir a {mesaIndex < mesasTotal - 1 ? mesas[mesaIndex + 1].label : "fin"}
+                {pendingCount === 0 ? "No hay más mesas pendientes" : "Ir a siguiente mesa pendiente"}
               </Button>
-              {mesaIndex >= mesasTotal - 1 && (
-                <p className="text-sm text-muted-foreground">No hay más mesas asignadas.</p>
-              )}
               <div className="text-left space-y-2 pt-2">
-                <p className="text-sm font-semibold">Mesas completadas</p>
+                <p className="text-sm font-semibold">Mesas finalizadas</p>
                 {completedMesas.length === 0 && (
-                  <p className="text-xs text-muted-foreground">Aún no hay mesas confirmadas.</p>
+                  <p className="text-xs text-muted-foreground">Aún no hay mesas finalizadas.</p>
                 )}
                 <div className="space-y-2">
-                  {completedMesas.map((m) => (
-                    <div key={m.id} className="rounded-lg border border-border/60 bg-muted/20 p-3 flex items-center justify-between gap-2">
+                  {completedMesas.map((mesa) => (
+                    <div
+                      key={mesa.id}
+                      className="rounded-lg border border-border/60 bg-muted/20 p-3 flex items-center justify-between gap-2"
+                    >
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate">{m.label}</p>
-                        <p className="text-xs text-muted-foreground">Votos: {m.totalVotos}</p>
-                        {m.note && <p className="text-xs text-muted-foreground truncate">Nota: {m.note}</p>}
+                        <p className="text-sm font-semibold truncate">{mesa.label}</p>
+                        <p className="text-xs text-muted-foreground">Total: {mesa.totalVotos}</p>
+                        {mesa.note && <p className="text-xs text-muted-foreground truncate">Nota: {mesa.note}</p>}
                       </div>
-                      <Button size="sm" variant="outline" onClick={() => editMesa(m.id)}>Editar</Button>
+                      <Badge variant="outline" className="text-xs">
+                        Bloqueada
+                      </Badge>
                     </div>
                   ))}
                 </div>

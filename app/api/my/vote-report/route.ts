@@ -127,6 +127,16 @@ function isUuid(value: string): boolean {
   return /^[0-9a-fA-F-]{36}$/.test(value)
 }
 
+function isAssignmentUniqueViolation(error: any): boolean {
+  const code = String(error?.code ?? "")
+  const constraint = String(error?.constraint ?? "")
+  const detail = String(error?.detail ?? "")
+  return (
+    code === "23505" &&
+    (constraint.includes("vote_reports_assignment_unique") || detail.includes("delegate_assignment_id"))
+  )
+}
+
 export async function POST(req: NextRequest) {
   if (!pool) {
     return NextResponse.json({ error: "DB no disponible" }, { status: 503 })
@@ -372,7 +382,18 @@ export async function POST(req: NextRequest) {
           ]
       upserted = await client.query(updateQuery, updateParams)
       if (upserted.rowCount === 0) {
-        upserted = await client.query(insertQuery, upsertParams)
+        try {
+          upserted = await client.query(insertQuery, upsertParams)
+        } catch (error: any) {
+          if (!isAssignmentUniqueViolation(error)) throw error
+          upserted = await client.query(updateQuery, updateParams)
+          if (upserted.rowCount === 0) {
+            upserted = await client.query(
+              `SELECT id FROM vote_reports WHERE delegate_assignment_id = $1 LIMIT 1`,
+              [delegate_assignment_id],
+            )
+          }
+        }
       }
     }
     const finalReportId = (upserted.rows[0]?.id as string | undefined) ?? reportId

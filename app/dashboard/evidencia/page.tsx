@@ -37,12 +37,15 @@ import {
   WifiOff,
   Wifi,
   ChevronRight,
+  Lock,
+  Minus,
+  Plus,
 } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 
-type Mesa = { id: string; label: string; municipio?: string; puesto?: string }
+type Mesa = { id: string; label: string; municipio?: string; puesto?: string; totalVoters?: number | null }
 type Cargo = { id: string; nombre: string }
-type Partido = { id: string; nombre: string; cargoId: string }
+type Partido = { id: string; nombre: string; cargoId: string; logo?: string | null; listType?: "Preferente" | "No Preferente" | null }
 type Candidato = {
   id: string
   nombre: string
@@ -113,6 +116,9 @@ type VoteFlowState = {
   photos: PhotoSlot[]
   existingPhotos?: string[]
   candidateVotes: Record<string, number>
+  partyVotes: Record<string, number>
+  specialVotes: { blank: number; nulls: number; unmarked: number }
+  note: string
 }
 
 type EvidenceItem = {
@@ -217,6 +223,61 @@ const steps: Array<{ key: keyof VoteFlowState | "confirm"; title: string; descri
 
 const maxPhotos = 4
 
+const EMPTY_SPECIAL_VOTES = { blank: 0, nulls: 0, unmarked: 0 }
+
+const SPECIAL_VOTE_LABELS: Record<"blank" | "nulls" | "unmarked", string> = {
+  blank: "Voto en Blanco",
+  nulls: "Votos Nulos",
+  unmarked: "Votos No Marcados",
+}
+
+const normalizeNonNegativeInt = (value: number) => Math.max(0, Math.min(9999, Math.trunc(Number.isFinite(value) ? value : 0)))
+
+const normalizeListType = (value: any): "Preferente" | "No Preferente" | null => {
+  if (typeof value !== "string") return null
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) return null
+  if (normalized.includes("no") && normalized.includes("prefer")) return "No Preferente"
+  if (normalized.includes("prefer")) return "Preferente"
+  return null
+}
+
+const normalizePartyName = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+
+const PARTY_LOGOS: Array<{ tokens: string[]; src: string }> = [
+  { tokens: ["coalicion", "verde"], src: "/Coalición_verde.png" },
+  { tokens: ["alianza", "verde"], src: "/Coalición_verde.png" },
+  { tokens: ["cambio", "radical"], src: "/Cambio_Radical.png" },
+  { tokens: ["partido", "u"], src: "/Logo_Partido_U_Colombia_.png" },
+  { tokens: ["mira", "dignidad", "compromiso"], src: "/Mira_dignidad_compromiso.jpg" },
+  { tokens: ["movimiento", "agrario", "colombiano"], src: "/Movimiento_Agrario_Colombiano.png" },
+  { tokens: ["movimiento", "salvacion", "nacional"], src: "/Movimiento_de_Salvación_Nacional_.png" },
+  { tokens: ["pacto", "historico"], src: "/Pacto_Historico.png" },
+  { tokens: ["centro", "democratico"], src: "/Partido_Centro_Democrático_.png" },
+  { tokens: ["colombia", "renaciente"], src: "/Partido_Colombia_renaciente.png" },
+  { tokens: ["conservador", "colombiano"], src: "/partido_Conservador_Colombiano_.png" },
+  { tokens: ["liberal", "colombia"], src: "/PARTIDO_LIBERAL_COLOMBIA.png" },
+  { tokens: ["nuevo", "liberalismo"], src: "/Partido_Nuevo_liberalismo.png" },
+]
+
+const resolvePartyLogo = (partido?: Partido | null) => {
+  if (partido?.logo) {
+    return partido.logo.startsWith("/") ? partido.logo : `/${partido.logo}`
+  }
+
+  const normalizedPartyName = normalizePartyName(partido?.nombre ?? "")
+  if (!normalizedPartyName) return null
+
+  const matched = PARTY_LOGOS.find(({ tokens }) => tokens.every((token) => normalizedPartyName.includes(token)))
+  return matched?.src ?? null
+}
+
 const chipFilters = [
   { key: "all", label: "Todos" },
   { key: "image", label: "Imagenes" },
@@ -227,7 +288,15 @@ const chipFilters = [
 
 export default function EvidenciaPage() {
   const [view, setView] = useState<"hub" | "wizard" | "evidencias">("hub")
-  const [flow, setFlow] = useState<VoteFlowState>({ votos: 0, photos: [], existingPhotos: [], candidateVotes: {} })
+  const [flow, setFlow] = useState<VoteFlowState>({
+    votos: 0,
+    photos: [],
+    existingPhotos: [],
+    candidateVotes: {},
+    partyVotes: {},
+    specialVotes: EMPTY_SPECIAL_VOTES,
+    note: "",
+  })
   const [stepIndex, setStepIndex] = useState(0)
   const [mesas, setMesas] = useState<Mesa[]>([])
   const [cargos, setCargos] = useState<Cargo[]>([])
@@ -243,6 +312,7 @@ export default function EvidenciaPage() {
   const [typeFilter, setTypeFilter] = useState("all")
   const [typeChip, setTypeChip] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
+  const [submitting, setSubmitting] = useState(false)
   const [isOffline, setIsOffline] = useState(false)
   const [offlineQueue, setOfflineQueue] = useState<any[]>([])
   const [photoDialogOpen, setPhotoDialogOpen] = useState(false)
@@ -404,9 +474,33 @@ export default function EvidenciaPage() {
       const evidencesData = await evidencesRes.json()
       const voteReportsData = voteReportsRes.ok ? await voteReportsRes.json().catch(() => ({ items: [] })) : { items: [] }
 
-      setMesas(mesasData?.items ?? [])
+      const mappedMesas: Mesa[] = Array.isArray(mesasData?.items)
+        ? mesasData.items.map((item: any) => ({
+            id: String(item.id),
+            label: item.label ?? "Mesa",
+            municipio: item.municipio ?? item.municipality ?? null,
+            puesto: item.puesto ?? item.polling_station ?? null,
+            totalVoters: Number(item.total_voters ?? item.totalVoters ?? 0) || null,
+          }))
+        : []
+
+      const mappedPartidos: Partido[] = Array.isArray(catalogosData?.partidos)
+        ? catalogosData.partidos.map((partido: any) => ({
+            id: String(partido.id),
+            nombre: partido.nombre ?? partido.name ?? "Partido",
+            cargoId: String(partido.cargoId ?? partido.cargo_id ?? "general"),
+            logo:
+              (typeof partido.logo === "string" && partido.logo) ||
+              (typeof partido.logo_url === "string" && partido.logo_url) ||
+              (typeof partido.image_url === "string" && partido.image_url) ||
+              null,
+            listType: normalizeListType(partido.list_type ?? partido.tipo_lista ?? partido.tipo),
+          }))
+        : []
+
+      setMesas(mappedMesas)
       setCargos(catalogosData?.cargos ?? [])
-      setPartidos(catalogosData?.partidos ?? [])
+      setPartidos(mappedPartidos)
       setCandidatos(catalogosData?.candidatos ?? [])
       const evidenceItems = evidencesData?.items ?? []
       setItems(evidenceItems)
@@ -584,6 +678,36 @@ export default function EvidenciaPage() {
     [flow.mesaId, mesas]
   )
 
+  const selectedMesa = useMemo(() => mesas.find((m) => m.id === flow.mesaId), [flow.mesaId, mesas])
+  const isMesaFinalizada = Boolean(flow.mesaId && reportsByAssignment[flow.mesaId])
+  const totalCandidatosDetallados = useMemo(
+    () => Object.values(flow.candidateVotes ?? {}).reduce((acc, value) => acc + normalizeNonNegativeInt(Number(value)), 0),
+    [flow.candidateVotes],
+  )
+  const totalVotoLista = useMemo(
+    () => Object.values(flow.partyVotes ?? {}).reduce((acc, value) => acc + normalizeNonNegativeInt(Number(value)), 0),
+    [flow.partyVotes],
+  )
+  const totalCandidatos = totalCandidatosDetallados + totalVotoLista
+  const totalBlanco = normalizeNonNegativeInt(Number(flow.specialVotes?.blank ?? 0))
+  const totalNulos = normalizeNonNegativeInt(Number(flow.specialVotes?.nulls ?? 0))
+  const totalNoMarcados = normalizeNonNegativeInt(Number(flow.specialVotes?.unmarked ?? 0))
+  const totalGeneral = totalCandidatos + totalBlanco + totalNulos + totalNoMarcados
+  const warningOverCapacity =
+    typeof selectedMesa?.totalVoters === "number" && selectedMesa.totalVoters > 0 && totalGeneral > selectedMesa.totalVoters
+
+  useEffect(() => {
+    if (!flow.mesaId || isMesaFinalizada) return
+    const key = `evidencia-voto-draft-${flow.mesaId}`
+    const timer = window.setInterval(() => {
+      localStorage.setItem(key, JSON.stringify(flow))
+    }, 3000)
+    return () => {
+      window.clearInterval(timer)
+      localStorage.setItem(key, JSON.stringify(flow))
+    }
+  }, [flow, isMesaFinalizada])
+
   const handlePickMesa = useCallback((id: string) => {
     const report = reportsByAssignment[id]
     if (report) {
@@ -597,21 +721,34 @@ export default function EvidenciaPage() {
         ...prev,
         mesaId: id,
         candidateVotes,
+        partyVotes: {},
         existingPhotos,
         candidatoId: undefined,
         votos: 0,
+        specialVotes: EMPTY_SPECIAL_VOTES,
       }))
-      notify("Votos cargados", "Se cargaron los votos previamente reportados para esta mesa")
+      notify("Mesa finalizada", "Esta mesa ya fue enviada y queda en modo solo lectura")
       return
     }
+
+    const savedRaw = localStorage.getItem(`evidencia-voto-draft-${id}`)
+    const saved = savedRaw ? JSON.parse(savedRaw) : null
 
     setFlow((prev) => ({
       ...prev,
       mesaId: id,
-      candidateVotes: {},
-      existingPhotos: [],
+      candidateVotes: saved?.candidateVotes ?? {},
+      partyVotes: saved?.partyVotes ?? {},
+      existingPhotos: saved?.existingPhotos ?? [],
       candidatoId: undefined,
       votos: 0,
+      photos: [],
+      specialVotes: {
+        blank: normalizeNonNegativeInt(Number(saved?.specialVotes?.blank ?? 0)),
+        nulls: normalizeNonNegativeInt(Number(saved?.specialVotes?.nulls ?? 0)),
+        unmarked: normalizeNonNegativeInt(Number(saved?.specialVotes?.unmarked ?? 0)),
+      },
+      note: saved?.note ?? "",
     }))
   }, [notify, photosByReport, reportsByAssignment])
 
@@ -651,7 +788,15 @@ export default function EvidenciaPage() {
   }, [detailItem])
 
   const resetFlow = () => {
-    setFlow({ votos: 0, photos: [], existingPhotos: [], candidateVotes: {} })
+    setFlow({
+      votos: 0,
+      photos: [],
+      existingPhotos: [],
+      candidateVotes: {},
+      partyVotes: {},
+      specialVotes: EMPTY_SPECIAL_VOTES,
+      note: "",
+    })
     setStepIndex(0)
   }
 
@@ -696,16 +841,18 @@ export default function EvidenciaPage() {
   }
 
   const handleCandidateVote = (candidateId: string, value: number) => {
+    if (isMesaFinalizada) return
     setFlow((prev) => ({
       ...prev,
       candidateVotes: {
         ...prev.candidateVotes,
-        [candidateId]: Math.max(0, isNaN(value) ? 0 : value),
+        [candidateId]: normalizeNonNegativeInt(isNaN(value) ? 0 : value),
       },
     }))
   }
 
   const handleAddPhotos = (files?: FileList | null) => {
+    if (isMesaFinalizada) return
     if (!files || files.length === 0) return
 
     const selected = Array.from(files)
@@ -738,6 +885,7 @@ export default function EvidenciaPage() {
   }
 
   const handleRemovePhoto = (index: number) => {
+    if (isMesaFinalizada) return
     setFlow((prev) => {
       const next = [...(prev.photos ?? [])]
       next.splice(index, 1)
@@ -749,14 +897,39 @@ export default function EvidenciaPage() {
     async (payload: VoteFlowState, showToast = true) => {
       try {
         const candidateEntries = Object.entries(payload.candidateVotes ?? {}).filter(([, votos]) => votos > 0)
+        const partyEntries = Object.entries(payload.partyVotes ?? {}).filter(([, votos]) => votos > 0)
         const legacyCandidate = payload.candidatoId && payload.votos > 0 ? [[payload.candidatoId, payload.votos]] : []
         const voteEntries = candidateEntries.length > 0 ? candidateEntries : legacyCandidate
 
-        if (!payload.mesaId || voteEntries.length === 0) {
+        const aggregatedVotes = new Map<string, number>()
+        voteEntries.forEach(([candidateId, votes]) => {
+          const current = aggregatedVotes.get(candidateId) ?? 0
+          aggregatedVotes.set(candidateId, current + Number(votes))
+        })
+
+        const listVoteNotes: string[] = []
+        partyEntries.forEach(([partyId, votes]) => {
+          const mappedCandidate = [...candidatos]
+            .filter((candidate) => candidate.partidoId === partyId)
+            .sort((a, b) => (a.ballot_number ?? 9999) - (b.ballot_number ?? 9999))[0]
+
+          if (!mappedCandidate) return
+
+          const current = aggregatedVotes.get(mappedCandidate.id) ?? 0
+          aggregatedVotes.set(mappedCandidate.id, current + Number(votes))
+
+          const partyName = partidos.find((party) => party.id === partyId)?.nombre ?? partyId
+          listVoteNotes.push(`${partyName}=${Number(votes)}`)
+        })
+
+        if (!payload.mesaId || aggregatedVotes.size === 0) {
           throw new Error("Datos incompletos para enviar")
         }
 
-        const details = voteEntries.map(([candidate_id, votes]) => ({ candidate_id, votes }))
+        const details = Array.from(aggregatedVotes.entries()).map(([candidate_id, votes]) => ({
+          candidate_id,
+          votes: Number(votes),
+        }))
 
         const photosToSend = payload.photos?.length ? payload.photos : payload.photo ? [{ file: payload.photo, preview: payload.photoPreview ?? "" }] : []
         const toDataUrl = (file: File) =>
@@ -772,7 +945,7 @@ export default function EvidenciaPage() {
         const voteBody = {
           delegate_assignment_id: payload.mesaId,
           divipole_location_id: null,
-          notes: null,
+          notes: `${payload.note || ""}${payload.note ? "\n" : ""}[ResumenMesa] blanco=${payload.specialVotes.blank}; nulos=${payload.specialVotes.nulls}; no_marcados=${payload.specialVotes.unmarked}${listVoteNotes.length ? `\n[VotoLista] ${listVoteNotes.join("; ")}` : ""}`,
           details,
           photos: photoPayloads,
           existing_photo_urls: payload.existingPhotos ?? [],
@@ -801,16 +974,22 @@ export default function EvidenciaPage() {
         if (showToast) notify("No se pudo enviar", "Intenta de nuevo o usa modo offline")
       }
     },
-    [preload]
+    [candidatos, partidos, preload]
   )
   const handleSubmit = async () => {
+    if (submitting) return
+    if (isMesaFinalizada) {
+      notify("Mesa finalizada", "Esta mesa ya fue enviada y no permite edición")
+      return
+    }
     const voteEntries = Object.entries(flow.candidateVotes ?? {}).filter(([, votos]) => votos > 0)
+    const partyEntries = Object.entries(flow.partyVotes ?? {}).filter(([, votos]) => votos > 0)
     if (!flow.mesaId) {
       notify("Selecciona la mesa asignada")
       return
     }
-    if (voteEntries.length === 0 && (!flow.candidatoId || flow.votos <= 0)) {
-      notify("Ingresa votos para al menos un candidato")
+    if (voteEntries.length === 0 && partyEntries.length === 0 && (!flow.candidatoId || flow.votos <= 0)) {
+      notify("Ingresa votos para al menos un candidato o una lista")
       return
     }
     if ((flow.photos?.length ?? 0) === 0) {
@@ -822,13 +1001,30 @@ export default function EvidenciaPage() {
       return
     }
 
+    const confirmSend = window.confirm(
+      `¿Finalizar mesa ${selectedMesaLabel ?? "seleccionada"}?\n\nTotal general: ${totalGeneral} votos. Esta acción bloqueará la edición posterior.`,
+    )
+    if (!confirmSend) return
+
+    if (warningOverCapacity && selectedMesa?.totalVoters) {
+      const confirmOver = window.confirm(
+        `El total general (${totalGeneral}) supera votantes estimados (${selectedMesa.totalVoters}). ¿Deseas continuar?`,
+      )
+      if (!confirmOver) return
+    }
+
     if (isOffline) {
       setOfflineQueue((prev) => [...prev, flow])
       notify("Guardado en cola offline", "Se enviara al volver la conexion")
       resetFlow()
       return
     }
-    await sendVote(flow)
+    setSubmitting(true)
+    try {
+      await sendVote(flow)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const typeButtons = (
@@ -888,10 +1084,10 @@ export default function EvidenciaPage() {
       </Button>
       <Button
         className="flex-1 h-14 bg-cyan-600 hover:bg-cyan-700 text-lg"
-        disabled={!stepValid}
+        disabled={!stepValid || submitting}
         onClick={stepIndex === steps.length - 1 ? handleSubmit : goNext}
       >
-        {stepIndex === steps.length - 1 ? "Confirmar y enviar" : "Siguiente"}
+        {stepIndex === steps.length - 1 ? (submitting ? "Enviando..." : "Confirmar y enviar") : "Siguiente"}
         <ArrowRight className="ml-2 h-5 w-5" />
       </Button>
     </div>
@@ -989,6 +1185,7 @@ export default function EvidenciaPage() {
                 <Badge className="bg-zinc-800 border-zinc-700">{flow.photos.length}/4 fotos</Badge>
                 <Badge className="bg-zinc-800 border-zinc-700">{Object.values(flow.candidateVotes).filter((v) => v > 0).length} candidatos con votos</Badge>
                 <Badge className="bg-zinc-800 border-zinc-700">Mesa: {selectedMesaLabel ?? "sin seleccionar"}</Badge>
+                {isMesaFinalizada && <Badge className="bg-emerald-700/60 border-emerald-500/40">Mesa finalizada · Solo lectura</Badge>}
               </div>
             </CardTitle>
           </CardHeader>
@@ -1005,17 +1202,42 @@ export default function EvidenciaPage() {
                   selectedCargoId={flow.cargoId}
                   selectedPartidoId={flow.partidoId}
                   candidateVotes={flow.candidateVotes}
+                  partyVotes={flow.partyVotes}
+                  specialVotes={flow.specialVotes}
+                  totalGeneral={totalGeneral}
+                  totalCandidatos={totalCandidatos}
+                  totalVotoLista={totalVotoLista}
+                  totalBlanco={totalBlanco}
+                  totalNulos={totalNulos}
+                  totalNoMarcados={totalNoMarcados}
+                  warningOverCapacity={warningOverCapacity}
+                  mesaCapacity={selectedMesa?.totalVoters ?? null}
+                  readOnly={isMesaFinalizada}
+                  onPartyVoteChange={(partyId, value) => {
+                    if (isMesaFinalizada) return
+                    setFlow((prev) => ({
+                      ...prev,
+                      partyVotes: { ...prev.partyVotes, [partyId]: normalizeNonNegativeInt(value) },
+                    }))
+                  }}
+                  onSpecialVoteChange={(key, value) => {
+                    if (isMesaFinalizada) return
+                    setFlow((prev) => ({
+                      ...prev,
+                      specialVotes: { ...prev.specialVotes, [key]: normalizeNonNegativeInt(value) },
+                    }))
+                  }}
                   onCargoChange={(id) => setFlow((prev) => ({ ...prev, cargoId: id, partidoId: undefined }))}
                   onPartidoChange={(id) => setFlow((prev) => ({ ...prev, partidoId: id }))}
                   onVoteChange={handleCandidateVote}
-                  onResetVotes={() => setFlow((prev) => ({ ...prev, candidateVotes: {} }))}
+                  onResetVotes={() => setFlow((prev) => ({ ...prev, candidateVotes: {}, partyVotes: {}, specialVotes: EMPTY_SPECIAL_VOTES }))}
                 />
 
                 <PhotoStack photos={flow.photos} existingPhotos={flow.existingPhotos} onAdd={handleAddPhotos} onRemove={handleRemovePhoto} />
 
                 <div className="flex flex-col gap-3 border-t border-zinc-800 pt-4 md:flex-row md:items-center md:justify-between">
                   <div className="text-sm text-muted-foreground">
-                    Debes tener una mesa seleccionada, al menos un candidato con votos y minimo una foto.
+                    Debes tener una mesa seleccionada, al menos votos por candidato o por lista, y mínimo una foto.
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button variant="outline" className="bg-zinc-800/60 border-zinc-700" onClick={() => setView("hub")}>
@@ -1023,10 +1245,10 @@ export default function EvidenciaPage() {
                     </Button>
                     <Button
                       className="bg-cyan-600 hover:bg-cyan-700"
-                      disabled={!flow.mesaId || ((flow.photos?.length ?? 0) + (flow.existingPhotos?.length ?? 0)) === 0 || (Object.values(flow.candidateVotes).filter((v) => v > 0).length === 0 && (!flow.candidatoId || flow.votos <= 0))}
+                      disabled={submitting || isMesaFinalizada || !flow.mesaId || ((flow.photos?.length ?? 0) + (flow.existingPhotos?.length ?? 0)) === 0 || ((Object.values(flow.candidateVotes).filter((v) => v > 0).length + Object.values(flow.partyVotes).filter((v) => v > 0).length) === 0 && (!flow.candidatoId || flow.votos <= 0))}
                       onClick={handleSubmit}
                     >
-                      Enviar evidencias
+                      {submitting ? "Enviando..." : "Finalizar Mesa"}
                     </Button>
                   </div>
                 </div>
@@ -1396,6 +1618,19 @@ function CandidateVotesPanel({
   selectedCargoId,
   selectedPartidoId,
   candidateVotes,
+  partyVotes,
+  specialVotes,
+  totalGeneral,
+  totalCandidatos,
+  totalVotoLista,
+  totalBlanco,
+  totalNulos,
+  totalNoMarcados,
+  warningOverCapacity,
+  mesaCapacity,
+  readOnly,
+  onPartyVoteChange,
+  onSpecialVoteChange,
   onCargoChange,
   onPartidoChange,
   onVoteChange,
@@ -1407,25 +1642,61 @@ function CandidateVotesPanel({
   selectedCargoId?: string
   selectedPartidoId?: string
   candidateVotes: Record<string, number>
+  partyVotes: Record<string, number>
+  specialVotes: { blank: number; nulls: number; unmarked: number }
+  totalGeneral: number
+  totalCandidatos: number
+  totalVotoLista: number
+  totalBlanco: number
+  totalNulos: number
+  totalNoMarcados: number
+  warningOverCapacity: boolean
+  mesaCapacity: number | null
+  readOnly: boolean
+  onPartyVoteChange: (partyId: string, value: number) => void
+  onSpecialVoteChange: (key: "blank" | "nulls" | "unmarked", value: number) => void
   onCargoChange: (id: string) => void
   onPartidoChange: (id?: string) => void
   onVoteChange: (candidateId: string, value: number) => void
   onResetVotes: () => void
 }) {
-  const cargoById = useMemo(() => Object.fromEntries(cargos.map((c) => [c.id, c.nombre])), [cargos])
-  const partyById = useMemo(() => Object.fromEntries(partidos.map((p) => [p.id, p.nombre])), [partidos])
+  const partyById = useMemo(() => Object.fromEntries(partidos.map((p) => [p.id, p])), [partidos])
+  const filteredCandidatos = candidatos
+    .filter((c) => (!selectedCargoId || c.cargoId === selectedCargoId) && (!selectedPartidoId || c.partidoId === selectedPartidoId))
+    .sort((a, b) => (a.ballot_number ?? 9999) - (b.ballot_number ?? 9999))
 
-  const filteredPartidos = partidos.filter((p) => !selectedCargoId || p.cargoId === selectedCargoId)
-  const filteredCandidatos = candidatos.filter((c) => (!selectedCargoId || c.cargoId === selectedCargoId) && (!selectedPartidoId || c.partidoId === selectedPartidoId))
+  const grouped = useMemo(() => {
+    const map = new Map<string, { partido: Partido | undefined; items: Candidato[] }>()
+    filteredCandidatos.forEach((cand) => {
+      const current = map.get(cand.partidoId)
+      if (current) {
+        current.items.push(cand)
+      } else {
+        map.set(cand.partidoId, { partido: partyById[cand.partidoId], items: [cand] })
+      }
+    })
+    return Array.from(map.entries()).map(([id, value]) => ({ id, ...value }))
+  }, [filteredCandidatos, partyById])
+
+  const [expandedPartyId, setExpandedPartyId] = useState<string | null>(null)
 
   return (
-    <div className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+    <div className="relative space-y-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+      {readOnly && (
+        <div className="absolute inset-0 z-20 rounded-2xl bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="max-w-sm rounded-xl border border-zinc-700 bg-zinc-900 p-4 text-center space-y-2">
+            <p className="flex items-center justify-center gap-2 font-semibold text-emerald-300"><Lock className="h-4 w-4" /> Mesa finalizada</p>
+            <p className="text-xs text-muted-foreground">Este registro ya fue enviado y ahora está en modo solo lectura.</p>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-semibold">Votos por candidato</p>
-          <p className="text-xs text-muted-foreground">Escribe la cantidad manualmente, ej: 10 para Maria, 23 para Jose.</p>
+          <p className="text-sm font-semibold">Tarjeta electoral por partido</p>
+          <p className="text-xs text-muted-foreground">Ingreso rápido con teclado numérico y botones grandes.</p>
         </div>
-        <Button variant="ghost" size="sm" className="text-xs" onClick={onResetVotes}>
+        <Button variant="ghost" size="sm" className="text-xs" onClick={onResetVotes} disabled={readOnly}>
           Limpiar votos
         </Button>
       </div>
@@ -1437,78 +1708,123 @@ function CandidateVotesPanel({
             variant={cargo.id === selectedCargoId ? "default" : "outline"}
             className={`${cargo.id === selectedCargoId ? "bg-cyan-600" : "bg-zinc-800/60 border-zinc-700"} rounded-full px-4 text-xs`}
             onClick={() => onCargoChange(cargo.id)}
+            disabled={readOnly}
           >
             {cargo.nombre}
           </Button>
         ))}
       </div>
 
-      {filteredPartidos.length > 0 && (
-        <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">Selecciona el partido para ver sus candidatos</p>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-            <Select value={selectedPartidoId ?? "all"} onValueChange={(value) => onPartidoChange(value === "all" ? undefined : value)}>
-              <SelectTrigger className="w-full bg-zinc-800/60 border-zinc-700">
-                <SelectValue placeholder="Elegir partido" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                {filteredPartidos.map((partido) => (
-                  <SelectItem key={partido.id} value={partido.id}>
-                    {partido.nombre}
-                  </SelectItem>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+        {grouped.map(({ id, partido, items }) => {
+          const resolvedLogo = resolvePartyLogo(partido)
+          const isExpanded = expandedPartyId === id
+
+          return (
+          <div key={id} className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 space-y-3">
+            <button
+              type="button"
+              className="flex w-full items-center gap-3"
+              onClick={() => setExpandedPartyId((current) => (current === id ? null : id))}
+            >
+              {resolvedLogo ? (
+                <img
+                  src={resolvedLogo}
+                  alt={partido?.nombre ?? "Partido"}
+                  className="h-10 w-10 rounded-md border border-zinc-700 bg-white object-contain p-1"
+                />
+              ) : (
+                <div className="h-10 w-10 rounded-md border border-zinc-700 bg-zinc-800 flex items-center justify-center text-xs font-bold">
+                  {(partido?.nombre ?? "PA").slice(0, 2).toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0 flex-1 text-left">
+                <p className="text-sm font-semibold truncate">{partido?.nombre ?? "Partido"}</p>
+                <p className="text-[11px] text-muted-foreground">Lista {partido?.listType ?? "No Preferente"}</p>
+              </div>
+              <ChevronRight className={`h-4 w-4 text-zinc-400 transition-transform ${isExpanded ? "rotate-90" : "rotate-0"}`} />
+            </button>
+
+            {isExpanded && (
+              <>
+                <div className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2">
+                  <p className="text-[11px] text-muted-foreground mb-1">Voto por lista (partido)</p>
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    className="h-10 bg-zinc-950 border-zinc-700 text-center text-lg font-bold"
+                    value={partyVotes[id] ?? 0}
+                    onChange={(e) => onPartyVoteChange(id, Number(e.target.value))}
+                    disabled={readOnly}
+                  />
+                </div>
+
+                {items.map((candidato) => (
+                  <div key={candidato.id} className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold leading-tight truncate">{candidato.full_name ?? candidato.nombre}</p>
+                        <p className="text-[11px] text-muted-foreground">#{candidato.ballot_number ?? "S/N"}</p>
+                      </div>
+                      <Badge className="bg-zinc-800 border-zinc-700">#{candidato.ballot_number ?? "S/N"}</Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button size="icon" variant="outline" className="h-11 w-11" disabled={readOnly} onClick={() => onVoteChange(candidato.id, (candidateVotes[candidato.id] ?? 0) - 1)}>
+                        <Minus className="h-4 w-4" />
+                      </Button>
+                      <Input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        className="h-11 bg-zinc-950 border-zinc-700 text-center text-xl font-bold"
+                        value={candidateVotes[candidato.id] ?? 0}
+                        onChange={(e) => onVoteChange(candidato.id, Number(e.target.value))}
+                        disabled={readOnly}
+                      />
+                      <Button size="icon" variant="outline" className="h-11 w-11" disabled={readOnly} onClick={() => onVoteChange(candidato.id, (candidateVotes[candidato.id] ?? 0) + 1)}>
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
                 ))}
-              </SelectContent>
-            </Select>
-            {selectedPartidoId && (
-              <Button variant="outline" size="sm" className="shrink-0" onClick={() => onPartidoChange(undefined)}>
-                Quitar filtro
-              </Button>
+              </>
             )}
           </div>
-        </div>
-      )}
+          )
+        })}
+      </div>
 
-      {!selectedPartidoId && filteredPartidos.length > 0 && (
-        <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-950/40 p-3 text-xs text-muted-foreground">
-          Elige un partido para listar sus candidatos y asignar votos.
-        </div>
-      )}
+      {grouped.length === 0 && <CandidateCatalogHint candidatos={candidatos} cargoById={{}} partyById={{}} />}
 
-      {selectedPartidoId && filteredCandidatos.length === 0 && (
-        <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-950/40 p-3 text-xs text-muted-foreground">
-          Sin candidatos cargados para este partido.
-        </div>
-      )}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {(Object.keys(SPECIAL_VOTE_LABELS) as Array<"blank" | "nulls" | "unmarked">).map((key) => (
+          <div key={key} className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 space-y-2">
+            <p className="text-sm font-semibold">{SPECIAL_VOTE_LABELS[key]}</p>
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              className="h-11 bg-zinc-950 border-zinc-700 text-center text-xl font-bold"
+              value={specialVotes[key]}
+              onChange={(e) => onSpecialVoteChange(key, Number(e.target.value))}
+              disabled={readOnly}
+            />
+          </div>
+        ))}
+      </div>
 
-      {filteredCandidatos.length === 0 && !selectedPartidoId && (
-        <CandidateCatalogHint candidatos={candidatos} cargoById={cargoById} partyById={partyById} />
-      )}
-
-      {filteredCandidatos.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {filteredCandidatos.map((candidato) => (
-            <div key={candidato.id} className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2">
-              <div>
-                <p className="font-semibold leading-tight">{candidato.full_name ?? candidato.nombre}</p>
-                <p className="text-xs text-muted-foreground flex flex-wrap gap-1">
-                  <span>{partyById[candidato.partidoId] ?? candidato.party ?? "Sin partido"}</span>
-                  {candidato.ballot_number ? <Badge className="bg-zinc-800 border-zinc-700">Tarjeton {candidato.ballot_number}</Badge> : null}
-                </p>
-              </div>
-              <Input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                className="w-24 bg-zinc-900 border-zinc-800 text-right"
-                value={candidateVotes[candidato.id] ?? ""}
-                placeholder="0"
-                onChange={(e) => onVoteChange(candidato.id, Number(e.target.value))}
-              />
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 text-sm space-y-1">
+        <p className="font-semibold">Resumen de Mesa</p>
+        <div className="flex justify-between"><span className="text-muted-foreground">Total votos candidatos</span><span>{totalCandidatos}</span></div>
+        <div className="flex justify-between"><span className="text-muted-foreground">Total voto por lista</span><span>{totalVotoLista}</span></div>
+        <div className="flex justify-between"><span className="text-muted-foreground">Total votos en blanco</span><span>{totalBlanco}</span></div>
+        <div className="flex justify-between"><span className="text-muted-foreground">Total votos nulos</span><span>{totalNulos}</span></div>
+        <div className="flex justify-between"><span className="text-muted-foreground">Total votos no marcados</span><span>{totalNoMarcados}</span></div>
+        <div className="flex justify-between text-base font-bold"><span>TOTAL GENERAL</span><span className={warningOverCapacity ? "text-amber-400" : "text-emerald-400"}>{totalGeneral}</span></div>
+        <p className="text-xs text-muted-foreground">Votantes estimados: {mesaCapacity ?? "No disponible"}</p>
+        {warningOverCapacity && <p className="text-xs text-amber-300">Advertencia: supera el estimado de votantes.</p>}
+      </div>
     </div>
   )
 }
