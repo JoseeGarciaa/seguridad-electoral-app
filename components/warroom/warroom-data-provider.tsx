@@ -11,6 +11,22 @@ export type WarRoomCandidate = {
   color: string | null
 }
 
+export type WarRoomPartyCandidate = {
+  id: string
+  name: string
+  votes: number
+}
+
+export type WarRoomParty = {
+  party: string
+  candidateVotes: number
+  listVotes: number
+  totalVotes: number
+  percentage: number
+  candidateCount: number
+  topCandidates: WarRoomPartyCandidate[]
+}
+
 export type WarRoomFeedItem = {
   id: string
   user: string
@@ -60,6 +76,7 @@ export type WarRoomStats = {
 export type WarRoomPayload = {
   stats: WarRoomStats
   candidates: WarRoomCandidate[]
+  parties: WarRoomParty[]
   feed: WarRoomFeedItem[]
   alerts: WarRoomAlert[]
   municipalities: WarRoomMunicipality[]

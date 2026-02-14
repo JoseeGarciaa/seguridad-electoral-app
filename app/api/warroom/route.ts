@@ -13,6 +13,7 @@ function emptyPayload() {
       lastUpdated: new Date().toISOString(),
     },
     candidates: [],
+    parties: [],
     feed: [],
     alerts: [],
     municipalities: [],
@@ -84,6 +85,68 @@ export async function GET() {
       GROUP BY c.id, c.full_name, c.party, c.color
       ORDER BY votes DESC
       LIMIT 8
+    `
+
+  const partyCandidateQuery = delegateId
+    ? `
+      SELECT COALESCE(c.party, 'Sin partido') AS party,
+             SUM(vd.votes)::bigint AS candidate_votes
+      FROM vote_details vd
+      JOIN vote_reports vr ON vr.id = vd.vote_report_id
+      JOIN candidates c ON c.id = vd.candidate_id
+      WHERE vr.delegate_id = $1
+      GROUP BY COALESCE(c.party, 'Sin partido')
+      ORDER BY candidate_votes DESC
+    `
+    : `
+      SELECT COALESCE(c.party, 'Sin partido') AS party,
+             SUM(vd.votes)::bigint AS candidate_votes
+      FROM vote_details vd
+      JOIN candidates c ON c.id = vd.candidate_id
+      GROUP BY COALESCE(c.party, 'Sin partido')
+      ORDER BY candidate_votes DESC
+    `
+
+  const partyListVoteQuery = delegateId
+    ? `
+      SELECT COALESCE(vpd.party, 'Sin partido') AS party,
+             SUM(vpd.votes)::bigint AS list_votes
+      FROM vote_party_details vpd
+      JOIN vote_reports vr ON vr.id = vpd.vote_report_id
+      WHERE vr.delegate_id = $1
+      GROUP BY COALESCE(vpd.party, 'Sin partido')
+      ORDER BY list_votes DESC
+    `
+    : `
+      SELECT COALESCE(vpd.party, 'Sin partido') AS party,
+             SUM(vpd.votes)::bigint AS list_votes
+      FROM vote_party_details vpd
+      GROUP BY COALESCE(vpd.party, 'Sin partido')
+      ORDER BY list_votes DESC
+    `
+
+  const partyCandidateDetailQuery = delegateId
+    ? `
+      SELECT COALESCE(c.party, 'Sin partido') AS party,
+             c.id,
+             c.full_name,
+             SUM(vd.votes)::bigint AS votes
+      FROM vote_details vd
+      JOIN vote_reports vr ON vr.id = vd.vote_report_id
+      JOIN candidates c ON c.id = vd.candidate_id
+      WHERE vr.delegate_id = $1
+      GROUP BY COALESCE(c.party, 'Sin partido'), c.id, c.full_name
+      ORDER BY COALESCE(c.party, 'Sin partido') ASC, votes DESC
+    `
+    : `
+      SELECT COALESCE(c.party, 'Sin partido') AS party,
+             c.id,
+             c.full_name,
+             SUM(vd.votes)::bigint AS votes
+      FROM vote_details vd
+      JOIN candidates c ON c.id = vd.candidate_id
+      GROUP BY COALESCE(c.party, 'Sin partido'), c.id, c.full_name
+      ORDER BY COALESCE(c.party, 'Sin partido') ASC, votes DESC
     `
     : `
       SELECT c.id, c.full_name, c.party, c.color, SUM(vd.votes)::bigint AS votes
@@ -206,9 +269,12 @@ export async function GET() {
 
   const client = await pool.connect()
   try {
-    const [statsRows, candidateRows, feedRows, evidenceRows, photoMissRows] = await Promise.all([
+    const [statsRows, candidateRows, partyCandidateRows, partyListRows, partyCandidateDetailRows, feedRows, evidenceRows, photoMissRows] = await Promise.all([
       safeQuery<any>(client, statsQuery, delegateParams),
       safeQuery<any>(client, candidateQuery, delegateParams),
+      safeQuery<any>(client, partyCandidateQuery, delegateParams),
+      safeQuery<any>(client, partyListVoteQuery, delegateParams),
+      safeQuery<any>(client, partyCandidateDetailQuery, delegateParams),
       safeQuery<any>(client, feedQuery, delegateParams),
       safeQuery<any>(client, evidencesQuery, delegateParams),
       safeQuery<any>(client, missingPhotoQuery, delegateParams),
@@ -263,6 +329,81 @@ export async function GET() {
       percentage: totalVotes === 0 ? 0 : Number(((Number(row.votes ?? 0) / totalVotes) * 100).toFixed(1)),
       color: (row.color as string) ?? null,
     }))
+
+    const partyMap = new Map<string, { party: string; candidateVotes: number; listVotes: number; candidates: { id: string; name: string; votes: number }[] }>()
+
+    for (const row of partyCandidateRows) {
+      const partyName = ((row.party as string) ?? "Sin partido").trim() || "Sin partido"
+      const existing = partyMap.get(partyName)
+      if (existing) {
+        existing.candidateVotes = Number(row.candidate_votes ?? 0)
+      } else {
+        partyMap.set(partyName, {
+          party: partyName,
+          candidateVotes: Number(row.candidate_votes ?? 0),
+          listVotes: 0,
+          candidates: [],
+        })
+      }
+    }
+
+    for (const row of partyListRows) {
+      const partyName = ((row.party as string) ?? "Sin partido").trim() || "Sin partido"
+      const existing = partyMap.get(partyName)
+      if (existing) {
+        existing.listVotes = Number(row.list_votes ?? 0)
+      } else {
+        partyMap.set(partyName, {
+          party: partyName,
+          candidateVotes: 0,
+          listVotes: Number(row.list_votes ?? 0),
+          candidates: [],
+        })
+      }
+    }
+
+    for (const row of partyCandidateDetailRows) {
+      const partyName = ((row.party as string) ?? "Sin partido").trim() || "Sin partido"
+      const existing = partyMap.get(partyName)
+      const candidateRecord = {
+        id: String(row.id),
+        name: ((row.full_name as string) ?? "Candidato").trim() || "Candidato",
+        votes: Number(row.votes ?? 0),
+      }
+      if (existing) {
+        existing.candidates.push(candidateRecord)
+      } else {
+        partyMap.set(partyName, {
+          party: partyName,
+          candidateVotes: 0,
+          listVotes: 0,
+          candidates: [candidateRecord],
+        })
+      }
+    }
+
+    const totalPartyVotes = Array.from(partyMap.values()).reduce(
+      (acc, row) => acc + row.candidateVotes + row.listVotes,
+      0,
+    )
+
+    const parties = Array.from(partyMap.values())
+      .map((row) => {
+        const total = row.candidateVotes + row.listVotes
+        const topCandidates = row.candidates
+          .sort((a, b) => b.votes - a.votes)
+          .slice(0, 3)
+        return {
+          party: row.party,
+          candidateVotes: row.candidateVotes,
+          listVotes: row.listVotes,
+          totalVotes: total,
+          percentage: totalPartyVotes === 0 ? 0 : Number(((total / totalPartyVotes) * 100).toFixed(1)),
+          candidateCount: row.candidates.length,
+          topCandidates,
+        }
+      })
+      .sort((a, b) => b.totalVotes - a.totalVotes)
 
     const feed = feedRows.map((row) => ({
       id: String(row.id),
@@ -335,6 +476,7 @@ export async function GET() {
     return NextResponse.json({
       stats: statsPayload,
       candidates,
+      parties,
       feed,
       alerts,
       municipalities,
