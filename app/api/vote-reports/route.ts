@@ -30,6 +30,8 @@ export async function GET(req: Request) {
       vr.id,
       vr.delegate_id,
       vr.delegate_assignment_id,
+      COALESCE(d.full_name, 'Delegado') AS delegate_name,
+      a.polling_station_number,
       vr.polling_station_code,
       vr.department,
       vr.municipality,
@@ -50,10 +52,12 @@ export async function GET(req: Request) {
         ORDER BY c.position, c.ballot_number NULLS LAST, c.full_name
       ) FILTER (WHERE vd.candidate_id IS NOT NULL) AS details
     FROM vote_reports vr
+    LEFT JOIN delegates d ON d.id = vr.delegate_id
+    LEFT JOIN delegate_polling_assignments a ON a.id = vr.delegate_assignment_id
     LEFT JOIN vote_details vd ON vd.vote_report_id = vr.id
     LEFT JOIN candidates c ON c.id = vd.candidate_id
     ${where}
-    GROUP BY vr.id
+    GROUP BY vr.id, d.full_name, a.polling_station_number
     ORDER BY vr.reported_at DESC NULLS LAST, vr.created_at DESC
     LIMIT 300
   `
@@ -65,6 +69,10 @@ export async function GET(req: Request) {
         id: row.id as string,
         delegateId: row.delegate_id as string | null,
         assignmentId: row.delegate_assignment_id as string | null,
+        delegateName: row.delegate_name as string | null,
+        tableNumber: row.polling_station_number !== null && row.polling_station_number !== undefined
+          ? Number(row.polling_station_number)
+          : null,
         pollingStation: row.polling_station_code as string | null,
         department: row.department as string | null,
         municipality: row.municipality as string | null,

@@ -37,7 +37,6 @@ import {
   WifiOff,
   Wifi,
   ChevronRight,
-  Lock,
   Minus,
   Plus,
 } from "lucide-react"
@@ -157,6 +156,7 @@ type VoteReportSummary = {
   pollingStation: string | null
   municipality: string | null
   totalVotes: number
+  notes: string | null
   details: VoteCandidateDetail[]
 }
 
@@ -233,6 +233,40 @@ const SPECIAL_VOTE_LABELS: Record<"blank" | "nulls" | "unmarked", string> = {
 
 const normalizeNonNegativeInt = (value: number) => Math.max(0, Math.min(9999, Math.trunc(Number.isFinite(value) ? value : 0)))
 
+const parseSummaryFromNotes = (rawNotes?: string | null) => {
+  const notes = typeof rawNotes === "string" ? rawNotes : ""
+  const summaryMatch = notes.match(/\[ResumenMesa\]\s*blanco=(\d+)\s*;\s*nulos=(\d+)\s*;\s*no_marcados=(\d+)/i)
+  const partyMatch = notes.match(/\[VotoLista\]\s*([^\n\r]+)/i)
+
+  const specialVotes = {
+    blank: normalizeNonNegativeInt(Number(summaryMatch?.[1] ?? 0)),
+    nulls: normalizeNonNegativeInt(Number(summaryMatch?.[2] ?? 0)),
+    unmarked: normalizeNonNegativeInt(Number(summaryMatch?.[3] ?? 0)),
+  }
+
+  const partyVotes: Record<string, number> = {}
+  const rawPartyBlock = partyMatch?.[1]?.trim() ?? ""
+  if (rawPartyBlock) {
+    rawPartyBlock.split(";").forEach((entry) => {
+      const [rawPartyId, rawVotes] = entry.split("=").map((part) => part.trim())
+      if (!rawPartyId) return
+      const parsedVotes = normalizeNonNegativeInt(Number(rawVotes ?? 0))
+      if (parsedVotes > 0) partyVotes[rawPartyId] = parsedVotes
+    })
+  }
+
+  const cleanNote = notes
+    .replace(/\n?\[ResumenMesa\][^\n\r]*/gi, "")
+    .replace(/\n?\[VotoLista\][^\n\r]*/gi, "")
+    .trim()
+
+  return {
+    note: cleanNote,
+    specialVotes,
+    partyVotes,
+  }
+}
+
 const normalizeListType = (value: any): "Preferente" | "No Preferente" | null => {
   if (typeof value !== "string") return null
   const normalized = value.trim().toLowerCase()
@@ -250,11 +284,16 @@ const normalizePartyName = (value: string) =>
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
 
+const partyNameContainsTokens = (normalizedPartyName: string, tokens: string[]) => {
+  const words = new Set(normalizedPartyName.split(/\s+/).filter(Boolean))
+  return tokens.every((token) => words.has(token))
+}
+
 const PARTY_LOGOS: Array<{ tokens: string[]; src: string }> = [
   { tokens: ["coalicion", "verde"], src: "/Coalición_verde.png" },
   { tokens: ["alianza", "verde"], src: "/Coalición_verde.png" },
   { tokens: ["cambio", "radical"], src: "/Cambio_Radical.png" },
-  { tokens: ["partido", "u"], src: "/Logo_Partido_U_Colombia_.png" },
+  { tokens: ["partido", "u"], src: "/Partido_U_Colombia_.png" },
   { tokens: ["mira", "dignidad", "compromiso"], src: "/Mira_dignidad_compromiso.jpg" },
   { tokens: ["movimiento", "agrario", "colombiano"], src: "/Movimiento_Agrario_Colombiano.png" },
   { tokens: ["movimiento", "salvacion", "nacional"], src: "/Movimiento_de_Salvación_Nacional_.png" },
@@ -262,20 +301,23 @@ const PARTY_LOGOS: Array<{ tokens: string[]; src: string }> = [
   { tokens: ["centro", "democratico"], src: "/Partido_Centro_Democrático_.png" },
   { tokens: ["colombia", "renaciente"], src: "/Partido_Colombia_renaciente.png" },
   { tokens: ["conservador", "colombiano"], src: "/partido_Conservador_Colombiano_.png" },
-  { tokens: ["liberal", "colombia"], src: "/PARTIDO_LIBERAL_COLOMBIA.png" },
-  { tokens: ["nuevo", "liberalismo"], src: "/Partido_Nuevo_liberalismo.png" },
+  { tokens: ["liberal", "colombia"], src: "/PARTIDO_LIBERAL_COLOMBIANO.png" },
+  { tokens: ["liberal", "colombiano"], src: "/PARTIDO_LIBERAL_COLOMBIANO.png" },
+  { tokens: ["nuevo", "liberalismo"], src: "/Nuevo_liberalismo.png" },
 ]
 
 const resolvePartyLogo = (partido?: Partido | null) => {
+  const normalizedPartyName = normalizePartyName(partido?.nombre ?? "")
+  if (normalizedPartyName) {
+    const matched = PARTY_LOGOS.find(({ tokens }) => partyNameContainsTokens(normalizedPartyName, tokens))
+    if (matched) return matched.src
+  }
+
   if (partido?.logo) {
     return partido.logo.startsWith("/") ? partido.logo : `/${partido.logo}`
   }
 
-  const normalizedPartyName = normalizePartyName(partido?.nombre ?? "")
-  if (!normalizedPartyName) return null
-
-  const matched = PARTY_LOGOS.find(({ tokens }) => tokens.every((token) => normalizedPartyName.includes(token)))
-  return matched?.src ?? null
+  return null
 }
 
 const chipFilters = [
@@ -516,6 +558,7 @@ export default function EvidenciaPage() {
           pollingStation: report.pollingStation ?? null,
           municipality: report.municipality ?? null,
           totalVotes: Number(report.totalVotes ?? 0),
+          notes: report.notes ?? null,
           details: Array.isArray(report.details) ? report.details : [],
         }
       })
@@ -679,7 +722,11 @@ export default function EvidenciaPage() {
   )
 
   const selectedMesa = useMemo(() => mesas.find((m) => m.id === flow.mesaId), [flow.mesaId, mesas])
-  const isMesaFinalizada = Boolean(flow.mesaId && reportsByAssignment[flow.mesaId])
+  const selectedMesaReport = useMemo(
+    () => (flow.mesaId ? reportsByAssignment[flow.mesaId] : undefined),
+    [flow.mesaId, reportsByAssignment],
+  )
+  const hasExistingReport = Boolean(selectedMesaReport)
   const totalCandidatosDetallados = useMemo(
     () => Object.values(flow.candidateVotes ?? {}).reduce((acc, value) => acc + normalizeNonNegativeInt(Number(value)), 0),
     [flow.candidateVotes],
@@ -696,18 +743,6 @@ export default function EvidenciaPage() {
   const warningOverCapacity =
     typeof selectedMesa?.totalVoters === "number" && selectedMesa.totalVoters > 0 && totalGeneral > selectedMesa.totalVoters
 
-  useEffect(() => {
-    if (!flow.mesaId || isMesaFinalizada) return
-    const key = `evidencia-voto-draft-${flow.mesaId}`
-    const timer = window.setInterval(() => {
-      localStorage.setItem(key, JSON.stringify(flow))
-    }, 3000)
-    return () => {
-      window.clearInterval(timer)
-      localStorage.setItem(key, JSON.stringify(flow))
-    }
-  }, [flow, isMesaFinalizada])
-
   const handlePickMesa = useCallback((id: string) => {
     const report = reportsByAssignment[id]
     if (report) {
@@ -716,41 +751,53 @@ export default function EvidenciaPage() {
         acc[detail.candidateId] = Number(detail.votes ?? 0)
         return acc
       }, {})
+      const parsedSummary = parseSummaryFromNotes(report.notes)
+      const partyVotes = Object.entries(parsedSummary.partyVotes).reduce<Record<string, number>>((acc, [rawKey, votes]) => {
+        const directMatch = partidos.find((party) => party.id === rawKey)
+        if (directMatch) {
+          acc[directMatch.id] = votes
+          return acc
+        }
+
+        const normalizedRaw = normalizePartyName(rawKey)
+        const byName = partidos.find((party) => normalizePartyName(party.nombre) === normalizedRaw)
+        if (byName) acc[byName.id] = votes
+        return acc
+      }, {})
 
       setFlow((prev) => ({
         ...prev,
         mesaId: id,
         candidateVotes,
-        partyVotes: {},
+        partyVotes,
         existingPhotos,
         candidatoId: undefined,
         votos: 0,
-        specialVotes: EMPTY_SPECIAL_VOTES,
+        photos: [],
+        specialVotes: parsedSummary.specialVotes,
+        note: parsedSummary.note,
       }))
-      notify("Mesa finalizada", "Esta mesa ya fue enviada y queda en modo solo lectura")
+      notify("Reporte cargado", "Puedes modificar la información y guardar cambios")
       return
     }
-
-    const savedRaw = localStorage.getItem(`evidencia-voto-draft-${id}`)
-    const saved = savedRaw ? JSON.parse(savedRaw) : null
 
     setFlow((prev) => ({
       ...prev,
       mesaId: id,
-      candidateVotes: saved?.candidateVotes ?? {},
-      partyVotes: saved?.partyVotes ?? {},
-      existingPhotos: saved?.existingPhotos ?? [],
+      candidateVotes: {},
+      partyVotes: {},
+      existingPhotos: [],
       candidatoId: undefined,
       votos: 0,
       photos: [],
       specialVotes: {
-        blank: normalizeNonNegativeInt(Number(saved?.specialVotes?.blank ?? 0)),
-        nulls: normalizeNonNegativeInt(Number(saved?.specialVotes?.nulls ?? 0)),
-        unmarked: normalizeNonNegativeInt(Number(saved?.specialVotes?.unmarked ?? 0)),
+        blank: 0,
+        nulls: 0,
+        unmarked: 0,
       },
-      note: saved?.note ?? "",
+      note: "",
     }))
-  }, [notify, photosByReport, reportsByAssignment])
+  }, [notify, partidos, photosByReport, reportsByAssignment])
 
   useEffect(() => {
     let cancelled = false
@@ -841,7 +888,6 @@ export default function EvidenciaPage() {
   }
 
   const handleCandidateVote = (candidateId: string, value: number) => {
-    if (isMesaFinalizada) return
     setFlow((prev) => ({
       ...prev,
       candidateVotes: {
@@ -852,7 +898,6 @@ export default function EvidenciaPage() {
   }
 
   const handleAddPhotos = (files?: FileList | null) => {
-    if (isMesaFinalizada) return
     if (!files || files.length === 0) return
 
     const selected = Array.from(files)
@@ -885,7 +930,6 @@ export default function EvidenciaPage() {
   }
 
   const handleRemovePhoto = (index: number) => {
-    if (isMesaFinalizada) return
     setFlow((prev) => {
       const next = [...(prev.photos ?? [])]
       next.splice(index, 1)
@@ -896,9 +940,9 @@ export default function EvidenciaPage() {
   const sendVote = useCallback(
     async (payload: VoteFlowState, showToast = true) => {
       try {
-        const candidateEntries = Object.entries(payload.candidateVotes ?? {}).filter(([, votos]) => votos > 0)
-        const partyEntries = Object.entries(payload.partyVotes ?? {}).filter(([, votos]) => votos > 0)
-        const legacyCandidate = payload.candidatoId && payload.votos > 0 ? [[payload.candidatoId, payload.votos]] : []
+        const candidateEntries: Array<[string, number]> = Object.entries(payload.candidateVotes ?? {}).filter(([, votos]) => votos > 0)
+        const partyEntries: Array<[string, number]> = Object.entries(payload.partyVotes ?? {}).filter(([, votos]) => votos > 0)
+        const legacyCandidate: Array<[string, number]> = payload.candidatoId && payload.votos > 0 ? [[payload.candidatoId, payload.votos]] : []
         const voteEntries = candidateEntries.length > 0 ? candidateEntries : legacyCandidate
 
         const aggregatedVotes = new Map<string, number>()
@@ -978,10 +1022,6 @@ export default function EvidenciaPage() {
   )
   const handleSubmit = async () => {
     if (submitting) return
-    if (isMesaFinalizada) {
-      notify("Mesa finalizada", "Esta mesa ya fue enviada y no permite edición")
-      return
-    }
     const voteEntries = Object.entries(flow.candidateVotes ?? {}).filter(([, votos]) => votos > 0)
     const partyEntries = Object.entries(flow.partyVotes ?? {}).filter(([, votos]) => votos > 0)
     if (!flow.mesaId) {
@@ -992,7 +1032,7 @@ export default function EvidenciaPage() {
       notify("Ingresa votos para al menos un candidato o una lista")
       return
     }
-    if ((flow.photos?.length ?? 0) === 0) {
+    if (((flow.photos?.length ?? 0) + (flow.existingPhotos?.length ?? 0)) === 0) {
       notify("Falta la foto obligatoria", `Sube al menos 1 foto (max ${maxPhotos})`)
       return
     }
@@ -1002,7 +1042,7 @@ export default function EvidenciaPage() {
     }
 
     const confirmSend = window.confirm(
-      `¿Finalizar mesa ${selectedMesaLabel ?? "seleccionada"}?\n\nTotal general: ${totalGeneral} votos. Esta acción bloqueará la edición posterior.`,
+      `¿${hasExistingReport ? "Guardar cambios en" : "Finalizar"} mesa ${selectedMesaLabel ?? "seleccionada"}?\n\nTotal general: ${totalGeneral} votos.`,
     )
     if (!confirmSend) return
 
@@ -1185,7 +1225,7 @@ export default function EvidenciaPage() {
                 <Badge className="bg-zinc-800 border-zinc-700">{flow.photos.length}/4 fotos</Badge>
                 <Badge className="bg-zinc-800 border-zinc-700">{Object.values(flow.candidateVotes).filter((v) => v > 0).length} candidatos con votos</Badge>
                 <Badge className="bg-zinc-800 border-zinc-700">Mesa: {selectedMesaLabel ?? "sin seleccionar"}</Badge>
-                {isMesaFinalizada && <Badge className="bg-emerald-700/60 border-emerald-500/40">Mesa finalizada · Solo lectura</Badge>}
+                {hasExistingReport && <Badge className="bg-emerald-700/60 border-emerald-500/40">Reporte existente · Editable</Badge>}
               </div>
             </CardTitle>
           </CardHeader>
@@ -1212,16 +1252,14 @@ export default function EvidenciaPage() {
                   totalNoMarcados={totalNoMarcados}
                   warningOverCapacity={warningOverCapacity}
                   mesaCapacity={selectedMesa?.totalVoters ?? null}
-                  readOnly={isMesaFinalizada}
+                  readOnly={submitting}
                   onPartyVoteChange={(partyId, value) => {
-                    if (isMesaFinalizada) return
                     setFlow((prev) => ({
                       ...prev,
                       partyVotes: { ...prev.partyVotes, [partyId]: normalizeNonNegativeInt(value) },
                     }))
                   }}
                   onSpecialVoteChange={(key, value) => {
-                    if (isMesaFinalizada) return
                     setFlow((prev) => ({
                       ...prev,
                       specialVotes: { ...prev.specialVotes, [key]: normalizeNonNegativeInt(value) },
@@ -1245,10 +1283,10 @@ export default function EvidenciaPage() {
                     </Button>
                     <Button
                       className="bg-cyan-600 hover:bg-cyan-700"
-                      disabled={submitting || isMesaFinalizada || !flow.mesaId || ((flow.photos?.length ?? 0) + (flow.existingPhotos?.length ?? 0)) === 0 || ((Object.values(flow.candidateVotes).filter((v) => v > 0).length + Object.values(flow.partyVotes).filter((v) => v > 0).length) === 0 && (!flow.candidatoId || flow.votos <= 0))}
+                      disabled={submitting || !flow.mesaId || ((flow.photos?.length ?? 0) + (flow.existingPhotos?.length ?? 0)) === 0 || ((Object.values(flow.candidateVotes).filter((v) => v > 0).length + Object.values(flow.partyVotes).filter((v) => v > 0).length) === 0 && (!flow.candidatoId || flow.votos <= 0))}
                       onClick={handleSubmit}
                     >
-                      {submitting ? "Enviando..." : "Finalizar Mesa"}
+                      {submitting ? "Guardando..." : hasExistingReport ? "Guardar cambios" : "Finalizar Mesa"}
                     </Button>
                   </div>
                 </div>
@@ -1682,15 +1720,6 @@ function CandidateVotesPanel({
 
   return (
     <div className="relative space-y-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-      {readOnly && (
-        <div className="absolute inset-0 z-20 rounded-2xl bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="max-w-sm rounded-xl border border-zinc-700 bg-zinc-900 p-4 text-center space-y-2">
-            <p className="flex items-center justify-center gap-2 font-semibold text-emerald-300"><Lock className="h-4 w-4" /> Mesa finalizada</p>
-            <p className="text-xs text-muted-foreground">Este registro ya fue enviado y ahora está en modo solo lectura.</p>
-          </div>
-        </div>
-      )}
-
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-semibold">Tarjeta electoral por partido</p>
@@ -1754,7 +1783,8 @@ function CandidateVotesPanel({
                     inputMode="numeric"
                     min={0}
                     className="h-10 bg-zinc-950 border-zinc-700 text-center text-lg font-bold"
-                    value={partyVotes[id] ?? 0}
+                    value={(partyVotes[id] ?? 0) === 0 ? "" : (partyVotes[id] ?? 0)}
+                    onFocus={(e) => e.currentTarget.select()}
                     onChange={(e) => onPartyVoteChange(id, Number(e.target.value))}
                     disabled={readOnly}
                   />
@@ -1778,7 +1808,8 @@ function CandidateVotesPanel({
                         inputMode="numeric"
                         min={0}
                         className="h-11 bg-zinc-950 border-zinc-700 text-center text-xl font-bold"
-                        value={candidateVotes[candidato.id] ?? 0}
+                        value={(candidateVotes[candidato.id] ?? 0) === 0 ? "" : (candidateVotes[candidato.id] ?? 0)}
+                        onFocus={(e) => e.currentTarget.select()}
                         onChange={(e) => onVoteChange(candidato.id, Number(e.target.value))}
                         disabled={readOnly}
                       />
@@ -1806,7 +1837,8 @@ function CandidateVotesPanel({
               inputMode="numeric"
               min={0}
               className="h-11 bg-zinc-950 border-zinc-700 text-center text-xl font-bold"
-              value={specialVotes[key]}
+              value={specialVotes[key] === 0 ? "" : specialVotes[key]}
+              onFocus={(e) => e.currentTarget.select()}
               onChange={(e) => onSpecialVoteChange(key, Number(e.target.value))}
               disabled={readOnly}
             />

@@ -70,8 +70,6 @@ const SPECIAL_VOTE_LABELS: Record<SpecialVoteKey, string> = {
   unmarked: "Votos No Marcados",
 }
 
-const localKey = (mesaId: string) => `testigo-draft-${mesaId}`
-
 const vibrate = (pattern: number | number[]) => {
   if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
     navigator.vibrate(pattern)
@@ -102,11 +100,16 @@ const normalizePartyName = (value: string) =>
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
 
+const partyNameContainsTokens = (normalizedPartyName: string, tokens: string[]) => {
+  const words = new Set(normalizedPartyName.split(/\s+/).filter(Boolean))
+  return tokens.every((token) => words.has(token))
+}
+
 const PARTY_LOGOS: Array<{ tokens: string[]; src: string }> = [
   { tokens: ["coalicion", "verde"], src: "/Coalición_verde.png" },
   { tokens: ["alianza", "verde"], src: "/Coalición_verde.png" },
   { tokens: ["cambio", "radical"], src: "/Cambio_Radical.png" },
-  { tokens: ["partido", "u"], src: "/Logo_Partido_U_Colombia_.png" },
+  { tokens: ["partido", "u"], src: "/Partido_U_Colombia_.png" },
   { tokens: ["mira", "dignidad", "compromiso"], src: "/Mira_dignidad_compromiso.jpg" },
   { tokens: ["movimiento", "agrario", "colombiano"], src: "/Movimiento_Agrario_Colombiano.png" },
   { tokens: ["movimiento", "salvacion", "nacional"], src: "/Movimiento_de_Salvación_Nacional_.png" },
@@ -114,8 +117,9 @@ const PARTY_LOGOS: Array<{ tokens: string[]; src: string }> = [
   { tokens: ["centro", "democratico"], src: "/Partido_Centro_Democrático_.png" },
   { tokens: ["colombia", "renaciente"], src: "/Partido_Colombia_renaciente.png" },
   { tokens: ["conservador", "colombiano"], src: "/partido_Conservador_Colombiano_.png" },
-  { tokens: ["liberal", "colombia"], src: "/PARTIDO_LIBERAL_COLOMBIA.png" },
-  { tokens: ["nuevo", "liberalismo"], src: "/Partido_Nuevo_liberalismo.png" },
+  { tokens: ["liberal", "colombia"], src: "/PARTIDO_LIBERAL_COLOMBIANO.png" },
+  { tokens: ["liberal", "colombiano"], src: "/PARTIDO_LIBERAL_COLOMBIANO.png" },
+  { tokens: ["nuevo", "liberalismo"], src: "/Nuevo_liberalismo.png" },
 ]
 
 const normalizeLogoSrc = (logo: string | null | undefined) => {
@@ -125,14 +129,14 @@ const normalizeLogoSrc = (logo: string | null | undefined) => {
 }
 
 const resolvePartyLogo = (partyName: string | null | undefined, explicitLogo?: string | null) => {
-  const fromApi = normalizeLogoSrc(explicitLogo)
-  if (fromApi) return fromApi
-
   const normalizedParty = normalizePartyName(partyName ?? "")
-  if (!normalizedParty) return null
+  if (normalizedParty) {
+    const matched = PARTY_LOGOS.find(({ tokens }) => partyNameContainsTokens(normalizedParty, tokens))
+    if (matched) return matched.src
+  }
 
-  const matched = PARTY_LOGOS.find(({ tokens }) => tokens.every((token) => normalizedParty.includes(token)))
-  return matched?.src ?? null
+  const fromApi = normalizeLogoSrc(explicitLogo)
+  return fromApi ?? null
 }
 
 const safePartyKey = (party: string | null | undefined) =>
@@ -159,27 +163,12 @@ export default function TestigoElectoralPage() {
   const [completedMesas, setCompletedMesas] = useState<CompletedMesa[]>([])
   const [reportsMap, setReportsMap] = useState<Record<string, { id: string; total: number }>>({})
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({})
-  const autosaveVotesRef = useRef<Record<string, number>>({})
-  const autosaveSpecialVotesRef = useRef<SpecialVotes>(EMPTY_SPECIAL_VOTES)
-  const autosaveNoteRef = useRef("")
   const autoAdvanceTimerRef = useRef<number | null>(null)
 
   const maxPhotos = 4
   const currentMesa = mesas[mesaIndex]
   const mesasTotal = mesas.length
   const mesaProgress = mesasTotal ? mesaIndex + 1 : 0
-
-  useEffect(() => {
-    autosaveVotesRef.current = draftVotes
-  }, [draftVotes])
-
-  useEffect(() => {
-    autosaveSpecialVotesRef.current = specialVotes
-  }, [specialVotes])
-
-  useEffect(() => {
-    autosaveNoteRef.current = note
-  }, [note])
 
   useEffect(() => {
     let cancelled = false
@@ -322,64 +311,19 @@ export default function TestigoElectoralPage() {
 
   useEffect(() => {
     if (!currentMesa || candidates.length === 0) return
-
-    const stored = localStorage.getItem(localKey(currentMesa.id))
-    if (stored) {
-      const parsed = JSON.parse(stored)
-      const parsedVotes = parsed?.votes ?? {}
-      const normalizedVotes: Record<string, number> = {}
-      candidates.forEach((candidate) => {
-        normalizedVotes[candidate.id] = normalizeNonNegativeInt(parsedVotes[candidate.id])
-      })
-      setDraftVotes(normalizedVotes)
-      setSpecialVotes({
-        blank: normalizeNonNegativeInt(parsed?.specialVotes?.blank),
-        nulls: normalizeNonNegativeInt(parsed?.specialVotes?.nulls),
-        unmarked: normalizeNonNegativeInt(parsed?.specialVotes?.unmarked),
-      })
-      setNote(parsed?.note || "")
-    } else {
-      const zeros: Record<string, number> = {}
-      candidates.forEach((candidate) => {
-        zeros[candidate.id] = 0
-      })
-      setDraftVotes(zeros)
-      setSpecialVotes(EMPTY_SPECIAL_VOTES)
-      setNote("")
-    }
+    const zeros: Record<string, number> = {}
+    candidates.forEach((candidate) => {
+      zeros[candidate.id] = 0
+    })
+    setDraftVotes(zeros)
+    setSpecialVotes(EMPTY_SPECIAL_VOTES)
+    setNote("")
 
     setPhotos((prev) => {
       prev.forEach((photo) => URL.revokeObjectURL(photo.preview))
       return []
     })
   }, [mesaIndex, currentMesa?.id, candidates])
-
-  useEffect(() => {
-    if (!currentMesa) return
-    const timer = window.setInterval(() => {
-      localStorage.setItem(
-        localKey(currentMesa.id),
-        JSON.stringify({
-          votes: autosaveVotesRef.current,
-          specialVotes: autosaveSpecialVotesRef.current,
-          note: autosaveNoteRef.current,
-        }),
-      )
-      setSavingState((prev) => (prev === "saving" ? prev : "saved"))
-    }, 3000)
-
-    return () => {
-      window.clearInterval(timer)
-      localStorage.setItem(
-        localKey(currentMesa.id),
-        JSON.stringify({
-          votes: autosaveVotesRef.current,
-          specialVotes: autosaveSpecialVotesRef.current,
-          note: autosaveNoteRef.current,
-        }),
-      )
-    }
-  }, [currentMesa?.id])
 
   useEffect(() => {
     return () => {
@@ -649,7 +593,14 @@ export default function TestigoElectoralPage() {
         const filtered = prev.filter((mesa) => mesa.id !== currentMesa.id)
         return [...filtered, { id: currentMesa.id, label: currentMesa.label, totalVotos: totalGeneralVotos, note }]
       })
-      localStorage.removeItem(localKey(currentMesa.id))
+      const zeros: Record<string, number> = {}
+      candidates.forEach((candidate) => {
+        zeros[candidate.id] = 0
+      })
+      setDraftVotes(zeros)
+      setSpecialVotes(EMPTY_SPECIAL_VOTES)
+      setNote("")
+      clearPhotos()
       setStep("done")
     } catch (err: any) {
       const message = err?.message ?? "Error al guardar"
@@ -687,7 +638,6 @@ export default function TestigoElectoralPage() {
     clearPhotos()
     setSavingState("idle")
     setStep("home")
-    localStorage.removeItem(localKey(currentMesa.id))
     toast({ title: "Registro cancelado", description: `${currentMesa.label} reiniciada` })
   }
 
@@ -969,7 +919,7 @@ export default function TestigoElectoralPage() {
                                 max={9999}
                                 inputMode="numeric"
                                 pattern="[0-9]*"
-                                value={votes}
+                                value={votes === 0 ? "" : votes}
                                 onFocus={(event) => event.currentTarget.select()}
                                 onChange={(event) => {
                                   updateCandidateVotes(candidate.id, normalizeNonNegativeInt(event.target.value), true)
@@ -1035,7 +985,7 @@ export default function TestigoElectoralPage() {
                           max={9999}
                           inputMode="numeric"
                           pattern="[0-9]*"
-                          value={specialVotes[type]}
+                          value={specialVotes[type] === 0 ? "" : specialVotes[type]}
                           onFocus={(event) => event.currentTarget.select()}
                           onChange={(event) => {
                             updateSpecialVotes(type, normalizeNonNegativeInt(event.target.value), true)

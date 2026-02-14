@@ -49,6 +49,7 @@ export function DashboardHeader({ user }: HeaderProps) {
   const pathname = usePathname()
   const roleLabel = user.profile?.role_extended?.toLowerCase() ?? ""
   const isWitness = user.role === "witness" || roleLabel.includes("testigo")
+  const isDelegate = !isWitness && (user.role === "delegate" || roleLabel.includes("delegado"))
 
   useEffect(() => {
     let cancelled = false
@@ -242,7 +243,7 @@ export function DashboardHeader({ user }: HeaderProps) {
                     { name: "Equipo", href: "/dashboard/equipo" },
                     { name: "Evidencias", href: "/dashboard/evidencias" },
                     { name: "Alertas", href: "/dashboard/alertas" },
-                  ]).map((item) => (
+                  ].filter((item) => !(isDelegate && item.href === "/dashboard/territorio"))).map((item) => (
                 <Link
                   key={item.name}
                   href={item.href}

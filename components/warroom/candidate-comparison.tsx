@@ -2,16 +2,43 @@
 
 import { motion } from "framer-motion"
 import { TrendingUp, TrendingDown } from "lucide-react"
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Input } from "@/components/ui/input"
 import { useWarRoomData } from "./warroom-data-provider"
 
 export function CandidateComparison() {
   const { data, loading, error } = useWarRoomData()
+  const [search, setSearch] = useState("")
   const candidates = data?.candidates ?? []
   const parties = data?.parties ?? []
+  const normalizedSearch = search.trim().toLowerCase()
+  const filteredCandidates = useMemo(() => {
+    if (!normalizedSearch) return candidates
+    return candidates.filter((candidate) => {
+      const byName = candidate.name.toLowerCase().includes(normalizedSearch)
+      const byParty = (candidate.party ?? "").toLowerCase().includes(normalizedSearch)
+      return byName || byParty
+    })
+  }, [candidates, normalizedSearch])
+  const filteredParties = useMemo(() => {
+    if (!normalizedSearch) return parties
+    return parties.filter((party) => {
+      const byParty = party.party.toLowerCase().includes(normalizedSearch)
+      const byCandidate = party.topCandidates.some((candidate) => candidate.name.toLowerCase().includes(normalizedSearch))
+      return byParty || byCandidate
+    })
+  }, [parties, normalizedSearch])
   const totalCandidateVotes = useMemo(() => candidates.reduce((acc, c) => acc + c.votes, 0), [candidates])
   const totalPartyVotes = useMemo(() => parties.reduce((acc, party) => acc + party.totalVotes, 0), [parties])
+  const totalFilteredCandidateVotes = useMemo(
+    () => filteredCandidates.reduce((acc, candidate) => acc + candidate.votes, 0),
+    [filteredCandidates],
+  )
+  const totalFilteredPartyVotes = useMemo(
+    () => filteredParties.reduce((acc, party) => acc + party.totalVotes, 0),
+    [filteredParties],
+  )
 
   return (
     <div className="glass rounded-xl border border-border/50 h-full flex flex-col overflow-hidden">
@@ -37,24 +64,30 @@ export function CandidateComparison() {
             <TabsTrigger value="candidates">Por Candidato</TabsTrigger>
             <TabsTrigger value="parties">Por Partido</TabsTrigger>
           </TabsList>
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Filtrar por candidato o partido"
+            className="mt-3"
+          />
         </div>
 
         <TabsContent value="candidates" className="flex-1 min-h-0 flex flex-col">
           <div className="p-4 border-b border-border/50">
             <div className="h-8 rounded-lg overflow-hidden flex">
               {loading && <div className="w-full bg-secondary animate-pulse" />}
-              {!loading && candidates.length === 0 && (
+              {!loading && filteredCandidates.length === 0 && (
                 <div className="w-full bg-secondary/40 text-center text-sm text-muted-foreground flex items-center justify-center">
-                  Sin datos de votos
+                  {normalizedSearch ? "Sin coincidencias" : "Sin datos de votos"}
                 </div>
               )}
-              {!loading && candidates.map((candidate, index) => (
+              {!loading && filteredCandidates.map((candidate, index) => (
                 <motion.div
                   key={candidate.id}
                   initial={{ width: 0 }}
                   animate={{ width: `${candidate.percentage}%` }}
                   transition={{ duration: 1, delay: index * 0.1 }}
-                  className={`${candidate.color ?? "bg-primary"} ${index === 0 ? "rounded-l-lg" : ""} ${index === candidates.length - 1 ? "rounded-r-lg" : ""}`}
+                  className={`${candidate.color ?? "bg-primary"} ${index === 0 ? "rounded-l-lg" : ""} ${index === filteredCandidates.length - 1 ? "rounded-r-lg" : ""}`}
                   style={{ minWidth: candidate.percentage > 5 ? "auto" : "2%" }}
                 />
               ))}
@@ -65,7 +98,7 @@ export function CandidateComparison() {
             <div className="space-y-4">
               {error && <p className="text-sm text-destructive">{error}</p>}
               {loading && <div className="h-24 rounded-lg bg-secondary/50 animate-pulse" />}
-              {!loading && candidates.map((candidate, index) => (
+              {!loading && filteredCandidates.map((candidate, index) => (
                 <motion.div
                   key={candidate.id}
                   initial={{ opacity: 0, x: -10 }}
@@ -116,7 +149,7 @@ export function CandidateComparison() {
           </div>
 
           <div className="px-4 pb-4">
-            <p className="text-xs text-muted-foreground">Total por candidatos visibles: {totalCandidateVotes.toLocaleString()} votos</p>
+            <p className="text-xs text-muted-foreground">Total por candidatos visibles: {totalFilteredCandidateVotes.toLocaleString()} votos</p>
           </div>
         </TabsContent>
 
@@ -125,10 +158,12 @@ export function CandidateComparison() {
             <div className="space-y-4">
               {error && <p className="text-sm text-destructive">{error}</p>}
               {loading && <div className="h-24 rounded-lg bg-secondary/50 animate-pulse" />}
-              {!loading && parties.length === 0 && (
-                <div className="p-4 rounded-lg bg-secondary/40 text-sm text-muted-foreground">Sin datos de partidos</div>
+              {!loading && filteredParties.length === 0 && (
+                <div className="p-4 rounded-lg bg-secondary/40 text-sm text-muted-foreground">
+                  {normalizedSearch ? "Sin coincidencias" : "Sin datos de partidos"}
+                </div>
               )}
-              {!loading && parties.map((party, index) => (
+              {!loading && filteredParties.map((party, index) => (
                 <motion.div
                   key={party.party}
                   initial={{ opacity: 0, y: 6 }}
@@ -174,7 +209,7 @@ export function CandidateComparison() {
           </div>
 
           <div className="px-4 pb-4">
-            <p className="text-xs text-muted-foreground">Total partidos (candidato + lista): {totalPartyVotes.toLocaleString()} votos</p>
+            <p className="text-xs text-muted-foreground">Total partidos (candidato + lista): {totalFilteredPartyVotes.toLocaleString()} votos</p>
           </div>
         </TabsContent>
       </Tabs>

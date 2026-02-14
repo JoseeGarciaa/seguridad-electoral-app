@@ -69,3 +69,7 @@ export function QuickActions({ pendingAlerts }: { pendingAlerts: number }) {
           </motion.div>
 
         ))}
+      </div>
+    </div>
+  )
+}

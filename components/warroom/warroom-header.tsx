@@ -9,10 +9,12 @@ export function WarRoomHeader({
   title = "WAR ROOM",
   subtitle = "Centro de Comando Electoral",
   badgeLabel = "EN VIVO",
+  showActiveWitnesses = true,
 }: {
   title?: string
   subtitle?: string
   badgeLabel?: string
+  showActiveWitnesses?: boolean
 }) {
   // Defer real time render to client to prevent SSR/client hydration mismatches.
   const [time, setTime] = useState<Date | null>(null)
@@ -28,7 +30,7 @@ export function WarRoomHeader({
     { label: "Reportes Hoy", value: data?.stats.reports ?? 0, icon: CheckCircle },
     { label: "Testigos Activos", value: data?.stats.activeDelegates ?? 0, icon: Users },
     { label: "Cobertura", value: data?.stats.coverage ?? 0, icon: Radio },
-  ]
+  ].filter((stat) => showActiveWitnesses || stat.label !== "Testigos Activos")
 
   return (
     <div className="glass rounded-xl border border-border/50 p-4">

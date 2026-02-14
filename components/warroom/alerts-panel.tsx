@@ -19,6 +19,11 @@ type ApiAlertItem = {
   time?: string | null
   detail?: string | null
   status?: ApiAlertStatus | string | null
+  reportUrl?: string | null
+}
+
+type PanelAlert = WarRoomAlert & {
+  reportUrl?: string | null
 }
 
 const severityStyles = {
@@ -52,7 +57,7 @@ const noticeStyles = {
 export function AlertsPanel() {
   const router = useRouter()
   const { data, error: warroomError } = useWarRoomData()
-  const [alerts, setAlerts] = useState<WarRoomAlert[]>([])
+  const [alerts, setAlerts] = useState<PanelAlert[]>([])
   const [loading, setLoading] = useState(true)
   const [alertsError, setAlertsError] = useState<string | null>(null)
 
@@ -65,6 +70,11 @@ export function AlertsPanel() {
 
   const filterOpenAlerts = (items: (WarRoomAlert & { status?: ApiAlertStatus | string | null })[]) =>
     items.filter((item) => normalizeStatus(item.status) === "abierta")
+
+  const resolveAlertId = (value?: string | null) => {
+    const normalized = value?.trim()
+    return normalized && normalized.length > 0 ? normalized : null
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -83,14 +93,16 @@ export function AlertsPanel() {
       const message = detail ? `${municipality} - ${detail}` : municipality
       const time = item.time ?? new Date().toISOString()
       const status = normalizeStatus(item.status)
+      const id = resolveAlertId(item.id) ?? `alert-${idx}-${time}`
       return {
-        id: item.id || `alert-${idx}`,
+        id,
         severity,
         title: item.title || "Alerta",
         message,
         time,
         status,
         category: item.category,
+        reportUrl: item.reportUrl ?? null,
       }
     }
 
@@ -124,8 +136,8 @@ export function AlertsPanel() {
     }
   }, [data?.alerts])
 
-  const handleAlert = (id?: string) => {
-    const target = id ? `/dashboard/alertas#${id}` : "/dashboard/alertas"
+  const handleAlert = (id?: string, reportUrl?: string | null) => {
+    const target = reportUrl || (id ? `/dashboard/alertas#${id}` : "/dashboard/alertas")
     router.push(target)
   }
 
@@ -166,6 +178,8 @@ export function AlertsPanel() {
           {(alertsError || warroomError) && <p className="text-sm text-destructive px-2">{alertsError || warroomError}</p>}
           {loading && <div className="h-16 rounded-lg bg-secondary/50 animate-pulse" />}
           {!loading && renderAlerts.map((alert, index) => {
+            const keyId = resolveAlertId(alert.id)
+            const alertKey = keyId ?? `alert-${alert.category ?? "generic"}-${alert.time ?? "no-time"}-${index}`
             const isNotice = (alert.category ?? "").toLowerCase() === "votos"
             const styles = isNotice ? noticeStyles : severityStyles[alert.severity as keyof typeof severityStyles]
             const Icon = isNotice
@@ -177,7 +191,7 @@ export function AlertsPanel() {
                   : AlertCircle
             return (
               <motion.div
-                key={alert.id}
+                key={alertKey}
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
@@ -192,16 +206,20 @@ export function AlertsPanel() {
                       <span className="text-xs text-muted-foreground">
                         {alert.time ? formatTime(alert.time) : "--"}
                       </span>
-                      {isNotice ? (
+                      {isNotice && !alert.reportUrl ? (
                         <span className="text-xs text-muted-foreground">Aviso</span>
                       ) : (
                         <Button
                           variant="ghost"
                           size="sm"
                           className="h-8 text-sm px-3"
-                          onClick={() => handleAlert(alert.id)}
+                          onClick={() =>
+                            alert.severity === "critical"
+                              ? handleAlert(alert.id, null)
+                              : handleAlert(alert.id, alert.reportUrl)
+                          }
                         >
-                          Atender
+                          {alert.severity === "critical" ? "Atender alerta" : alert.reportUrl ? "Ver reporte" : "Atender"}
                         </Button>
                       )}
                     </div>

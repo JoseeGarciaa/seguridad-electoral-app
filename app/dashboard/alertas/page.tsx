@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -46,6 +47,8 @@ type AlertItem = {
   photos?: string[]
   delegateName?: string
   statusLabel?: "abierta" | "atendida" | "resuelta"
+  reportId?: string | null
+  reportUrl?: string | null
 }
 
 type MesaAsignada = {
@@ -71,6 +74,7 @@ const statusColor: Record<string, string> = {
 };
 
 export default function AlertasPage() {
+  const router = useRouter()
   const [data, setData] = useState<AlertItem[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -209,8 +213,9 @@ export default function AlertasPage() {
   }, [mesas])
 
   const isAdmin = viewerRole === "admin"
-  const headerGridClass = isAdmin ? "grid gap-4 md:grid-cols-4" : "grid gap-4 md:grid-cols-3"
-  const statusGridClass = isAdmin ? "grid gap-3 grid-cols-2 md:grid-cols-4" : "grid gap-3 sm:grid-cols-2"
+  const canReportAlerts = viewerRole !== null && viewerRole !== "admin"
+  const headerGridClass = canReportAlerts ? "grid gap-4 md:grid-cols-3" : "grid gap-4 md:grid-cols-4"
+  const statusGridClass = canReportAlerts ? "grid gap-3 sm:grid-cols-2" : "grid gap-3 grid-cols-2 md:grid-cols-4"
   const resolvedCount = useMemo(() => {
     return data.filter((item) => (item.statusLabel ?? item.status) === "resuelta").length
   }, [data])
@@ -356,7 +361,7 @@ export default function AlertasPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className={headerGridClass}>
-          {!isAdmin && (
+          {canReportAlerts && (
             <div className="md:col-span-2">
               <div className="rounded-xl border border-white/10 bg-white/5 p-5 backdrop-blur">
                 <div className="flex items-center gap-2 text-sm text-cyan-100/90">
@@ -622,6 +627,14 @@ export default function AlertasPage() {
                   >
                     Ver detalle
                   </button>
+                  {alerta.reportUrl && (
+                    <button
+                      className="text-xs text-indigo-400 hover:underline"
+                      onClick={() => router.push(alerta.reportUrl!)}
+                    >
+                      Ver reporte
+                    </button>
+                  )}
                   {alerta.category === "alerta" && (
                     <button
                       className="text-xs text-emerald-400 hover:underline"
@@ -680,6 +693,14 @@ export default function AlertasPage() {
                 {selected?.statusLabel ?? selected?.status}
               </Badge>
             </div>
+            {selected?.reportUrl && (
+              <button
+                className="inline-flex items-center rounded-md bg-indigo-500 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-400"
+                onClick={() => router.push(selected.reportUrl!)}
+              >
+                Ver reporte
+              </button>
+            )}
             {selected?.category === "alerta" && (
               <div className="flex gap-2">
                 <button

@@ -58,6 +58,7 @@ export function DashboardSidebar({ user }: SidebarProps) {
   const isWitness = user.role === "witness" || roleLabel.includes("testigo")
 
   const restrictedForDelegate = new Set([
+    "/dashboard/territorio",
     "/dashboard/equipo",
   ])
 

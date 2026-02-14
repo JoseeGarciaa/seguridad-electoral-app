@@ -327,13 +327,15 @@ export async function GET(req: NextRequest) {
         client.query(listQuery, values),
         client.query(statsQuery, delegateId ? [delegateId] : []),
         client.query(
-          `SELECT e.id, e.title, e.description, e.municipality, e.polling_station, e.uploaded_at, e.tags, e.url, e.status,
+          `SELECT e.id, e.title, e.description, e.municipality, e.polling_station, e.uploaded_at, e.tags, e.url, e.status, e.vote_report_id,
             COALESCE(d.full_name, 'Delegado') AS delegate_name
              FROM evidences e
              LEFT JOIN delegates d ON d.id = e.uploaded_by_id
             WHERE type = 'alert'
+              AND ($1::boolean OR NOT (COALESCE(e.tags, '{}'::text[]) @> ARRAY['audience:admin']::text[]))
             ORDER BY uploaded_at DESC
             LIMIT 200`,
+          [user.role === "admin"],
         ),
       ])
 
@@ -347,12 +349,24 @@ export async function GET(req: NextRequest) {
         status: "abierta" as const,
         detail: `Mesa ${row.polling_station_code ?? "Sin código"} · Total votos ${Number(row.total_votes ?? 0)}`,
         delegateName: row.delegate_name as string,
+        reportId: row.id as string,
+        reportUrl: `/dashboard/reportes?reportId=${encodeURIComponent(row.id as string)}#reporte-${row.id as string}`,
       }))
 
       const manualAlerts = alertsRes.rows.map((row) => {
+        const normalizeReportId = (value: string | null | undefined) => {
+          const normalized = String(value ?? "").trim()
+          if (!normalized) return null
+          const lower = normalized.toLowerCase()
+          if (lower === "undefined" || lower === "null") return null
+          return normalized
+        }
         const tags: string[] | null = (row.tags as any) ?? null
         const tagLevel = tags?.find((t) => typeof t === "string" && t.startsWith("level:"))
         const tagDept = tags?.find((t) => typeof t === "string" && t.startsWith("dept:"))
+        const tagReport = tags?.find((t) => typeof t === "string" && t.startsWith("report:"))
+        const reportIdFromTag = tagReport ? tagReport.split(":").slice(1).join(":") : null
+        const reportId = normalizeReportId(reportIdFromTag) ?? normalizeReportId((row.vote_report_id as string | null) ?? null)
         const level = tagLevel ? (tagLevel.split(":")[1] as "crítica" | "alta" | "media") : "alta"
         const department = tagDept ? tagDept.split(":").slice(1).join(":") : null
         const rawStatus = (row.status as string | null)?.toLowerCase() ?? "open"
@@ -377,6 +391,8 @@ export async function GET(req: NextRequest) {
           detail: row.description as string,
           delegateName: row.delegate_name as string,
           photos: photo ? [photo] : [],
+          reportId,
+          reportUrl: reportId ? `/dashboard/reportes?reportId=${encodeURIComponent(reportId)}#reporte-${reportId}` : null,
         }
       })
 

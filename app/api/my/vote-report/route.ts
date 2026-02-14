@@ -12,6 +12,7 @@ let candidateHasPosition: boolean | null = null
 let candidateHasParty: boolean | null = null
 let hasEvidencesTable: boolean | null = null
 let hasVoteReportAssignmentUnique: boolean | null = null
+const VOTER_INCREMENT_ALERT_THRESHOLD = 0.35
 
 const dataUrlRegex = /^data:(?<mime>[^;]+);base64,(?<data>.+)$/i
 
@@ -253,6 +254,8 @@ export async function POST(req: NextRequest) {
       assignmentRow.dl_puesto ??
       null
     const resolvedAddress = assignmentRow.dl_address ?? assignmentRow.delegate_address ?? ""
+    const resolvedPollingStationNumber =
+      assignmentRow.polling_station_number ?? assignmentRow.delegate_polling_station_number ?? null
     const resolvedDivipoleId = includeAssignmentDivipole
       ? assignmentRow.divipole_location_id ?? parsedDivipole ?? null
       : null
@@ -396,7 +399,37 @@ export async function POST(req: NextRequest) {
         }
       }
     }
-    const finalReportId = (upserted.rows[0]?.id as string | undefined) ?? reportId
+    let finalReportId = (upserted.rows[0]?.id as string | undefined) ?? reportId
+
+    const relatedReports = await client.query(
+      `SELECT id
+         FROM vote_reports
+        WHERE delegate_assignment_id = $1
+        ORDER BY reported_at DESC NULLS LAST, created_at DESC`,
+      [delegate_assignment_id],
+    )
+
+    const relatedIds = relatedReports.rows
+      .map((row: { id: string }) => row.id)
+      .filter((id: string): id is string => typeof id === "string" && isUuid(id))
+
+    if (relatedIds.length > 0 && !relatedIds.includes(finalReportId)) {
+      finalReportId = relatedIds[0]
+    }
+
+    const duplicateIds = relatedIds.filter((id: string) => id !== finalReportId)
+    if (duplicateIds.length > 0) {
+      const hasEvidences = await ensureEvidencesTable()
+      if (hasEvidences) {
+        await client.query(
+          `UPDATE evidences
+              SET vote_report_id = $1
+            WHERE vote_report_id = ANY($2::uuid[])`,
+          [finalReportId, duplicateIds],
+        )
+      }
+      await client.query(`DELETE FROM vote_reports WHERE id = ANY($1::uuid[])`, [duplicateIds])
+    }
 
     await client.query(`DELETE FROM vote_details WHERE vote_report_id = $1`, [finalReportId])
     if (canWritePartyDetails) {
@@ -486,6 +519,7 @@ export async function POST(req: NextRequest) {
     const hasEvidences = await ensureEvidencesTable()
     const uploadedUrls: string[] = []
     const hasNewPhotos = Array.isArray(photos) && photos.length > 0
+    let thresholdAlertChanged = false
 
     if (hasNewPhotos && hasEvidences) {
       await client.query(`DELETE FROM evidences WHERE vote_report_id = $1`, [finalReportId])
@@ -546,9 +580,155 @@ export async function POST(req: NextRequest) {
     } else if (existingPhotos.length > 0) {
       await client.query(`UPDATE vote_reports SET photo_url = COALESCE(photo_url, $1) WHERE id = $2`, [existingPhotos[0], finalReportId])
     }
+
+    if (hasEvidences) {
+      let location: any = null
+
+      if (resolvedDivipoleId !== null && resolvedDivipoleId !== undefined) {
+        const locationRes = await client.query(
+           `SELECT id, total, mesas, puesto, municipio, departamento
+             FROM divipole_locations
+            WHERE id = $1
+            LIMIT 1`,
+          [resolvedDivipoleId],
+        )
+        location = locationRes.rows[0] ?? null
+      }
+
+      if (!location && includeAssignmentDivipole) {
+        const assignmentLocationRes = await client.query(
+           `SELECT dl.id, dl.total, dl.mesas, dl.puesto, dl.municipio, dl.departamento
+             FROM delegate_polling_assignments a
+             JOIN divipole_locations dl ON dl.id = a.divipole_location_id
+            WHERE a.id = $1
+            LIMIT 1`,
+          [delegate_assignment_id],
+        )
+        location = assignmentLocationRes.rows[0] ?? null
+      }
+
+      if (!location && resolvedPollingStationNumber !== null && resolvedPollingStationNumber !== undefined) {
+        const stationNumber = String(resolvedPollingStationNumber).trim()
+        const fallbackByNumberRes = await client.query(
+          `SELECT id, total, mesas, puesto, municipio, departamento
+             FROM divipole_locations
+            WHERE (
+              pp = $1
+              OR LPAD(pp, 3, '0') = LPAD($1, 3, '0')
+            )
+              AND ($2::text IS NULL OR LOWER(TRIM(municipio)) = LOWER(TRIM($2)))
+              AND ($3::text IS NULL OR LOWER(TRIM(departamento)) = LOWER(TRIM($3)))
+            ORDER BY id
+            LIMIT 1`,
+          [stationNumber, resolvedMunicipality || null, resolvedDepartment || null],
+        )
+        location = fallbackByNumberRes.rows[0] ?? null
+      }
+
+      if (!location && resolvedPollingStation) {
+        const fallbackLocationRes = await client.query(
+          `SELECT id, total, mesas, puesto, municipio, departamento
+             FROM divipole_locations
+            WHERE (
+              LOWER(TRIM(puesto)) = LOWER(TRIM($1))
+              OR pp = $1
+              OR LOWER(TRIM(puesto)) LIKE LOWER(TRIM($1))
+              OR LOWER(TRIM($1)) LIKE CONCAT('%', LOWER(TRIM(puesto)), '%')
+            )
+              AND ($2::text IS NULL OR LOWER(TRIM(municipio)) = LOWER(TRIM($2)))
+              AND ($3::text IS NULL OR LOWER(TRIM(departamento)) = LOWER(TRIM($3)))
+            ORDER BY id
+            LIMIT 1`,
+          [resolvedPollingStation, resolvedMunicipality || null, resolvedDepartment || null],
+        )
+        location = fallbackLocationRes.rows[0] ?? null
+      }
+
+      const stationRegisteredVoters = Number(location?.total ?? 0)
+      const stationTables = Number(location?.mesas ?? 0)
+      const expectedVotersPerTable =
+        Number.isFinite(stationRegisteredVoters) && Number.isFinite(stationTables) && stationRegisteredVoters > 0 && stationTables > 0
+          ? stationRegisteredVoters / stationTables
+          : 0
+      const shouldCreateThresholdAlert = expectedVotersPerTable > 0 && total > expectedVotersPerTable * VOTER_INCREMENT_ALERT_THRESHOLD
+
+      const existingThresholdAlert = await client.query(
+        `SELECT id
+           FROM evidences
+          WHERE type = 'alert'
+            AND vote_report_id = $1
+            AND tags @> ARRAY['kind:vote-increment']::text[]
+          LIMIT 1`,
+        [finalReportId],
+      )
+
+      if (shouldCreateThresholdAlert) {
+        const percentage = ((total / expectedVotersPerTable) * 100).toFixed(2)
+        const title = "Nivel alto de votantes por mesa"
+        const detail = `La mesa ${resolvedPollingStationNumber ?? "N/A"} del puesto ${resolvedPollingStation ?? location?.puesto ?? "Sin código"} reporta ${total} votos, equivalente al ${percentage}% del esperado por mesa (${expectedVotersPerTable.toFixed(2)} = ${stationRegisteredVoters} / ${stationTables}), superando el umbral del 35%.`
+        const tags = [
+          "scope:mesa",
+          "level:crítica",
+          "kind:vote-increment",
+          "audience:admin",
+          "alertType:threshold-voters",
+          `threshold:${Math.round(VOTER_INCREMENT_ALERT_THRESHOLD * 100)}`,
+          `expected_per_table:${expectedVotersPerTable.toFixed(2)}`,
+          `report:${finalReportId}`,
+          resolvedDepartment ? `dept:${resolvedDepartment}` : null,
+          resolvedPollingStation ? `puesto:${resolvedPollingStation}` : null,
+        ].filter(Boolean)
+
+        if (existingThresholdAlert.rowCount) {
+          await client.query(
+            `UPDATE evidences
+                SET title = $2,
+                    description = $3,
+                    municipality = $4,
+                    polling_station = $5,
+                    status = 'open',
+                    tags = $6
+              WHERE id = $1`,
+            [
+              existingThresholdAlert.rows[0].id,
+              title,
+              detail,
+              resolvedMunicipality,
+              resolvedPollingStation,
+              tags,
+            ],
+          )
+        } else {
+          await client.query(
+            `INSERT INTO evidences (
+               id, type, title, description, municipality, polling_station, uploaded_by_id,
+               status, url, tags, vote_report_id
+             ) VALUES ($1,'alert',$2,$3,$4,$5,NULL,'open',$6,$7,$8)`,
+            [
+              crypto.randomUUID(),
+              title,
+              detail,
+              resolvedMunicipality,
+              resolvedPollingStation,
+              "",
+              tags,
+              finalReportId,
+            ],
+          )
+        }
+        thresholdAlertChanged = true
+      } else if (existingThresholdAlert.rowCount) {
+        await client.query(`DELETE FROM evidences WHERE id = $1`, [existingThresholdAlert.rows[0].id])
+        thresholdAlertChanged = true
+      }
+    }
+
     await client.query("COMMIT")
 
     emitWarRoomUpdate({ ts: Date.now(), type: "votes", source: "vote-report" })
+    if (thresholdAlertChanged) {
+      emitWarRoomUpdate({ ts: Date.now(), type: "alert", source: "vote-report-threshold" })
+    }
 
     return NextResponse.json({ report_id: finalReportId, total_votes: total, photos: uploadedUrls, evidencesSaved: hasEvidences })
   } catch (error: any) {
