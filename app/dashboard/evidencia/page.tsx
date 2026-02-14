@@ -1766,7 +1766,11 @@ function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter }: { ite
         <p className="text-sm text-muted-foreground line-clamp-2">{item.description}</p>
 
         <div className="flex flex-wrap gap-2">
-          {item.pollingStation && <Badge className="bg-zinc-800 border-zinc-700 text-xs">Mesa/Puesto: {item.pollingStation}</Badge>}
+          {item.pollingStation && (
+            <Badge className="bg-zinc-800 border-zinc-700 text-xs w-full whitespace-normal break-words text-left justify-start h-auto py-1">
+              Mesa/Puesto: {item.pollingStation}
+            </Badge>
+          )}
           {item.municipality && <Badge className="bg-zinc-800 border-zinc-700 text-xs">{item.municipality}</Badge>}
           {item.voteReportId && <Badge className="bg-emerald-600/30 border-emerald-700 text-emerald-100 text-xs">Con votos</Badge>}
           {typeof item.totalVotes === "number" && (
