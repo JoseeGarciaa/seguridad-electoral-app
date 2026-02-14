@@ -61,6 +61,35 @@ type TotalsRow = {
   reported_mesas: number
 }
 
+function normalizeKeyPart(value: string | null | undefined): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function hasValidCoords(row: Row): boolean {
+  return row.latitud !== null && row.longitud !== null && (Number(row.latitud) !== 0 || Number(row.longitud) !== 0)
+}
+
+function rowScore(row: Row): number {
+  return (
+    (hasValidCoords(row) ? 1000 : 0) +
+    (row.delegate_id ? 100 : 0) +
+    Number(row.mesas ?? 0) +
+    Number(row.total ?? 0) / 1000
+  )
+}
+
+function buildRowIdentity(row: Row): string {
+  const departamento = normalizeKeyPart(row.departamento)
+  const municipio = normalizeKeyPart(row.municipio)
+  const canonicalPuesto = normalizeKeyPart(row.pp) || normalizeKeyPart(row.puesto)
+  return `${departamento}|${municipio}|${canonicalPuesto}`
+}
+
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -232,7 +261,33 @@ export async function GET(req: NextRequest) {
     const rows = featuresResult.rows
     const totalsRow = totalsResult.rows[0]
 
-  const features: Feature[] = rows.map((row) => {
+    const dedupedByPuesto = new Map<string, Row>()
+    for (const row of rows) {
+      const key = buildRowIdentity(row)
+      const current = dedupedByPuesto.get(key)
+      if (!current) {
+        dedupedByPuesto.set(key, row)
+        continue
+      }
+
+      const currentScore = rowScore(current)
+      const nextScore = rowScore(row)
+      if (nextScore > currentScore) {
+        dedupedByPuesto.set(key, {
+          ...row,
+          reported_mesas: Math.max(Number(current.reported_mesas ?? 0), Number(row.reported_mesas ?? 0)),
+        })
+      } else {
+        dedupedByPuesto.set(key, {
+          ...current,
+          reported_mesas: Math.max(Number(current.reported_mesas ?? 0), Number(row.reported_mesas ?? 0)),
+        })
+      }
+    }
+
+    const dedupedRows = Array.from(dedupedByPuesto.values())
+
+  const features: Feature[] = dedupedRows.map((row) => {
     const mesasCount = Number(row.mesas ?? 0)
     const totalVoters = Number(row.total ?? 0)
     const votersPerMesa = mesasCount > 0 ? totalVoters / mesasCount : null
@@ -269,15 +324,7 @@ export async function GET(req: NextRequest) {
     }
   })
 
-    const totals = totalsRow
-      ? {
-          total_puestos: Number(totalsRow.total_puestos ?? 0),
-          total_mesas: Number(totalsRow.total_mesas ?? 0),
-          with_coords: Number(totalsRow.with_coords ?? 0),
-          total_voters: Number(totalsRow.total_voters ?? 0),
-          reported_mesas: Number(totalsRow.reported_mesas ?? 0),
-        }
-      : rows.reduce(
+    const totals = dedupedRows.reduce(
           (acc, row) => {
             acc.total_puestos += 1
             const mesasCount = Number(row.mesas ?? 0)

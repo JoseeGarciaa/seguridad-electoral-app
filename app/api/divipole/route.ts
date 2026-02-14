@@ -38,6 +38,23 @@ type DivipoleRow = {
   pp: string | null
 }
 
+function normalizeKey(value: string | null | undefined): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function hasValidCoords(row: DivipoleRow): boolean {
+  return row.latitud !== null && row.longitud !== null && (Number(row.latitud) !== 0 || Number(row.longitud) !== 0)
+}
+
+function rowScore(row: DivipoleRow): number {
+  return (hasValidCoords(row) ? 1000 : 0) + Number(row.total ?? 0) + Number(row.mesas ?? 0)
+}
+
 const mockFeatures: DivipoleFeature[] = [
   {
     type: "Feature",
@@ -336,7 +353,18 @@ export async function GET(request: Request) {
       [...params, limit]
     )
 
-    const features: DivipoleFeature[] = rows.map((loc: DivipoleRow): DivipoleFeature => ({
+    const dedupedByPuesto = new Map<string, DivipoleRow>()
+    for (const row of rows) {
+      const key = `${normalizeKey(row.departamento)}|${normalizeKey(row.municipio)}|${normalizeKey(row.pp) || normalizeKey(row.puesto)}`
+      const current = dedupedByPuesto.get(key)
+      if (!current || rowScore(row) > rowScore(current)) {
+        dedupedByPuesto.set(key, row)
+      }
+    }
+
+    const dedupedRows = Array.from(dedupedByPuesto.values())
+
+    const features: DivipoleFeature[] = dedupedRows.map((loc: DivipoleRow): DivipoleFeature => ({
       type: "Feature" as const,
       geometry: {
         type: "Point" as const,
@@ -358,11 +386,15 @@ export async function GET(request: Request) {
       },
     }))
 
-    const totals = {
-      total_puestos: Number(totalsQuery.rows[0]?.total_puestos ?? 0),
-      total_mesas: Number(totalsQuery.rows[0]?.total_mesas ?? 0),
-      with_coords: Number(totalsQuery.rows[0]?.with_coords ?? 0),
-    }
+    const totals = dedupedRows.reduce(
+      (acc, row) => {
+        acc.total_puestos += 1
+        acc.total_mesas += Number(row.mesas ?? 0)
+        if (hasValidCoords(row)) acc.with_coords += 1
+        return acc
+      },
+      { total_puestos: 0, total_mesas: 0, with_coords: 0 },
+    )
 
     return NextResponse.json({ type: "FeatureCollection", features, totals })
   } catch (error) {
