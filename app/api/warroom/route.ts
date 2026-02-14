@@ -307,16 +307,44 @@ export async function GET() {
       muniRows = await safeQuery<any>(client, fallbackMunicipalities, delegateParams)
     }
 
+    const municipalityMap = new Map<string, { name: string; reported: number; total: number }>()
+    for (const row of muniRows) {
+      const rawName = String(row.name ?? "").trim()
+      const name = rawName.length > 0 ? rawName : "Sin municipio"
+      const key = name.toLowerCase()
+      const reported = Number(row.reported ?? 0)
+      const total = Number(row.total ?? 0)
+      const current = municipalityMap.get(key)
+      if (!current) {
+        municipalityMap.set(key, { name, reported, total })
+        continue
+      }
+      municipalityMap.set(key, {
+        name: current.name,
+        reported: Math.max(current.reported, reported),
+        total: Math.max(current.total, total),
+      })
+    }
+
+    const uniqueMunicipalityRows = Array.from(municipalityMap.values()).map((row) => ({
+      ...row,
+      coverage: row.total === 0 ? 0 : Math.round((row.reported / row.total) * 100),
+    }))
+
     const statsRow = statsRows[0] ?? {}
+    const derivedReportedLocations = uniqueMunicipalityRows.reduce((acc, row) => acc + Number(row.reported ?? 0), 0)
+    const derivedTotalLocations = uniqueMunicipalityRows.reduce((acc, row) => acc + Number(row.total ?? 0), 0)
+    const safeReportedLocations = Number(statsRow?.reported_locations ?? 0) || derivedReportedLocations
+    const safeTotalLocations = Number(statsRow?.total_locations ?? 0) || derivedTotalLocations
     const statsPayload = {
-      reports: Number(statsRow?.reports ?? 0),
+      reports: Number(statsRow?.reports ?? 0) || derivedReportedLocations,
       activeDelegates: Number(statsRow?.active_delegates ?? 0),
-      totalLocations: Number(statsRow?.total_locations ?? 0),
-      reportedLocations: Number(statsRow?.reported_locations ?? 0),
+      totalLocations: safeTotalLocations,
+      reportedLocations: safeReportedLocations,
       coverage:
-        Number(statsRow?.total_locations ?? 0) === 0
+        safeTotalLocations === 0
           ? 0
-          : Math.round((Number(statsRow?.reported_locations ?? 0) / Number(statsRow?.total_locations ?? 1)) * 100),
+          : Math.round((safeReportedLocations / safeTotalLocations) * 100),
       lastUpdated: new Date().toISOString(),
     }
 
@@ -405,16 +433,41 @@ export async function GET() {
       })
       .sort((a, b) => b.totalVotes - a.totalVotes)
 
-    const feed = feedRows.map((row) => ({
-      id: String(row.id),
-      user: (row.user_name as string) ?? "Delegado",
-      action: "Acta subida",
-      location: `${row.location ?? "Puesto"} · ${row.municipality ?? ""}`,
-      reportedAt: row.reported_at ? new Date(row.reported_at as string).toISOString() : new Date().toISOString(),
-      type: "evidence" as const,
-    }))
+    const feedMap = new Map<string, {
+      id: string
+      user: string
+      action: string
+      location: string
+      reportedAt: string
+      type: "evidence"
+    }>()
+    for (const row of feedRows) {
+      const id = String(row.id ?? "")
+      const location = `${row.location ?? "Puesto"} · ${row.municipality ?? ""}`
+      const reportedAt = row.reported_at ? new Date(row.reported_at as string).toISOString() : new Date().toISOString()
+      const key = id || `${reportedAt}::${location}::${String(row.user_name ?? "Delegado")}`
+      const nextItem = {
+        id: id || key,
+        user: (row.user_name as string) ?? "Delegado",
+        action: "Acta subida",
+        location,
+        reportedAt,
+        type: "evidence" as const,
+      }
+      const current = feedMap.get(key)
+      if (!current) {
+        feedMap.set(key, nextItem)
+        continue
+      }
+      if (new Date(nextItem.reportedAt).getTime() > new Date(current.reportedAt).getTime()) {
+        feedMap.set(key, nextItem)
+      }
+    }
+    const feed = Array.from(feedMap.values())
+      .sort((a, b) => new Date(b.reportedAt).getTime() - new Date(a.reportedAt).getTime())
+      .slice(0, 20)
 
-    const municipalities = muniRows.map((row) => {
+    const municipalities = uniqueMunicipalityRows.map((row) => {
       const coverage = Number(row.coverage ?? 0)
       const status: "green" | "yellow" | "red" = coverage >= 85 ? "green" : coverage >= 50 ? "yellow" : "red"
       return {
@@ -426,15 +479,44 @@ export async function GET() {
       }
     })
 
-    const evidences = evidenceRows.map((row) => ({
-      id: String(row.id),
-      puesto: (row.puesto as string) ?? "Puesto",
-      mesa: row.mesa_num ? `Mesa ${row.mesa_num}` : row.address || row.municipality || "",
-      user: (row.delegate_name as string) ?? "Delegado",
-      time: row.reported_at ? new Date(row.reported_at as string).toISOString() : new Date().toISOString(),
-      status: "verified" as const,
-      photoUrl: (row.photo_url as string) ?? null,
-    }))
+    const evidencesMap = new Map<string, {
+      id: string
+      puesto: string
+      mesa: string
+      user: string
+      time: string
+      status: "verified"
+      photoUrl: string | null
+    }>()
+    for (const row of evidenceRows) {
+      const id = String(row.id ?? "")
+      const puesto = (row.puesto as string) ?? "Puesto"
+      const mesa = row.mesa_num ? `Mesa ${row.mesa_num}` : row.address || row.municipality || ""
+      const time = row.reported_at ? new Date(row.reported_at as string).toISOString() : new Date().toISOString()
+      const nextItem = {
+        id: id || `${puesto}::${mesa}::${time}`,
+        puesto,
+        mesa,
+        user: (row.delegate_name as string) ?? "Delegado",
+        time,
+        status: "verified" as const,
+        photoUrl: (row.photo_url as string) ?? null,
+      }
+      const key = id || `${puesto.toLowerCase()}::${mesa.toLowerCase()}::${time}`
+      const current = evidencesMap.get(key)
+      if (!current) {
+        evidencesMap.set(key, nextItem)
+        continue
+      }
+      const currentTs = new Date(current.time).getTime()
+      const nextTs = new Date(nextItem.time).getTime()
+      if (nextTs > currentTs || (!current.photoUrl && !!nextItem.photoUrl)) {
+        evidencesMap.set(key, nextItem)
+      }
+    }
+    const evidences = Array.from(evidencesMap.values())
+      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+      .slice(0, 24)
 
     const missingPhoto = Number(photoMissRows[0]?.missing_photo ?? 0)
     const lowCoverageAlerts = municipalities
