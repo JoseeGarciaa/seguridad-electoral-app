@@ -194,7 +194,7 @@
     background-size: 36px 36px;
   }
   html {
-    font-size: 18px;
+    font-size: calc(18px * 1.15);
   }
   body {
     line-height: 1.6;
