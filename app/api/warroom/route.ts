@@ -86,6 +86,14 @@ export async function GET() {
       ORDER BY votes DESC
       LIMIT 8
     `
+    : `
+      SELECT c.id, c.full_name, c.party, c.color, SUM(vd.votes)::bigint AS votes
+      FROM vote_details vd
+      JOIN candidates c ON c.id = vd.candidate_id
+      GROUP BY c.id, c.full_name, c.party, c.color
+      ORDER BY votes DESC
+      LIMIT 8
+    `
 
   const partyCandidateQuery = delegateId
     ? `
@@ -147,14 +155,6 @@ export async function GET() {
       JOIN candidates c ON c.id = vd.candidate_id
       GROUP BY COALESCE(c.party, 'Sin partido'), c.id, c.full_name
       ORDER BY COALESCE(c.party, 'Sin partido') ASC, votes DESC
-    `
-    : `
-      SELECT c.id, c.full_name, c.party, c.color, SUM(vd.votes)::bigint AS votes
-      FROM vote_details vd
-      JOIN candidates c ON c.id = vd.candidate_id
-      GROUP BY c.id, c.full_name, c.party, c.color
-      ORDER BY votes DESC
-      LIMIT 8
     `
 
   const feedQuery = delegateId
