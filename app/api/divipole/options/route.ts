@@ -7,6 +7,7 @@ type DepartmentRow = { dd: string; departamento: string }
 type MunicipalityRow = { dd: string; mm: string; municipio: string }
 type PuestoRow = {
   id: string
+  location_ids: string[]
   dd: string
   mm: string
   pp: string
@@ -19,9 +20,6 @@ type PuestoRow = {
   latitud: number | null
   longitud: number | null
 }
-
-type AssignedRow = { polling_station: string; nums: number[] | null }
-type AssignedByLocationRow = { divipole_location_id: string; nums: number[] | null }
 
 export async function GET(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams
@@ -55,11 +53,27 @@ export async function GET(req: NextRequest) {
         const { rows } = await client.query<MunicipalityRow>(
           `SELECT
              dd,
-             mm,
+             UPPER(
+               REGEXP_REPLACE(
+                 TRANSLATE(TRIM(municipio), 'áàäâãéèëêíìïîóòöôõúùüûñçÁÀÄÂÃÉÈËÊÍÌÏÎÓÒÖÔÕÚÙÜÛÑÇ', 'aaaaaeeeeiiiiooooouuuuncAAAAAEEEEIIIIOOOOOUUUUNC'),
+                 '\\s+',
+                 ' ',
+                 'g'
+               )
+             ) AS mm,
              MIN(TRIM(municipio)) AS municipio
            FROM divipole_locations
-           WHERE dd = $1 AND mm IS NOT NULL AND mm <> ''
-           GROUP BY dd, mm
+           WHERE dd = $1 AND municipio IS NOT NULL AND TRIM(municipio) <> ''
+           GROUP BY
+             dd,
+             UPPER(
+               REGEXP_REPLACE(
+                 TRANSLATE(TRIM(municipio), 'áàäâãéèëêíìïîóòöôõúùüûñçÁÀÄÂÃÉÈËÊÍÌÏÎÓÒÖÔÕÚÙÜÛÑÇ', 'aaaaaeeeeiiiiooooouuuuncAAAAAEEEEIIIIOOOOOUUUUNC'),
+                 '\\s+',
+                 ' ',
+                 'g'
+               )
+             )
            ORDER BY MIN(TRIM(municipio))`,
           [dept]
         )
@@ -68,14 +82,14 @@ export async function GET(req: NextRequest) {
         })
       }
 
-      // Puestos deben ser únicos por (dd, mm, pp); no agregamos ni mezclamos otros municipios/departamentos
+      // Puestos completos por municipio: deduplicamos por nombre normalizado (espacios/acentos/caso).
       const { rows } = await client.query<PuestoRow>(
-        `WITH unique_puestos AS (
-           SELECT DISTINCT ON (dd, mm, pp)
+        `WITH source_rows AS (
+           SELECT
              id,
              dd,
              mm,
-             pp,
+             COALESCE(NULLIF(TRIM(pp), ''), TRIM(puesto)) AS pp,
              TRIM(departamento) AS departamento,
              TRIM(municipio) AS municipio,
              TRIM(puesto) AS puesto,
@@ -85,11 +99,67 @@ export async function GET(req: NextRequest) {
              latitud,
              longitud
            FROM divipole_locations
-           WHERE dd = $1 AND mm = $2 AND pp IS NOT NULL AND pp <> ''
-           ORDER BY dd, mm, pp, id
+           WHERE dd = $1
+             AND UPPER(
+               REGEXP_REPLACE(
+                 TRANSLATE(TRIM(municipio), 'áàäâãéèëêíìïîóòöôõúùüûñçÁÀÄÂÃÉÈËÊÍÌÏÎÓÒÖÔÕÚÙÜÛÑÇ', 'aaaaaeeeeiiiiooooouuuuncAAAAAEEEEIIIIOOOOOUUUUNC'),
+                 '\\s+',
+                 ' ',
+                 'g'
+               )
+             ) = UPPER(
+               REGEXP_REPLACE(
+                 TRANSLATE(TRIM($2), 'áàäâãéèëêíìïîóòöôõúùüûñçÁÀÄÂÃÉÈËÊÍÌÏÎÓÒÖÔÕÚÙÜÛÑÇ', 'aaaaaeeeeiiiiooooouuuuncAAAAAEEEEIIIIOOOOOUUUUNC'),
+                 '\\s+',
+                 ' ',
+                 'g'
+               )
+             )
+             AND puesto IS NOT NULL
+             AND TRIM(puesto) <> ''
+         ),
+         normalized_source AS (
+           SELECT
+             *,
+             UPPER(
+               REGEXP_REPLACE(
+                 TRANSLATE(TRIM(municipio), 'áàäâãéèëêíìïîóòöôõúùüûñçÁÀÄÂÃÉÈËÊÍÌÏÎÓÒÖÔÕÚÙÜÛÑÇ', 'aaaaaeeeeiiiiooooouuuuncAAAAAEEEEIIIIOOOOOUUUUNC'),
+                 '\\s+',
+                 ' ',
+                 'g'
+               )
+             ) AS municipio_key,
+             UPPER(
+               REGEXP_REPLACE(
+                 TRANSLATE(TRIM(puesto), 'áàäâãéèëêíìïîóòöôõúùüûñçÁÀÄÂÃÉÈËÊÍÌÏÎÓÒÖÔÕÚÙÜÛÑÇ', 'aaaaaeeeeiiiiooooouuuuncAAAAAEEEEIIIIOOOOOUUUUNC'),
+                 '\\s+',
+                 ' ',
+                 'g'
+               )
+             ) AS puesto_key
+           FROM source_rows
+         ),
+         grouped_puestos AS (
+           SELECT
+             MIN(id)::text AS id,
+             ARRAY_AGG(id::text ORDER BY id) AS location_ids,
+             dd,
+             MIN(mm) AS mm,
+             MIN(pp) AS pp,
+             MIN(departamento) AS departamento,
+             MIN(municipio) AS municipio,
+             MIN(puesto) AS puesto,
+             MIN(direccion) AS direccion,
+             MAX(mesas) AS mesas,
+             MAX(total) AS total,
+             MAX(latitud) AS latitud,
+             MAX(longitud) AS longitud
+           FROM normalized_source
+           GROUP BY dd, municipio_key, puesto_key
          )
          SELECT
            id,
+           location_ids,
            dd,
            mm,
            pp,
@@ -101,44 +171,10 @@ export async function GET(req: NextRequest) {
            total,
            latitud,
            longitud
-         FROM unique_puestos
+         FROM grouped_puestos
          ORDER BY puesto`,
         [dept, muni]
       )
-
-      const dpaColumnsRes = await client.query(
-        `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'delegate_polling_assignments'`
-      )
-      const dpaCols = new Set<string>(dpaColumnsRes.rows.map((r: any) => r.column_name))
-      const hasLocationId = dpaCols.has("divipole_location_id")
-
-      const ids = rows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n))
-      const puestos = rows.map((r) => r.puesto).filter(Boolean)
-      let assigned: Record<string, number[]> = {}
-
-      if (hasLocationId && ids.length) {
-        const assignedRes = await client.query<AssignedByLocationRow>(
-          `SELECT divipole_location_id, array_agg(DISTINCT polling_station_number) AS nums
-           FROM delegate_polling_assignments
-           WHERE divipole_location_id = ANY($1::bigint[]) AND polling_station_number IS NOT NULL
-           GROUP BY divipole_location_id`,
-          [ids]
-        )
-        assigned = Object.fromEntries(
-          assignedRes.rows.map((r) => [String(r.divipole_location_id), (r.nums ?? []).filter((n) => Number.isInteger(n))])
-        )
-      } else if (!hasLocationId && puestos.length) {
-        const assignedRes = await client.query<AssignedRow>(
-          `SELECT polling_station, array_agg(DISTINCT polling_station_number) AS nums
-           FROM delegate_polling_assignments
-           WHERE polling_station = ANY($1) AND polling_station_number IS NOT NULL
-           GROUP BY polling_station`,
-          [puestos]
-        )
-        assigned = Object.fromEntries(
-          assignedRes.rows.map((r) => [r.polling_station, (r.nums ?? []).filter((n) => Number.isInteger(n))])
-        )
-      }
 
       return NextResponse.json({
         puestos: rows.map((r) => ({
@@ -154,7 +190,7 @@ export async function GET(req: NextRequest) {
           total: r.total,
           lat: r.latitud,
           lng: r.longitud,
-          takenTables: hasLocationId ? assigned[String(r.id)] ?? [] : assigned[r.puesto] ?? [],
+          takenTables: [],
         })),
       })
     } finally {

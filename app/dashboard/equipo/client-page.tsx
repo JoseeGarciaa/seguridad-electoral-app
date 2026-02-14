@@ -112,6 +112,26 @@ const formatLastActive = (value: string | null) => {
   return date.toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })
 }
 
+const normalizeDivipoleName = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase()
+
+const dedupeByName = <T extends { name: string }>(items: T[]) => {
+  const seen = new Set<string>()
+  const unique: T[] = []
+  for (const item of items) {
+    const key = normalizeDivipoleName(item.name)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    unique.push(item)
+  }
+  return unique
+}
+
 function Loading() {
   return (
     <Card className="bg-zinc-900/50 border-zinc-800">
@@ -226,7 +246,7 @@ function EquipoInner() {
         const res = await fetch(`/api/divipole/options?dept=${newMember.departmentCode}`, { cache: "no-store" })
         if (!res.ok) throw new Error("divipole")
         const data = await res.json()
-        setMunicipalities(data.municipalities ?? [])
+        setMunicipalities(dedupeByName(data.municipalities ?? []))
       } catch (err) {
         console.error(err)
         setMunicipalities([])
@@ -273,7 +293,7 @@ function EquipoInner() {
         )
         if (!res.ok) throw new Error("divipole")
         const data = await res.json()
-        setPuestos(data.puestos ?? [])
+        setPuestos(dedupeByName(data.puestos ?? []))
       } catch (err) {
         console.error(err)
         setPuestos([])
