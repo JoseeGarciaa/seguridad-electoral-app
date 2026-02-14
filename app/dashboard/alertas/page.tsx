@@ -199,8 +199,11 @@ export default function AlertasPage() {
 
   const fetchAlerts = useCallback(async () => {
     const res = await fetch("/api/alerts", { cache: "no-store", credentials: "include" })
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
       throw new Error("AUTH_REQUIRED")
+    }
+    if (res.status === 403) {
+      throw new Error("FORBIDDEN")
     }
     if (!res.ok) throw new Error("No se pudo cargar alertas")
     const json = await res.json()
@@ -232,6 +235,15 @@ export default function AlertasPage() {
           }
           return
         }
+        if (err?.message === "FORBIDDEN") {
+          if (!cancelled) {
+            setData([])
+            setStats({ total: 0, criticas: 0, abiertas: 0 })
+            setViewerRole(null)
+            toast({ title: "Alertas", description: "No tienes permisos para ver esta vista" })
+          }
+          return
+        }
         console.error(err)
         toast({ title: "Alertas", description: err?.message ?? "No se pudo cargar" })
       } finally {
@@ -260,11 +272,15 @@ export default function AlertasPage() {
     const loadMesas = async () => {
       try {
         const res = await fetch("/api/mesas-asignadas", { cache: "no-store", credentials: "include" })
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401) {
           if (!cancelled) {
             setMesas([])
             router.replace("/login")
           }
+          return
+        }
+        if (res.status === 403) {
+          if (!cancelled) setMesas([])
           return
         }
         if (!res.ok) {
