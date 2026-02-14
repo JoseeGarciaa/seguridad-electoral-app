@@ -98,7 +98,7 @@ export default function LoginPage() {
       >
         <div className={`flex flex-col gap-4 ${isStandalone ? "items-center" : ""} items-stretch`}>
         {/* Login Card */}
-        <div className={`order-2 glass rounded-2xl border border-border/50 p-7 sm:p-12 shadow-lg w-full ${isStandalone ? "max-w-[620px]" : ""}`}>
+        <div className={`order-2 glass rounded-2xl border border-border/50 p-7 sm:p-12 shadow-lg w-[84%] sm:w-[70%] mx-auto ${isStandalone ? "max-w-[620px]" : ""}`}>
           {/* Header */}
           <div className="text-center mb-6">
             <Link href="/" className="inline-flex items-center gap-2 mb-6">
@@ -221,7 +221,7 @@ export default function LoginPage() {
 
         {/* Collage (web only) */}
         {isStandalone === false && (
-          <div className="order-1 glass rounded-2xl border border-border/50 overflow-hidden shadow-lg bg-secondary/40 w-full aspect-video">
+          <div className="order-1 glass rounded-2xl border border-border/50 overflow-hidden shadow-lg bg-secondary/40 w-[84%] sm:w-[70%] mx-auto aspect-video">
             <div className="relative h-full bg-gradient-to-br from-primary/15 via-background/5 to-accent/10 flex items-center justify-center">
               {collageImages.map((src, index) => (
                 <motion.div
