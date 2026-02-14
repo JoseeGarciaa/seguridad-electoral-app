@@ -39,9 +39,12 @@ export default function LoginPage() {
     setIsStandalone(Boolean(standalone))
   }, [])
 
-  async function handleSubmit(formData: FormData) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
     setLoading(true)
     setError(null)
+
+    const formData = new FormData(event.currentTarget)
     
     try {
       const result = isLogin 
@@ -53,8 +56,8 @@ export default function LoginPage() {
       } else {
         setError(result.error || "Error de autenticación")
       }
-    } catch {
-      setError("Error de conexión")
+    } catch (err: any) {
+      setError(err?.message || "Error de conexión")
     } finally {
       setLoading(false)
     }
@@ -130,7 +133,7 @@ export default function LoginPage() {
           )}
 
           {/* Form */}
-          <form action={handleSubmit} className="space-y-3">
+          <form onSubmit={handleSubmit} className="space-y-3">
             {!isLogin && (
               <div className="space-y-2">
                 <Label htmlFor="name" className="text-sm text-foreground">Nombre</Label>
