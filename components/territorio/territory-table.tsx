@@ -4,6 +4,7 @@ import { motion } from "framer-motion"
 import { CheckCircle, ChevronRight, Search, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import * as XLSX from "xlsx"
 type Feature = {
   type: "Feature"
   geometry: { type: "Point"; coordinates: [number, number] }
@@ -35,6 +36,42 @@ type Props = {
 export function TerritoryTable({ features, search, onSearchChange, selectedId, onSelect }: Props) {
   const formatter = new Intl.NumberFormat("es-CO")
   const displayed = features
+
+  const handleExport = () => {
+    if (displayed.length === 0) return
+
+    const rows = displayed.map((puesto) => {
+      const assigned = Boolean(puesto.properties.delegateAssigned)
+      const delegateName = puesto.properties.delegateName?.trim() || ""
+      const delegateEmail = puesto.properties.delegateEmail?.trim() || ""
+      const delegatePhone = puesto.properties.delegatePhone?.trim() || ""
+
+      return {
+        Departamento: puesto.properties.departamento,
+        Municipio: puesto.properties.municipio,
+        Puesto: puesto.properties.puesto,
+        Dirección: puesto.properties.direccion ?? "",
+        Mesas: Number(puesto.properties.mesas ?? 0),
+        Votos: Number(puesto.properties.total ?? 0),
+        "Mesas reportadas": Number(puesto.properties.reportedMesas ?? 0),
+        Asignado: assigned ? "SI" : "NO",
+        Delegado: assigned ? delegateName || "Asignado" : "Sin testigo electoral",
+        "Delegado email": assigned ? delegateEmail : "",
+        "Delegado teléfono": assigned ? delegatePhone : "",
+      }
+    })
+
+    const worksheet = XLSX.utils.json_to_sheet(rows)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Puestos")
+
+    const now = new Date()
+    const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+    const municipio = (displayed[0]?.properties.municipio || "municipio").replace(/[^a-zA-Z0-9_-]+/g, "_")
+    const filename = `territorio_${municipio}_${stamp}.xlsx`
+
+    XLSX.writeFile(workbook, filename)
+  }
 
   return (
     <div className="glass rounded-xl border border-border/50 h-full flex flex-col overflow-hidden">
@@ -166,7 +203,7 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
               </span>
             </div>
           </div>
-          <Button variant="ghost" size="sm" className="h-7 text-xs">
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={handleExport}>
             Exportar
           </Button>
         </div>
