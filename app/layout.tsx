@@ -1,5 +1,5 @@
 import React from "react"
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
@@ -14,7 +14,6 @@ export const metadata: Metadata = {
   generator: 'v0.app',
   applicationName: 'Defensa Electoral',
   manifest: '/manifest.webmanifest',
-  themeColor: '#0b0c12',
   icons: {
     icon: [
       {
@@ -34,10 +33,11 @@ export const metadata: Metadata = {
   },
 }
 
-export const viewport = {
+export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  themeColor: '#0b0c12',
 }
 
 export default function RootLayout({
