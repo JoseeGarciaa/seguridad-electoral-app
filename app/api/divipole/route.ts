@@ -356,7 +356,7 @@ export async function GET(request: Request) {
 
     const dedupedByPuesto = new Map<string, DivipoleRow>()
     for (const row of rows) {
-      const key = `${normalizeKey(row.departamento)}|${normalizeKey(row.municipio)}|${normalizeKey(row.pp) || normalizeKey(row.puesto)}`
+      const key = `${normalizeKey(row.departamento)}|${normalizeKey(row.municipio)}|${normalizeKey(row.puesto)}`
       const current = dedupedByPuesto.get(key)
       if (!current || rowScore(row) > rowScore(current)) {
         dedupedByPuesto.set(key, row)

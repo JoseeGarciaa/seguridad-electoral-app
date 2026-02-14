@@ -86,9 +86,20 @@ function rowScore(row: Row): number {
 function buildRowIdentity(row: Row): string {
   const departamento = normalizeKeyPart(row.departamento)
   const municipio = normalizeKeyPart(row.municipio)
-  const canonicalPuesto = normalizeKeyPart(row.pp) || normalizeKeyPart(row.puesto)
+  const canonicalPuesto = normalizeKeyPart(row.puesto)
   return `${departamento}|${municipio}|${canonicalPuesto}`
 }
+
+const NORMALIZE_SQL = (valueExpr: string) => `
+  UPPER(
+    REGEXP_REPLACE(
+      TRANSLATE(TRIM(COALESCE(${valueExpr}, '')), 'áàäâãéèëêíìïîóòöôõúùüûñçÁÀÄÂÃÉÈËÊÍÌÏÎÓÒÖÔÕÚÙÜÛÑÇ', 'aaaaaeeeeiiiiooooouuuuncAAAAAEEEEIIIIOOOOOUUUUNC'),
+      '\\s+',
+      ' ',
+      'g'
+    )
+  )
+`
 
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser()
@@ -116,7 +127,6 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const departmentFilter = url.searchParams.get("department")
   const municipalityFilter = url.searchParams.get("municipality")
-  const search = url.searchParams.get("search")
   const limitParam = Number(url.searchParams.get("limit") ?? 15000)
   const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1000), 50000) : 15000
 
@@ -132,29 +142,16 @@ export async function GET(req: NextRequest) {
 
   if (departmentFilter) {
     values.push(departmentFilter)
-    conditions.push(`LOWER(dl.departamento) = LOWER($${values.length})`)
+    conditions.push(`${NORMALIZE_SQL("dl.departamento")} = ${NORMALIZE_SQL(`$${values.length}::text`)}`)
   }
   if (municipalityFilter) {
     values.push(municipalityFilter)
-    conditions.push(`LOWER(dl.municipio) = LOWER($${values.length})`)
-  }
-  if (search) {
-    values.push(`%${search}%`)
-    const idx = values.length
-    conditions.push(
-      `(` +
-        `LOWER(dl.puesto) LIKE LOWER($${idx}) OR ` +
-        `LOWER(dl.municipio) LIKE LOWER($${idx}) OR ` +
-        `LOWER(dl.departamento) LIKE LOWER($${idx}) OR ` +
-        `LOWER(dl.direccion) LIKE LOWER($${idx})` +
-      `)`,
-    )
+    conditions.push(`${NORMALIZE_SQL("dl.municipio")} = ${NORMALIZE_SQL(`$${values.length}::text`)}`)
   }
 
   if (!isAdmin) {
     values.push(delegateId)
     delegateParamIndex = values.length
-    conditions.push(`la.delegate_id = $${values.length}`)
   }
 
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""
@@ -165,7 +162,6 @@ export async function GET(req: NextRequest) {
       FROM vote_reports vr
       LEFT JOIN delegate_polling_assignments dpa ON dpa.id = vr.delegate_assignment_id
       WHERE COALESCE(vr.divipole_location_id, dpa.divipole_location_id) IS NOT NULL
-      ${delegateParamIndex ? `AND vr.delegate_id = $${delegateParamIndex}` : ""}
       GROUP BY COALESCE(vr.divipole_location_id, dpa.divipole_location_id)
     )`
     : `reports AS (
@@ -174,7 +170,6 @@ export async function GET(req: NextRequest) {
       FROM vote_reports vr
       LEFT JOIN delegate_polling_assignments dpa ON dpa.id = vr.delegate_assignment_id
       WHERE COALESCE(vr.polling_station_code, dpa.polling_station) IS NOT NULL
-      ${delegateParamIndex ? `AND vr.delegate_id = $${delegateParamIndex}` : ""}
       GROUP BY LOWER(COALESCE(vr.polling_station_code, dpa.polling_station))
     )`
 
@@ -198,7 +193,7 @@ export async function GET(req: NextRequest) {
 
   const assignmentJoin = isAdmin
     ? `LEFT JOIN latest_assignments la ON ${hasDivipoleLocationId ? "dl.id = la.divipole_location_id" : "(LOWER(dl.puesto) = la.polling_station_lower OR LOWER(dl.pp) = la.polling_station_lower)"}`
-    : `JOIN latest_assignments la ON ${hasDivipoleLocationId ? "dl.id = la.divipole_location_id" : "(LOWER(dl.puesto) = la.polling_station_lower OR LOWER(dl.pp) = la.polling_station_lower)"}`
+    : `LEFT JOIN latest_assignments la ON ${hasDivipoleLocationId ? "dl.id = la.divipole_location_id" : "(LOWER(dl.puesto) = la.polling_station_lower OR LOWER(dl.pp) = la.polling_station_lower)"}`
 
   const featuresQuery = `
     ${assignmentsCte}

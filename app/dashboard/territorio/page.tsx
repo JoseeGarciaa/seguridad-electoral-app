@@ -33,6 +33,15 @@ type Feature = {
 
 type Totals = { total_puestos: number; total_mesas: number; with_coords: number; total_voters: number; reported_mesas?: number }
 
+function normalizeText(value: string | null | undefined): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
 export default function TerritorioPage() {
   const [viewMode, setViewMode] = useState<"circle" | "heatmap" | "3d">("circle")
   const [search, setSearch] = useState("")
@@ -137,7 +146,7 @@ export default function TerritorioPage() {
         setTotals({ total_puestos: 0, total_mesas: 0, with_coords: 0, total_voters: 0, reported_mesas: 0 })
         return
       }
-      const fetchKey = `${selectedDepartment}|${selectedMunicipality}|${search.trim().toLowerCase()}`
+      const fetchKey = `${selectedDepartment}|${selectedMunicipality}`
       if (hasHydrated && lastFetchedKeyRef.current === fetchKey && features.length > 0) {
         return
       }
@@ -146,7 +155,6 @@ export default function TerritorioPage() {
         const params = new URLSearchParams()
         if (selectedDepartmentName) params.set("department", selectedDepartmentName)
         if (selectedMunicipalityName) params.set("municipality", selectedMunicipalityName)
-        if (search.trim()) params.set("search", search.trim())
         params.set("limit", "6000")
 
         const res = await fetch(`/api/my/territory?${params.toString()}`, {
@@ -174,36 +182,14 @@ export default function TerritorioPage() {
 
     fetchData()
     return () => controller.abort()
-  }, [selectedDepartment, selectedMunicipality, selectedDepartmentName, selectedMunicipalityName, search, hasHydrated, lastFetchedKeyRef, features.length])
+  }, [selectedDepartment, selectedMunicipality, selectedDepartmentName, selectedMunicipalityName, hasHydrated, lastFetchedKeyRef, features.length])
 
   const handleSelect = (id: string) => {
     setSelectedId(id)
     setSelectionVersion((v) => v + 1)
   }
 
-  const filteredFeatures = useMemo(() => {
-    const term = search.trim().toLowerCase()
-    return features.filter((f) => {
-      const matchesDepartment = selectedDepartmentName ? f.properties.departamento === selectedDepartmentName : true
-      const matchesMunicipality = selectedMunicipalityName ? f.properties.municipio === selectedMunicipalityName : true
-
-      const matchesSearch = term
-        ? [
-            f.properties.puesto,
-            f.properties.municipio,
-            f.properties.departamento,
-            f.properties.direccion ?? "",
-            f.properties.pp ?? "",
-            f.properties.mm ?? "",
-            f.properties.dd ?? "",
-          ]
-            .filter(Boolean)
-            .some((field) => field.toLowerCase().includes(term))
-        : true
-
-      return matchesDepartment && matchesMunicipality && matchesSearch
-    })
-  }, [features, search, selectedDepartmentName, selectedMunicipalityName])
+  const filteredFeatures = useMemo(() => features, [features])
 
   const filteredTotals = useMemo(() => {
     return filteredFeatures.reduce(
@@ -227,9 +213,9 @@ export default function TerritorioPage() {
   }, [filteredFeatures, selectedId])
 
   const statsSource = useMemo(() => {
-    const hasFilters = Boolean(search.trim() || selectedDepartment || selectedMunicipality)
+    const hasFilters = Boolean(selectedDepartment || selectedMunicipality)
     return hasFilters ? filteredTotals : totals
-  }, [filteredTotals, totals, search, selectedDepartment, selectedMunicipality])
+  }, [filteredTotals, totals, selectedDepartment, selectedMunicipality])
 
   const stats = useMemo(
     () => ({
@@ -246,7 +232,7 @@ export default function TerritorioPage() {
   useEffect(() => {
     if (!hasHydrated) return
     if (typeof window === "undefined") return
-    const cacheKey = `${selectedDepartment ?? ""}|${selectedMunicipality ?? ""}|${search.trim().toLowerCase()}`
+    const cacheKey = `${selectedDepartment ?? ""}|${selectedMunicipality ?? ""}`
     // Avoid re-serializing if key unchanged
     if (lastPersistedKeyRef.current === cacheKey) return
     const payload = {
