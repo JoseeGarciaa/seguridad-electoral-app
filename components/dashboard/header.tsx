@@ -11,10 +11,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { logout } from "@/app/actions/auth"
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { Shield } from "lucide-react"
 
 interface User {
@@ -43,6 +42,7 @@ type HeaderAlert = {
 }
 
 export function DashboardHeader({ user }: HeaderProps) {
+  const router = useRouter()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [alerts, setAlerts] = useState<HeaderAlert[]>([])
   const [alertsLoading, setAlertsLoading] = useState(true)
@@ -203,7 +203,13 @@ export function DashboardHeader({ user }: HeaderProps) {
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem 
-                  onClick={async () => await logout()}
+                  onClick={async () => {
+                    try {
+                      await fetch("/api/auth/logout", { method: "POST" })
+                    } finally {
+                      router.push("/login")
+                    }
+                  }}
                   className="text-destructive focus:text-destructive"
                 >
                   <LogOut className="w-4 h-4 mr-2" />

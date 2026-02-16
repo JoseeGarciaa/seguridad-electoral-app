@@ -71,7 +71,7 @@ export function CoverageOverview({
       </div>
 
       {/* Summary */}
-      <div className="mt-6 pt-4 border-t border-border/50 grid grid-cols-3 gap-4">
+      <div className="mt-6 pt-4 border-t border-border/50 grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="text-center">
           <p className="text-2xl font-bold text-neon-green">{summary.green}</p>
           <p className="text-xs text-muted-foreground">Óptimos</p>

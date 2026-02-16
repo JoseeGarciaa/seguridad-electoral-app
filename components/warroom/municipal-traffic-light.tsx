@@ -54,11 +54,11 @@ export function MunicipalTrafficLight() {
       </div>
 
       {/* Grid of municipalities */}
-      <div className="grid grid-cols-3 lg:grid-cols-4 gap-2">
-        {error && <p className="text-sm text-destructive col-span-3">{error}</p>}
-        {loading && <div className="col-span-3 h-16 rounded-lg bg-secondary/50 animate-pulse" />}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+        {error && <p className="col-span-full text-sm text-destructive">{error}</p>}
+        {loading && <div className="col-span-full h-16 rounded-lg bg-secondary/50 animate-pulse" />}
         {!loading && assignedMunicipalities.length === 0 && !error && (
-          <p className="text-sm text-muted-foreground col-span-3">Sin municipios con delegados asignados.</p>
+          <p className="col-span-full text-sm text-muted-foreground">Sin municipios con delegados asignados.</p>
         )}
         {!loading && assignedMunicipalities.map((municipality, index) => (
           <motion.div
@@ -78,7 +78,7 @@ export function MunicipalTrafficLight() {
       </div>
 
       {/* Summary */}
-      <div className="mt-4 pt-4 border-t border-border/50 grid grid-cols-3 gap-4">
+      <div className="mt-4 pt-4 border-t border-border/50 grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="text-center">
           <p className="text-2xl font-bold text-neon-green">{grouped.green.length}</p>
           <p className="text-sm text-muted-foreground">Óptimo</p>

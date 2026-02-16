@@ -1424,22 +1424,22 @@ export default function EvidenciaPage() {
                         </div>
                         <Badge className="bg-zinc-800 border-zinc-700 text-xs">{detailItem.status}</Badge>
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
                           <p className="text-[11px] uppercase text-zinc-500">Municipio</p>
                           <p className="text-foreground font-semibold">{detailItem.municipality ?? "Sin dato"}</p>
                         </div>
-                        <div className="text-right">
+                        <div className="sm:text-right">
                           <p className="text-[11px] uppercase text-zinc-500">Subido</p>
                           <p className="text-foreground font-semibold">{dateFormatter.format(new Date(detailItem.uploadedAt))}</p>
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 items-center">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <User className="h-3 w-3" />
                           <span className="text-foreground font-medium truncate">{detailItem.uploadedBy ?? "Desconocido"}</span>
                         </div>
-                        <div className="text-right text-[11px] uppercase text-zinc-500">Autor del reporte</div>
+                        <div className="text-[11px] uppercase text-zinc-500 sm:text-right">Autor del reporte</div>
                       </div>
                       <div>
                         <p className="text-[11px] uppercase text-zinc-500">Subido por</p>
@@ -2019,7 +2019,7 @@ function VotePad({ votos, onInput }: { votos: number; onInput: (val: string) => 
     <div className="grid gap-4 lg:grid-cols-2">
       <div className="rounded-2xl border border-zinc-700 bg-zinc-800/60 p-6">
         <p className="text-sm text-muted-foreground">Votos ingresados</p>
-        <p className="text-5xl font-bold">{votos}</p>
+        <p className="text-4xl sm:text-5xl font-bold">{votos}</p>
       </div>
       <div className="rounded-2xl border border-zinc-700 bg-zinc-800/60 p-4 grid grid-cols-3 gap-3">
         {digits.map((d) => (

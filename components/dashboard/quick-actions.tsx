@@ -46,7 +46,7 @@ export function QuickActions({ pendingAlerts }: { pendingAlerts: number }) {
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-foreground">Acciones Rápidas</h2>
       </div>
-      <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {actions.map((action, index) => (
           <motion.div
             key={action.name}

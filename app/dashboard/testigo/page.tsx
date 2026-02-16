@@ -783,7 +783,7 @@ export default function TestigoElectoralPage() {
                   return (
                     <div
                       key={mesa.id}
-                      className="rounded-lg border border-border/60 bg-muted/20 p-3 flex items-center justify-between gap-2"
+                      className="rounded-lg border border-border/60 bg-muted/20 p-3 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between"
                     >
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold truncate">{mesa.label}</p>
@@ -792,7 +792,7 @@ export default function TestigoElectoralPage() {
                       </div>
                       <Button
                         size="sm"
-                        className="min-w-[120px]"
+                        className="w-full sm:w-auto sm:min-w-[120px]"
                         onClick={() => openMesa(index)}
                         disabled={Boolean(completed)}
                         variant={completed ? "outline" : "default"}

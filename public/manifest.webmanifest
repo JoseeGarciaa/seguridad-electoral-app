@@ -9,21 +9,21 @@
   "theme_color": "#0b0c12",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "/123.jpeg",
       "sizes": "any",
-      "type": "image/svg+xml",
+      "type": "image/jpeg",
       "purpose": "any"
     },
     {
-      "src": "/apple-icon.png",
-      "sizes": "180x180",
-      "type": "image/png",
+      "src": "/123.jpeg",
+      "sizes": "any",
+      "type": "image/jpeg",
       "purpose": "any"
     },
     {
-      "src": "/placeholder-logo.png",
-      "sizes": "512x512",
-      "type": "image/png",
+      "src": "/123.jpeg",
+      "sizes": "any",
+      "type": "image/jpeg",
       "purpose": "any"
     }
   ]

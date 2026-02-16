@@ -9,7 +9,11 @@ import { Label } from "@/components/ui/label"
 import { Shield, Eye, EyeOff, Loader2 } from "lucide-react"
 import Image from "next/image"
 import { motion } from "framer-motion"
-import { login, register } from "@/app/actions/auth"
+
+interface AuthResult {
+  success: boolean
+  error?: string
+}
 
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true)
@@ -45,11 +49,21 @@ export default function LoginPage() {
     setError(null)
 
     const formData = new FormData(event.currentTarget)
+    const payload = {
+      email: String(formData.get("email") ?? ""),
+      password: String(formData.get("password") ?? ""),
+    }
+    const endpoint = isLogin ? "/api/auth/login" : "/api/auth/register"
     
     try {
-      const result = isLogin 
-        ? await login(formData)
-        : await register(formData)
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      })
+      const result = (await response.json()) as AuthResult
       
       if (result.success) {
         router.push("/dashboard")
@@ -154,6 +168,7 @@ export default function LoginPage() {
                 name="email"
                 type="email"
                 placeholder="tu@email.com"
+                autoComplete="email"
                 required
                 className="bg-secondary/50 border-border/50 focus:border-primary"
               />
@@ -167,6 +182,7 @@ export default function LoginPage() {
                   name="password"
                   type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
+                  autoComplete={isLogin ? "current-password" : "new-password"}
                   required
                   minLength={8}
                   className="bg-secondary/50 border-border/50 focus:border-primary pr-10"

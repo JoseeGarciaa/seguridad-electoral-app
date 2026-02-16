@@ -343,7 +343,7 @@ export default function AlertasPage() {
   const isAdmin = viewerRole === "admin"
   const canReportAlerts = viewerRole !== null && viewerRole !== "admin"
   const headerGridClass = canReportAlerts ? "grid gap-4 md:grid-cols-3" : "grid gap-4 md:grid-cols-4"
-  const statusGridClass = canReportAlerts ? "grid gap-3 sm:grid-cols-2" : "grid gap-3 grid-cols-2 md:grid-cols-4"
+  const statusGridClass = canReportAlerts ? "grid gap-3 sm:grid-cols-2" : "grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-4"
   const resolvedCount = useMemo(() => {
     return data.filter((item) => (item.statusLabel ?? item.status) === "resuelta").length
   }, [data])
@@ -796,7 +796,7 @@ export default function AlertasPage() {
           <div className="space-y-3 text-sm text-foreground">
             <p className="text-muted-foreground">{selected?.detail || "Sin notas"}</p>
             {selected?.photos && selected.photos.length > 0 && (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {selected.photos.map((src, idx) => (
                   <a
                     key={idx}
