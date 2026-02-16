@@ -2,7 +2,7 @@
 
 import { useEffect } from "react"
 
-const SW_VERSION = "2026-02-16-v4"
+const SW_VERSION = "2026-02-16-v5"
 
 export function SwRegister() {
   useEffect(() => {
@@ -20,11 +20,15 @@ export function SwRegister() {
 
     const register = async () => {
       try {
-        const storedVersion = localStorage.getItem("sw-version")
-        if (storedVersion !== SW_VERSION && "caches" in window) {
-          const keys = await caches.keys()
-          await Promise.all(keys.map((key) => caches.delete(key)))
-          localStorage.setItem("sw-version", SW_VERSION)
+        try {
+          const storedVersion = localStorage.getItem("sw-version")
+          if (storedVersion !== SW_VERSION && "caches" in window) {
+            const keys = await caches.keys()
+            await Promise.all(keys.map((key) => caches.delete(key)))
+            localStorage.setItem("sw-version", SW_VERSION)
+          }
+        } catch {
+          // ignore storage/cache access restrictions and continue registration
         }
 
         const registration = await navigator.serviceWorker.register(`/sw.js?v=${SW_VERSION}`)

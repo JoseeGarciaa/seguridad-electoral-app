@@ -1,8 +1,10 @@
-const CACHE_NAME = "defensa-electoral-v4";
+const CACHE_NAME = "defensa-electoral-v5";
 const PRECACHE_URLS = [
   "/",
   "/manifest.webmanifest",
-  "/123.jpeg"
+  "/123.jpeg",
+  "/icon-192.png",
+  "/icon-512.png"
 ];
 
 const CACHEABLE_EXTENSIONS = [
@@ -47,7 +49,7 @@ self.addEventListener("fetch", (event) => {
   const isApiRoute = url.pathname.startsWith("/api/");
   const isSwFile = url.pathname === "/sw.js";
   const isManifest = url.pathname === "/manifest.webmanifest";
-  const isAppIcon = url.pathname === "/123.jpeg";
+  const isAppIcon = ["/123.jpeg", "/icon-192.png", "/icon-512.png"].includes(url.pathname);
   const hasCacheableExtension = CACHEABLE_EXTENSIONS.some((ext) => url.pathname.endsWith(ext));
 
   if (!isSameOrigin || isNextAsset || isApiRoute || isSwFile) {
