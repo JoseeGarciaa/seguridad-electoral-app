@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Shield, Eye, EyeOff, Loader2 } from "lucide-react"
 import Image from "next/image"
 import { motion } from "framer-motion"
+import { InstallAppCta } from "@/components/pwa/install-app-cta"
 
 interface AuthResult {
   success: boolean
@@ -213,24 +214,11 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          {/* Toggle */}
-          <div className="mt-4 text-center">
-            <button
-              type="button"
-              onClick={() => {
-                setIsLogin(!isLogin)
-                setError(null)
-              }}
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {isLogin 
-                ? "¿No tienes cuenta? Regístrate" 
-                : "¿Ya tienes cuenta? Inicia sesión"
-              }
-            </button>
+          {/* Back to home */}
+          <div className="mt-4">
+            <InstallAppCta />
           </div>
 
-          {/* Back to home */}
           <div className="mt-2 text-center">
             <Link href="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
               ← Volver al inicio

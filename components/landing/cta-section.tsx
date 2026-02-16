@@ -4,6 +4,7 @@ import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { ArrowRight, Shield } from "lucide-react"
 import Link from "next/link"
+import { InstallAppCta } from "@/components/pwa/install-app-cta"
 
 export function CTASection() {
   return (
@@ -59,6 +60,8 @@ export function CTASection() {
               Solicitar Demo
             </Button>
           </div>
+
+          <InstallAppCta className="mt-4" />
 
           {/* Trust indicators */}
           <div className="mt-10 pt-8 border-t border-border/50">
