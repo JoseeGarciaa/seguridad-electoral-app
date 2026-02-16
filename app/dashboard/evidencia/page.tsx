@@ -1221,10 +1221,12 @@ export default function EvidenciaPage() {
                 <p className="text-xl font-semibold">Votos + Evidencias del puesto</p>
                 <p className="text-sm text-muted-foreground">Elige tu mesa asignada, ingresa votos y adjunta hasta 4 fotos (1 obligatoria).</p>
               </div>
-              <div className="flex flex-wrap gap-2 text-xs">
+              <div className="flex flex-wrap gap-2 text-xs min-w-0">
                 <Badge className="bg-zinc-800 border-zinc-700">{flow.photos.length}/4 fotos</Badge>
                 <Badge className="bg-zinc-800 border-zinc-700">{Object.values(flow.candidateVotes).filter((v) => v > 0).length} candidatos con votos</Badge>
-                <Badge className="bg-zinc-800 border-zinc-700">Mesa: {selectedMesaLabel ?? "sin seleccionar"}</Badge>
+                <Badge className="bg-zinc-800 border-zinc-700 min-w-0 max-w-full">
+                  <span className="truncate block max-w-[220px] sm:max-w-[360px]">Mesa: {selectedMesaLabel ?? "sin seleccionar"}</span>
+                </Badge>
                 {hasExistingReport && <Badge className="bg-emerald-700/60 border-emerald-500/40">Reporte existente · Editable</Badge>}
               </div>
             </CardTitle>
@@ -1232,7 +1234,7 @@ export default function EvidenciaPage() {
 
           <CardContent className="space-y-4">
             <div className="grid gap-4 lg:grid-cols-3">
-              <AssignedMesasPanel mesas={mesas} selectedMesaId={flow.mesaId} onPick={handlePickMesa} />
+              <AssignedMesasPanel mesas={mesas} selectedMesaId={flow.mesaId} reportsByAssignment={reportsByAssignment} onPick={handlePickMesa} />
 
               <div className="lg:col-span-2 space-y-4">
                 <CandidateVotesPanel
@@ -1606,7 +1608,7 @@ export default function EvidenciaPage() {
   )
 }
 
-function AssignedMesasPanel({ mesas, selectedMesaId, onPick }: { mesas: Mesa[]; selectedMesaId?: string; onPick: (id: string) => void }) {
+function AssignedMesasPanel({ mesas, selectedMesaId, reportsByAssignment, onPick }: { mesas: Mesa[]; selectedMesaId?: string; reportsByAssignment: Record<string, VoteReportSummary>; onPick: (id: string) => void }) {
   const selectedMesa = mesas.find((m) => m.id === selectedMesaId)
 
   return (
@@ -1623,15 +1625,24 @@ function AssignedMesasPanel({ mesas, selectedMesaId, onPick }: { mesas: Mesa[]; 
       <div className="grid gap-2">
         {mesas.map((mesa) => {
           const active = mesa.id === selectedMesaId
+          const hasReport = Boolean(reportsByAssignment[mesa.id])
           return (
             <button
               key={mesa.id}
               onClick={() => onPick(mesa.id)}
-              className={`flex w-full flex-col rounded-xl border px-3 py-2 text-left transition ${active ? "border-cyan-500 bg-cyan-500/10" : "border-zinc-800 bg-zinc-900"}`}
+              className={`flex w-full flex-col rounded-xl border px-3 py-2 text-left transition ${
+                active
+                  ? "border-cyan-500 bg-cyan-500/10"
+                  : hasReport
+                    ? "border-emerald-500/40 bg-emerald-500/10"
+                    : "border-amber-500/40 bg-amber-500/10"
+              }`}
             >
-              <div className="flex items-center justify-between text-sm font-semibold">
-                <span>Mesa {mesa.label}</span>
-                <Badge className={active ? "bg-cyan-600" : "bg-zinc-800 border-zinc-700"}>{active ? "Actual" : "Elegir"}</Badge>
+              <div className="flex items-center justify-between gap-2 text-sm font-semibold">
+                <span className="min-w-0 break-words leading-snug">Mesa {mesa.label}</span>
+                <Badge className={active ? "bg-cyan-600" : hasReport ? "bg-emerald-600/80 border-emerald-500/60" : "bg-amber-700/70 border-amber-500/60"}>
+                  {active ? "Actual" : hasReport ? "Reportada" : "Pendiente"}
+                </Badge>
               </div>
               <p className="text-xs text-muted-foreground">{mesa.puesto || mesa.municipio || "Puesto por definir"}</p>
             </button>
