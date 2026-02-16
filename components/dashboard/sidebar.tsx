@@ -51,6 +51,12 @@ const witnessNavigation = [
   { name: "Carga E14", href: "/dashboard/testigo#e14", icon: Camera },
 ]
 
+const simplifiedNavigation = [
+  { name: "Evidencias", href: "/dashboard/evidencias", icon: Camera },
+  { name: "Alertas", href: "/dashboard/alertas", icon: Bell },
+  { name: "Cumplimiento", href: "/dashboard/cumplimiento", icon: FileCheck },
+]
+
 export function DashboardSidebar({ user }: SidebarProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
@@ -63,7 +69,8 @@ export function DashboardSidebar({ user }: SidebarProps) {
   ])
 
   const isDelegate = !isWitness && (user.role === "delegate" || roleLabel.includes("delegado"))
-  const baseNavigation = isWitness ? witnessNavigation : navigation
+  const isSimplifiedRole = isWitness || isDelegate
+  const baseNavigation = isSimplifiedRole ? simplifiedNavigation : navigation
   const visibleNavigation = isDelegate
     ? baseNavigation.filter((item) => !restrictedForDelegate.has(item.href))
     : baseNavigation

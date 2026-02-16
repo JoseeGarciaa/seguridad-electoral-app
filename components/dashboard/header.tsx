@@ -50,6 +50,7 @@ export function DashboardHeader({ user }: HeaderProps) {
   const roleLabel = user.profile?.role_extended?.toLowerCase() ?? ""
   const isWitness = user.role === "witness" || roleLabel.includes("testigo")
   const isDelegate = !isWitness && (user.role === "delegate" || roleLabel.includes("delegado"))
+  const isSimplifiedRole = isWitness || isDelegate
 
   useEffect(() => {
     let cancelled = false
@@ -98,12 +99,14 @@ export function DashboardHeader({ user }: HeaderProps) {
         <div className="flex items-center justify-between h-full px-4 lg:px-6">
           {/* Mobile Menu Button & Page Title */}
           <div className="flex items-center gap-4">
-            <button
-              className="lg:hidden p-2 -ml-2 text-muted-foreground hover:text-foreground"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
+            {!isSimplifiedRole && (
+              <button
+                className="lg:hidden p-2 -ml-2 text-muted-foreground hover:text-foreground"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              >
+                {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              </button>
+            )}
             
             <div>
               <h1 className="text-xl font-semibold text-foreground">{getPageTitle()}</h1>
@@ -222,7 +225,7 @@ export function DashboardHeader({ user }: HeaderProps) {
       </header>
 
       {/* Mobile Menu Overlay */}
-      {mobileMenuOpen && (
+      {!isSimplifiedRole && mobileMenuOpen && (
         <div className="fixed inset-0 z-30 lg:hidden">
           <div 
             className="absolute inset-0 bg-background/80 backdrop-blur-sm"

@@ -7,9 +7,13 @@ import { AlertsPanel } from "@/components/warroom/alerts-panel"
 import { EvidenceGallery } from "@/components/warroom/evidence-gallery"
 import { WarRoomDataProvider } from "@/components/warroom/warroom-data-provider"
 import { getCurrentUser } from "@/lib/auth"
+import { redirect } from "next/navigation"
 
 export default async function DashboardPage() {
   const user = await getCurrentUser()
+  if (user?.role === "delegate" || user?.role === "witness") {
+    redirect("/dashboard/evidencias")
+  }
   const hideActiveWitnesses = user?.role === "delegate" || user?.role === "witness"
 
   return (

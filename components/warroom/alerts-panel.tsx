@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import { AlertTriangle, AlertCircle, XCircle, CheckCircle } from "lucide-react"
@@ -60,6 +60,7 @@ export function AlertsPanel() {
   const [alerts, setAlerts] = useState<PanelAlert[]>([])
   const [loading, setLoading] = useState(true)
   const [alertsError, setAlertsError] = useState<string | null>(null)
+  const isFirstLoad = useRef(true)
 
   const normalizeStatus = (value?: string | null): ApiAlertStatus => {
     const normalized = value?.toLowerCase()
@@ -107,7 +108,9 @@ export function AlertsPanel() {
     }
 
     const loadAlerts = async () => {
-      setLoading(true)
+      if (isFirstLoad.current) {
+        setLoading(true)
+      }
       setAlertsError(null)
       try {
         const res = await fetch("/api/alerts?limit=20", { cache: "no-store" })
@@ -126,7 +129,10 @@ export function AlertsPanel() {
         setAlertsError(message)
         toast({ title: "Alertas", description: message })
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          isFirstLoad.current = false
+        }
       }
     }
 
@@ -195,14 +201,24 @@ export function AlertsPanel() {
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
-                className={`p-2.5 rounded-lg ${styles.bg} border ${styles.border}`}
+                className={`min-h-[132px] p-2.5 rounded-lg ${styles.bg} border ${styles.border} flex`}
               >
-                <div className="flex items-start gap-2">
+                <div className="flex items-start gap-2 w-full">
                   <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${styles.icon}`} />
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 flex flex-col h-full">
                     <p className="text-sm font-medium text-foreground leading-tight">{alert.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 leading-snug break-words">{alert.message}</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <p
+                      className="text-xs text-muted-foreground mt-0.5 leading-snug break-words"
+                      style={{
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden",
+                      }}
+                    >
+                      {alert.message}
+                    </p>
+                    <div className="mt-auto pt-2 flex flex-wrap items-center gap-2">
                       <span className="text-[11px] text-muted-foreground">
                         {alert.time ? formatTime(alert.time) : "--"}
                       </span>
