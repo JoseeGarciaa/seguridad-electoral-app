@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useCallback, useEffect, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import jsPDF from "jspdf"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -329,6 +329,7 @@ const chipFilters = [
 ]
 
 export default function EvidenciaPage() {
+  const mesasSectionRef = useRef<HTMLDivElement | null>(null)
   const [view, setView] = useState<"hub" | "wizard" | "evidencias">("hub")
   const [flow, setFlow] = useState<VoteFlowState>({
     votos: 0,
@@ -368,6 +369,13 @@ export default function EvidenciaPage() {
   )
 
   const notify = (message: string, description?: string) => toast({ title: message, description })
+
+  const scrollToMesasSection = useCallback(() => {
+    if (typeof window === "undefined") return
+    window.requestAnimationFrame(() => {
+      mesasSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    })
+  }, [])
 
   const getDetailVotes = useCallback(() => {
     if (reportDetail?.details?.length) return reportDetail.details
@@ -1013,9 +1021,11 @@ export default function EvidenciaPage() {
         if (showToast) notify("Registro enviado", "Se guardo la votacion y las fotos")
         resetFlow()
         preload()
+        return true
       } catch (err) {
         console.error(err)
         if (showToast) notify("No se pudo enviar", "Intenta de nuevo o usa modo offline")
+        return false
       }
     },
     [candidatos, partidos, preload]
@@ -1057,13 +1067,18 @@ export default function EvidenciaPage() {
       setOfflineQueue((prev) => [...prev, flow])
       notify("Guardado en cola offline", "Se enviara al volver la conexion")
       resetFlow()
+      scrollToMesasSection()
       return
     }
     setSubmitting(true)
+    let sendWasSuccessful = false
     try {
-      await sendVote(flow)
+      sendWasSuccessful = await sendVote(flow)
     } finally {
       setSubmitting(false)
+    }
+    if (sendWasSuccessful) {
+      scrollToMesasSection()
     }
   }
 
@@ -1234,7 +1249,9 @@ export default function EvidenciaPage() {
 
           <CardContent className="space-y-4">
             <div className="grid gap-4 lg:grid-cols-3">
-              <AssignedMesasPanel mesas={mesas} selectedMesaId={flow.mesaId} reportsByAssignment={reportsByAssignment} onPick={handlePickMesa} />
+              <div ref={mesasSectionRef}>
+                <AssignedMesasPanel mesas={mesas} selectedMesaId={flow.mesaId} reportsByAssignment={reportsByAssignment} onPick={handlePickMesa} />
+              </div>
 
               <div className="lg:col-span-2 space-y-4">
                 <CandidateVotesPanel
