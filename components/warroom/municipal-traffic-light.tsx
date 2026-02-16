@@ -37,7 +37,7 @@ export function MunicipalTrafficLight() {
           <h3 className="text-base font-semibold text-foreground">Semáforo Municipal</h3>
           <p className="text-sm text-muted-foreground mt-0.5">Cobertura de testigos por municipio</p>
         </div>
-        <div className="flex items-center gap-3 text-sm">
+        <div className="flex flex-wrap items-center justify-end gap-2 text-xs sm:text-sm">
           <div className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-neon-green" />
             <span className="text-muted-foreground">{"≥85%"}</span>

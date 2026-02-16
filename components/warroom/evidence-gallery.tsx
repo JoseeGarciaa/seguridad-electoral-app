@@ -86,8 +86,8 @@ export function EvidenceGallery() {
       </div>
 
       {/* Summary Stats */}
-      <div className="mt-4 pt-4 border-t border-border/50 flex items-center justify-between text-sm">
-        <div className="flex items-center gap-4">
+      <div className="mt-4 pt-4 border-t border-border/50 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <div className="flex items-center gap-1">
             <span className="text-muted-foreground">{loading ? "--" : `${evidences.filter(e => e.status === "verified").length} verificadas`}</span>
           </div>

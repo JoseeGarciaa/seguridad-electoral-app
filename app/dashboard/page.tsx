@@ -22,7 +22,7 @@ export default async function DashboardPage() {
         />
 
         <div className="grid lg:grid-cols-2 gap-4">
-          <div className="h-[500px]">
+          <div>
             <Suspense fallback={<div className="h-full animate-pulse bg-secondary/50 rounded-xl" />}>
               <LiveFeed />
             </Suspense>

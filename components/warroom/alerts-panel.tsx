@@ -162,10 +162,10 @@ export function AlertsPanel() {
             <h3 className="text-base font-semibold text-foreground">Alertas</h3>
           </div>
           <div className="flex items-center gap-2">
-            <span className="px-2 py-0.5 rounded-full bg-destructive/20 text-destructive text-sm sm:text-xs font-medium">
+            <span className="px-2 py-0.5 rounded-full bg-destructive/20 text-destructive text-xs font-medium">
               {loading ? "--" : `${criticalCount} crítica`}
             </span>
-            <span className="px-2 py-0.5 rounded-full bg-neon-orange/20 text-neon-orange text-sm sm:text-xs font-medium">
+            <span className="px-2 py-0.5 rounded-full bg-neon-orange/20 text-neon-orange text-xs font-medium">
               {loading ? "--" : `${warningCount} avisos`}
             </span>
           </div>
@@ -195,31 +195,31 @@ export function AlertsPanel() {
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
-                className={`p-3 rounded-lg ${styles.bg} border ${styles.border}`}
+                className={`p-2.5 rounded-lg ${styles.bg} border ${styles.border}`}
               >
                 <div className="flex items-start gap-2">
                   <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${styles.icon}`} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-base font-medium text-foreground">{alert.title}</p>
-                    <p className="text-sm text-muted-foreground mt-0.5">{alert.message}</p>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-xs text-muted-foreground">
+                    <p className="text-sm font-medium text-foreground leading-tight">{alert.title}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-snug break-words">{alert.message}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] text-muted-foreground">
                         {alert.time ? formatTime(alert.time) : "--"}
                       </span>
                       {isNotice && !alert.reportUrl ? (
-                        <span className="text-xs text-muted-foreground">Aviso</span>
+                        <span className="text-[11px] text-muted-foreground">Aviso</span>
                       ) : (
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-8 text-sm px-3"
+                          className="ml-auto h-7 text-xs px-2"
                           onClick={() =>
                             alert.severity === "critical"
                               ? handleAlert(alert.id, null)
                               : handleAlert(alert.id, alert.reportUrl)
                           }
                         >
-                          {alert.severity === "critical" ? "Atender alerta" : alert.reportUrl ? "Ver reporte" : "Atender"}
+                          {alert.severity === "critical" ? "Atender" : alert.reportUrl ? "Ver" : "Atender"}
                         </Button>
                       )}
                     </div>

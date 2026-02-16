@@ -16,9 +16,11 @@ const typeIcon: Record<string, { icon: ComponentType<{ className?: string }>; co
 export function LiveFeed() {
   const { data, loading, error } = useWarRoomData()
   const feedItems = useMemo(() => data?.feed ?? [], [data])
+  const rowsToShow = loading ? 2 : Math.max(feedItems.length, 1)
+  const dynamicHeight = Math.min(Math.max(156 + rowsToShow * 72, 228), 500)
 
   return (
-    <div className="glass rounded-xl border border-border/50 h-full flex flex-col overflow-hidden">
+    <div className="glass rounded-xl border border-border/50 flex flex-col overflow-hidden" style={{ height: `${dynamicHeight}px` }}>
       {/* Header */}
       <div className="p-3 border-b border-border/50 flex items-center justify-between">
         <div className="flex items-center gap-2">
