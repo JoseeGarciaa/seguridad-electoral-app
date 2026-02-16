@@ -19,10 +19,22 @@ async function ensureAssignmentDivipoleColumn(): Promise<boolean> {
 }
 
 const fallbackData = {
+  witness_name: "Testigo Electoral",
+  role: "delegate",
   items: [
     { id: "DEMO-ASSIGN-1", label: "PU-12 · Mesa 3", municipio: "Bogotá", total_voters: 0 },
     { id: "DEMO-ASSIGN-2", label: "PU-12 · Mesa 4", municipio: "Bogotá", total_voters: 0 },
   ] as Array<{ id: string; label: string; municipio?: string | null; total_voters?: number | null }>,
+}
+
+function buildWitnessNameFromEmail(email: string | null | undefined) {
+  const raw = (email ?? "").split("@")[0] ?? ""
+  const normalized = raw.replace(/[._-]+/g, " ").trim()
+  if (!normalized) return "Testigo Electoral"
+  return normalized
+    .split(/\s+/)
+    .map((word) => (word.length ? `${word[0].toUpperCase()}${word.slice(1).toLowerCase()}` : ""))
+    .join(" ")
 }
 
 export async function GET(req: NextRequest) {
@@ -42,7 +54,12 @@ export async function GET(req: NextRequest) {
   }
 
   if (!pool) {
-    return NextResponse.json({ ...fallbackData, warning: "DB no disponible, usando datos de respaldo" })
+    return NextResponse.json({
+      ...fallbackData,
+      witness_name: buildWitnessNameFromEmail(user.email),
+      role: user.role,
+      warning: "DB no disponible, usando datos de respaldo",
+    })
   }
 
   const includeDivipole = await ensureAssignmentDivipoleColumn()
@@ -95,7 +112,11 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    return NextResponse.json({ items })
+    return NextResponse.json({
+      items,
+      witness_name: buildWitnessNameFromEmail(user.email),
+      role: user.role,
+    })
   } catch (error) {
     console.error("Mesas asignadas error", error)
     return NextResponse.json({ ...fallbackData, error: "No se pudieron cargar las mesas asignadas" }, { status: 500 })

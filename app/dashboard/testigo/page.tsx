@@ -16,7 +16,6 @@ import {
   Loader2,
   MapPin,
   Minus,
-  Lock,
   Plus,
   ShieldCheck,
   Smartphone,
@@ -148,6 +147,27 @@ const mergeNotesWithSpecialVotes = (baseNote: string, specialVotes: SpecialVotes
   return cleanBase ? `${cleanBase}\n${summary}` : summary
 }
 
+const splitNotesFromSpecialVotes = (rawNote: string | null | undefined) => {
+  const text = String(rawNote ?? "")
+  const match = text.match(/\[ResumenMesa\]\s*blanco=(\d+);\s*nulos=(\d+);\s*no_marcados=(\d+)/i)
+  const special: SpecialVotes = {
+    blank: match ? normalizeNonNegativeInt(match[1]) : 0,
+    nulls: match ? normalizeNonNegativeInt(match[2]) : 0,
+    unmarked: match ? normalizeNonNegativeInt(match[3]) : 0,
+  }
+  const baseNote = text.replace(/\n?\[ResumenMesa\].*$/i, "").trim()
+  return { baseNote, special }
+}
+
+type MesaReportData = {
+  id: string
+  total: number
+  note: string
+  draftVotes: Record<string, number>
+  specialVotes: SpecialVotes
+  existingPhotoUrls: string[]
+}
+
 export default function TestigoElectoralPage() {
   const [mesas, setMesas] = useState<Mesa[]>([])
   const [candidates, setCandidates] = useState<Candidate[]>([])
@@ -162,6 +182,10 @@ export default function TestigoElectoralPage() {
   const [note, setNote] = useState("")
   const [completedMesas, setCompletedMesas] = useState<CompletedMesa[]>([])
   const [reportsMap, setReportsMap] = useState<Record<string, { id: string; total: number }>>({})
+  const [mesaReportDataMap, setMesaReportDataMap] = useState<Record<string, MesaReportData>>({})
+  const [existingPhotoUrls, setExistingPhotoUrls] = useState<string[]>([])
+  const [witnessName, setWitnessName] = useState("Testigo Electoral")
+  const [isWitnessFlowRole, setIsWitnessFlowRole] = useState(true)
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const autoAdvanceTimerRef = useRef<number | null>(null)
 
@@ -251,11 +275,19 @@ export default function TestigoElectoralPage() {
           : []
 
         setMesas(mappedMesas)
+        setWitnessName(
+          typeof mesasJson.witness_name === "string" && mesasJson.witness_name.trim().length > 0
+            ? mesasJson.witness_name.trim()
+            : "Testigo Electoral",
+        )
+        const roleFromApi = typeof mesasJson.role === "string" ? mesasJson.role.toLowerCase() : "delegate"
+        setIsWitnessFlowRole(roleFromApi === "delegate" || roleFromApi === "witness")
         setCandidates(mappedCandidates)
         setMesaIndex(0)
         setStep("home")
         setCompletedMesas([])
         setReportsMap({})
+        setMesaReportDataMap({})
       } catch (err: any) {
         if (cancelled) return
         const message = err?.message ?? "Error al cargar datos"
@@ -284,15 +316,40 @@ export default function TestigoElectoralPage() {
         const json = await res.json()
         if (cancelled) return
         const map: Record<string, { id: string; total: number }> = {}
+        const reportDataByMesa: Record<string, MesaReportData> = {}
         if (Array.isArray(json.items)) {
           json.items.forEach((item: any) => {
-            map[String(item.delegate_assignment_id)] = {
+            const assignmentId = String(item.delegate_assignment_id)
+            const parsedNotes = splitNotesFromSpecialVotes(item.notes)
+            const detailsArray = Array.isArray(item.details) ? item.details : []
+            const existingVotes: Record<string, number> = {}
+            detailsArray.forEach((detail: any) => {
+              const candidateId = typeof detail?.candidate_id === "string" ? detail.candidate_id : ""
+              if (!candidateId) return
+              existingVotes[candidateId] = normalizeNonNegativeInt(detail?.votes)
+            })
+            const photoUrls = Array.isArray(item.photo_urls)
+              ? item.photo_urls.filter((url: any) => typeof url === "string" && url.length > 0)
+              : typeof item.photo_url === "string" && item.photo_url.length > 0
+                ? [item.photo_url]
+                : []
+
+            map[assignmentId] = {
               id: String(item.id),
               total: Number(item.total_votes) || 0,
+            }
+            reportDataByMesa[assignmentId] = {
+              id: String(item.id),
+              total: Number(item.total_votes) || 0,
+              note: parsedNotes.baseNote,
+              draftVotes: existingVotes,
+              specialVotes: parsedNotes.special,
+              existingPhotoUrls: photoUrls,
             }
           })
         }
         setReportsMap(map)
+        setMesaReportDataMap(reportDataByMesa)
         const completed = mesas
           .filter((m) => map[m.id])
           .map((m) => ({ id: m.id, label: m.label, totalVotos: map[m.id].total, note: "" }))
@@ -315,15 +372,17 @@ export default function TestigoElectoralPage() {
     candidates.forEach((candidate) => {
       zeros[candidate.id] = 0
     })
-    setDraftVotes(zeros)
-    setSpecialVotes(EMPTY_SPECIAL_VOTES)
-    setNote("")
+    const currentReportData = mesaReportDataMap[currentMesa.id]
+    setDraftVotes({ ...zeros, ...(currentReportData?.draftVotes ?? {}) })
+    setSpecialVotes(currentReportData?.specialVotes ?? EMPTY_SPECIAL_VOTES)
+    setNote(currentReportData?.note ?? "")
+    setExistingPhotoUrls(currentReportData?.existingPhotoUrls ?? [])
 
     setPhotos((prev) => {
       prev.forEach((photo) => URL.revokeObjectURL(photo.preview))
       return []
     })
-  }, [mesaIndex, currentMesa?.id, candidates])
+  }, [mesaIndex, currentMesa?.id, candidates, mesaReportDataMap])
 
   useEffect(() => {
     return () => {
@@ -395,7 +454,8 @@ export default function TestigoElectoralPage() {
   const warningOver = mesaCapacity !== null && totalGeneralVotos > mesaCapacity
   const completedCount = completedMesas.length
   const pendingCount = Math.max(mesasTotal - completedCount, 0)
-  const isCurrentMesaFinalized = Boolean(currentMesa && reportsMap[currentMesa.id])
+  const hasCurrentMesaReport = Boolean(currentMesa && reportsMap[currentMesa.id])
+  const allMesasReported = mesasTotal > 0 && completedCount === mesasTotal
 
   const focusField = (fieldKey: string) => {
     const input = inputRefs.current[fieldKey]
@@ -422,14 +482,12 @@ export default function TestigoElectoralPage() {
   }
 
   const updateCandidateVotes = (candidateId: string, value: number, autoAdvance = false) => {
-    if (isCurrentMesaFinalized) return
     setSavingState("idle")
     setDraftVotes((prev) => ({ ...prev, [candidateId]: normalizeNonNegativeInt(value) }))
     if (autoAdvance) scheduleAutoAdvance(`candidate:${candidateId}`)
   }
 
   const updateSpecialVotes = (type: SpecialVoteKey, value: number, autoAdvance = false) => {
-    if (isCurrentMesaFinalized) return
     setSavingState("idle")
     setSpecialVotes((prev) => ({ ...prev, [type]: normalizeNonNegativeInt(value) }))
     if (autoAdvance) scheduleAutoAdvance(`special:${type}`)
@@ -501,16 +559,12 @@ export default function TestigoElectoralPage() {
   }
 
   const goToPhoto = () => {
-    if (isCurrentMesaFinalized) {
-      toast({ title: "Mesa finalizada", description: "Esta mesa ya fue enviada y bloqueada." })
-      return
-    }
     setStep("foto")
     vibrate(15)
   }
 
   const goToConfirm = () => {
-    if (photos.length === 0) {
+    if (photos.length === 0 && existingPhotoUrls.length === 0) {
       toast({ title: "Falta foto E14", description: "No puedes continuar sin al menos 1 foto." })
       vibrate([30, 40, 30])
       return
@@ -528,13 +582,9 @@ export default function TestigoElectoralPage() {
 
   const handleConfirm = async () => {
     if (!currentMesa) return
-    if (isCurrentMesaFinalized) {
-      toast({ title: "Mesa finalizada", description: "Esta mesa ya fue enviada y no permite edición." })
-      return
-    }
 
     const primaryConfirm = window.confirm(
-      `¿Finalizar mesa ${currentMesa.label}?\n\nTotal general: ${totalGeneralVotos} votos.\nEsta acción bloqueará la edición posterior.`,
+      `¿Guardar mesa ${currentMesa.label}?\n\nTotal general: ${totalGeneralVotos} votos.\nSi ya existe reporte para esta mesa, se actualizará sin duplicarlo.`,
     )
     if (!primaryConfirm) return
 
@@ -549,7 +599,7 @@ export default function TestigoElectoralPage() {
     vibrate(20)
 
     try {
-      if (photos.length === 0) {
+      if (photos.length === 0 && existingPhotoUrls.length === 0) {
         throw new Error("Debes subir al menos una foto del E14")
       }
       if (photos.length > maxPhotos) {
@@ -567,6 +617,7 @@ export default function TestigoElectoralPage() {
           votes: draftVotes[candidate.id] ?? 0,
         })),
         photos: photoPayloads,
+        existing_photo_urls: existingPhotoUrls,
       }
 
       const res = await fetch("/api/my/vote-report", {
@@ -584,10 +635,21 @@ export default function TestigoElectoralPage() {
       const json = await res.json()
       const reportId = json.report_id as string | null
       setSavingState("saved")
-      toast({ title: "Mesa finalizada", description: `${currentMesa.label} bloqueada correctamente` })
+      toast({ title: "Mesa guardada", description: `${currentMesa.label} actualizada correctamente` })
       setReportsMap((prev) => ({
         ...prev,
         [currentMesa.id]: { id: reportId ?? currentMesa.id, total: totalGeneralVotos },
+      }))
+      setMesaReportDataMap((prev) => ({
+        ...prev,
+        [currentMesa.id]: {
+          id: reportId ?? currentMesa.id,
+          total: totalGeneralVotos,
+          note,
+          draftVotes: { ...draftVotes },
+          specialVotes: { ...specialVotes },
+          existingPhotoUrls: existingPhotoUrls.length > 0 ? [...existingPhotoUrls] : [],
+        },
       }))
       setCompletedMesas((prev) => {
         const filtered = prev.filter((mesa) => mesa.id !== currentMesa.id)
@@ -600,6 +662,7 @@ export default function TestigoElectoralPage() {
       setDraftVotes(zeros)
       setSpecialVotes(EMPTY_SPECIAL_VOTES)
       setNote("")
+      setExistingPhotoUrls([])
       clearPhotos()
       setStep("done")
     } catch (err: any) {
@@ -623,10 +686,6 @@ export default function TestigoElectoralPage() {
 
   const cancelCurrentMesa = () => {
     if (!currentMesa) return
-    if (isCurrentMesaFinalized) {
-      toast({ title: "Mesa finalizada", description: "No se puede cancelar una mesa finalizada." })
-      return
-    }
     vibrate([10, 20])
     const zeros: Record<string, number> = {}
     candidates.forEach((candidate) => {
@@ -644,10 +703,6 @@ export default function TestigoElectoralPage() {
   const openMesa = (index: number) => {
     const mesa = mesas[index]
     if (!mesa) return
-    if (reportsMap[mesa.id]) {
-      toast({ title: "Mesa finalizada", description: "Esta mesa ya fue cerrada y no permite edición." })
-      return
-    }
     setMesaIndex(index)
     setStep("votos")
   }
@@ -725,8 +780,11 @@ export default function TestigoElectoralPage() {
               <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" />
               <span className="font-medium">{statusLabel}</span>
               <span className={statusColor}>
-                {step === "done" ? "✔️ Mesa cerrada" : photos.length > 0 ? "E14 listo" : "E14 pendiente"}
+                {step === "done" ? "✔️ Mesa guardada" : photos.length > 0 || existingPhotoUrls.length > 0 ? "E14 listo" : "E14 pendiente"}
               </span>
+              {hasCurrentMesaReport && step !== "done" && (
+                <span className="text-emerald-300">Reporte previo cargado para actualización</span>
+              )}
               <span className="text-muted-foreground">Solo ves tus mesas asignadas</span>
             </div>
           </div>
@@ -761,6 +819,29 @@ export default function TestigoElectoralPage() {
           </CardContent>
         </Card>
 
+        {isWitnessFlowRole && allMesasReported && (
+          <Card className="border-emerald-400/30 bg-gradient-to-r from-emerald-500/15 via-primary/10 to-cyan-500/15 shadow-lg">
+            <CardContent className="py-4">
+              <div className="flex items-start gap-3">
+                <div className="rounded-xl bg-emerald-500/20 p-2">
+                  <ShieldCheck className="h-6 w-6 text-emerald-300" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-base font-semibold text-foreground">
+                    Muchas gracias {witnessName}: ya reportaste el total de tus mesas asignadas.
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Excelente trabajo en terreno. Tu cobertura está completa y tus reportes quedaron registrados correctamente.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Si necesitas ajustar votos por candidato o partido en una mesa, ábrela y guarda nuevamente: el sistema actualiza el mismo reporte sin duplicarlo.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {error && (
           <div className="rounded-xl border border-border/60 bg-destructive/10 text-destructive px-3 py-2 text-sm">
             {error}
@@ -772,14 +853,14 @@ export default function TestigoElectoralPage() {
             <CardHeader className="pb-2">
               <CardTitle className="text-lg">Mesas asignadas</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Las mesas finalizadas quedan bloqueadas para edición.
+                Si una mesa ya tiene reporte, se cargan los datos previos para actualizar sin duplicados.
               </p>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2">
                 {mesas.map((mesa, index) => {
                   const completed = completedMesas.find((item) => item.id === mesa.id)
-                  const status = completed ? "Finalizada" : "Pendiente"
+                  const status = completed ? "Reportada" : "Pendiente"
                   return (
                     <div
                       key={mesa.id}
@@ -794,10 +875,9 @@ export default function TestigoElectoralPage() {
                         size="sm"
                         className="w-full sm:w-auto sm:min-w-[120px]"
                         onClick={() => openMesa(index)}
-                        disabled={Boolean(completed)}
                         variant={completed ? "outline" : "default"}
                       >
-                        {completed ? "Finalizada" : "Abrir"}
+                        Abrir
                       </Button>
                     </div>
                   )
@@ -817,24 +897,6 @@ export default function TestigoElectoralPage() {
 
         {step === "votos" && (
           <div className="relative grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-            {isCurrentMesaFinalized && (
-              <div className="absolute inset-0 z-50 rounded-2xl bg-background/85 backdrop-blur-sm flex items-center justify-center p-4">
-                <Card className="w-full max-w-md border-border/60 shadow-xl">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-lg">
-                      <Lock className="h-5 w-5 text-emerald-400" />
-                      Mesa en modo solo lectura
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3 text-sm">
-                    <p className="text-muted-foreground">
-                      Esta mesa ya fue finalizada y enviada. La edición está bloqueada para proteger la integridad del reporte.
-                    </p>
-                    <Button className="w-full" onClick={() => setStep("home")}>Volver a mesas asignadas</Button>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
             <div className="space-y-4">
               <Card className="bg-card border-border/60 shadow-lg">
                 <CardHeader className="pb-2">
@@ -906,7 +968,6 @@ export default function TestigoElectoralPage() {
                                 variant="outline"
                                 className="h-12 w-12 p-0"
                                 onClick={() => decrementCandidate(candidate.id)}
-                                disabled={isCurrentMesaFinalized}
                               >
                                 <Minus className="h-5 w-5" />
                               </Button>
@@ -931,7 +992,6 @@ export default function TestigoElectoralPage() {
                                   }
                                 }}
                                 className="h-12 w-full rounded-lg border border-border/60 bg-background px-3 text-center text-2xl font-bold tracking-tight text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                                disabled={isCurrentMesaFinalized}
                                 aria-label={`Votos de ${candidate.fullName}`}
                               />
                               <Button
@@ -939,7 +999,6 @@ export default function TestigoElectoralPage() {
                                 variant="outline"
                                 className="h-12 w-12 p-0"
                                 onClick={() => incrementCandidate(candidate.id)}
-                                disabled={isCurrentMesaFinalized}
                               >
                                 <Plus className="h-5 w-5" />
                               </Button>
@@ -972,7 +1031,6 @@ export default function TestigoElectoralPage() {
                           variant="outline"
                           className="h-12 w-12 p-0"
                           onClick={() => decrementSpecial(type)}
-                          disabled={isCurrentMesaFinalized}
                         >
                           <Minus className="h-5 w-5" />
                         </Button>
@@ -997,7 +1055,6 @@ export default function TestigoElectoralPage() {
                             }
                           }}
                           className="h-12 w-full rounded-lg border border-border/60 bg-background px-3 text-center text-2xl font-bold tracking-tight text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                          disabled={isCurrentMesaFinalized}
                           aria-label={SPECIAL_VOTE_LABELS[type]}
                         />
                         <Button
@@ -1005,7 +1062,6 @@ export default function TestigoElectoralPage() {
                           variant="outline"
                           className="h-12 w-12 p-0"
                           onClick={() => incrementSpecial(type)}
-                          disabled={isCurrentMesaFinalized}
                         >
                           <Plus className="h-5 w-5" />
                         </Button>
@@ -1020,7 +1076,6 @@ export default function TestigoElectoralPage() {
                   size="lg"
                   className="h-14 text-lg bg-emerald-600 hover:bg-emerald-700"
                   onClick={goToPhoto}
-                  disabled={isCurrentMesaFinalized}
                 >
                   Continuar con foto E14 <ChevronRight className="h-5 w-5" />
                 </Button>
@@ -1089,7 +1144,7 @@ export default function TestigoElectoralPage() {
                 <Camera className="h-5 w-5" />
                 Paso 2 · Foto E14 (obligatorio)
               </CardTitle>
-              <p className="text-sm text-muted-foreground">Sube entre 1 y {maxPhotos} fotos del E14.</p>
+              <p className="text-sm text-muted-foreground">Sube entre 1 y {maxPhotos} fotos del E14 o conserva las ya guardadas.</p>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="rounded-2xl border-2 border-dashed border-border/70 bg-muted/30 p-4 flex flex-col items-center gap-3 text-center">
@@ -1117,8 +1172,13 @@ export default function TestigoElectoralPage() {
                     <FileImage className="h-10 w-10 text-muted-foreground" />
                   </div>
                 )}
+                {existingPhotoUrls.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Ya existe {existingPhotoUrls.length} foto(s) guardada(s) para esta mesa.
+                  </p>
+                )}
                 <p className="text-sm font-semibold">
-                  Sube fotos del E14 ({photos.length}/{maxPhotos})
+                  Sube fotos del E14 ({photos.length} nuevas{existingPhotoUrls.length > 0 ? ` + ${existingPhotoUrls.length} guardadas` : ""})
                 </p>
                 <input
                   type="file"
@@ -1135,7 +1195,7 @@ export default function TestigoElectoralPage() {
                   <Button
                     className="flex-1 h-12 bg-emerald-600 hover:bg-emerald-700"
                     onClick={goToConfirm}
-                    disabled={photos.length === 0}
+                    disabled={photos.length === 0 && existingPhotoUrls.length === 0}
                   >
                     Confirmar foto <CheckCircle2 className="h-5 w-5 ml-2" />
                   </Button>
@@ -1153,9 +1213,9 @@ export default function TestigoElectoralPage() {
             <CardHeader className="pb-2">
               <CardTitle className="text-lg flex items-center gap-2">
                 <CircleCheck className="h-5 w-5" />
-                Paso 3 · Finalizar Mesa
+                Paso 3 · Guardar Mesa
               </CardTitle>
-              <p className="text-sm text-muted-foreground">Confirma totales antes de enviar y bloquear edición.</p>
+              <p className="text-sm text-muted-foreground">Confirma totales para guardar o actualizar esta mesa.</p>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 space-y-2">
@@ -1188,7 +1248,7 @@ export default function TestigoElectoralPage() {
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Foto E14</span>
-                  <span className="font-semibold text-emerald-400">{photos.length} cargadas</span>
+                  <span className="font-semibold text-emerald-400">{photos.length + existingPhotoUrls.length} disponible(s)</span>
                 </div>
                 <div className="space-y-2 pt-2">
                   <label className="text-xs text-muted-foreground">Nota rápida (hallazgos, incidencias)</label>
@@ -1210,7 +1270,7 @@ export default function TestigoElectoralPage() {
                   disabled={savingState === "saving"}
                 >
                   {savingState === "saving" && <Loader2 className="h-5 w-5 animate-spin" />}
-                  Finalizar Mesa
+                  {hasCurrentMesaReport ? "Actualizar Mesa" : "Guardar Mesa"}
                 </Button>
                 <Button size="lg" variant="outline" className="h-12" onClick={() => setStep("votos")}>
                   Volver a editar
@@ -1229,11 +1289,11 @@ export default function TestigoElectoralPage() {
               <div className="flex flex-col items-center gap-2">
                 <CheckCircle2 className="h-10 w-10 text-emerald-400" />
                 <CardTitle className="text-xl">{currentMesa.label} finalizada</CardTitle>
-                <p className="text-sm text-muted-foreground">Votos enviados y edición bloqueada.</p>
+                <p className="text-sm text-muted-foreground">Votos guardados correctamente para esta mesa.</p>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Badge variant="secondary">Mesa cerrada correctamente</Badge>
+              <Badge variant="secondary">Reporte guardado correctamente</Badge>
               <Button
                 size="lg"
                 className="w-full h-14 text-lg bg-emerald-600 hover:bg-emerald-700"
@@ -1259,7 +1319,7 @@ export default function TestigoElectoralPage() {
                         {mesa.note && <p className="text-xs text-muted-foreground truncate">Nota: {mesa.note}</p>}
                       </div>
                       <Badge variant="outline" className="text-xs">
-                        Bloqueada
+                        Reportada
                       </Badge>
                     </div>
                   ))}

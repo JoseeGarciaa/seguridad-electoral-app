@@ -138,6 +138,93 @@ function isAssignmentUniqueViolation(error: any): boolean {
   )
 }
 
+export async function GET() {
+  if (!pool) {
+    return NextResponse.json({ error: "DB no disponible" }, { status: 503 })
+  }
+
+  try {
+    const user = await getCurrentUser()
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    if (user.role !== "delegate" && user.role !== "witness") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
+    let delegateId = user.delegateId
+    if (!delegateId && pool && user.email) {
+      const fallback = await pool.query(`SELECT id FROM delegates WHERE LOWER(email) = LOWER($1) LIMIT 1`, [user.email])
+      delegateId = (fallback.rows[0]?.id as string | undefined) ?? null
+    }
+    if (!delegateId) {
+      return NextResponse.json({ error: "Perfil de testigo incompleto" }, { status: 403 })
+    }
+
+    const reportsRes = await pool.query(
+      `SELECT id, delegate_assignment_id, total_votes, notes, reported_at, photo_url
+         FROM vote_reports
+        WHERE delegate_id = $1
+          AND delegate_assignment_id IS NOT NULL
+        ORDER BY reported_at DESC NULLS LAST, created_at DESC`,
+      [delegateId],
+    )
+
+    const reportsByAssignment = new Map<string, any>()
+    for (const row of reportsRes.rows) {
+      const key = String(row.delegate_assignment_id)
+      if (!reportsByAssignment.has(key)) {
+        reportsByAssignment.set(key, row)
+      }
+    }
+
+    const uniqueReports = Array.from(reportsByAssignment.values())
+    const reportIds = uniqueReports.map((item) => String(item.id))
+
+    let detailRows: any[] = []
+    if (reportIds.length > 0) {
+      const detailsRes = await pool.query(
+        `SELECT vote_report_id, candidate_id, votes
+           FROM vote_details
+          WHERE vote_report_id = ANY($1::uuid[])`,
+        [reportIds],
+      )
+      detailRows = detailsRes.rows
+    }
+
+    const detailsByReport = new Map<string, Array<{ candidate_id: string; votes: number }>>()
+    for (const row of detailRows) {
+      const reportId = String(row.vote_report_id)
+      const current = detailsByReport.get(reportId) ?? []
+      current.push({
+        candidate_id: String(row.candidate_id),
+        votes: Number(row.votes) || 0,
+      })
+      detailsByReport.set(reportId, current)
+    }
+
+    const items = uniqueReports.map((row) => {
+      const reportId = String(row.id)
+      const primaryPhoto = typeof row.photo_url === "string" && row.photo_url.length > 0 ? row.photo_url : null
+      return {
+        id: reportId,
+        delegate_assignment_id: String(row.delegate_assignment_id),
+        total_votes: Number(row.total_votes) || 0,
+        notes: typeof row.notes === "string" ? row.notes : "",
+        reported_at: row.reported_at,
+        details: detailsByReport.get(reportId) ?? [],
+        photo_url: primaryPhoto,
+        photo_urls: primaryPhoto ? [primaryPhoto] : [],
+      }
+    })
+
+    return NextResponse.json({ items })
+  } catch (error: any) {
+    console.error("vote-report GET error", error)
+    return NextResponse.json({ error: error?.message ?? "No se pudieron cargar los reportes" }, { status: 500 })
+  }
+}
+
 export async function POST(req: NextRequest) {
   if (!pool) {
     return NextResponse.json({ error: "DB no disponible" }, { status: 503 })
