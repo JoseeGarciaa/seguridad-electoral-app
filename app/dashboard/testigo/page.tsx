@@ -864,7 +864,11 @@ export default function TestigoElectoralPage() {
                   return (
                     <div
                       key={mesa.id}
-                      className="rounded-lg border border-border/60 bg-muted/20 p-3 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between"
+                      className={`rounded-lg border p-3 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between ${
+                        completed
+                          ? "border-emerald-400/40 bg-emerald-500/10"
+                          : "border-amber-400/40 bg-amber-500/10"
+                      }`}
                     >
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold truncate">{mesa.label}</p>
