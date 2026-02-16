@@ -1,10 +1,8 @@
-const CACHE_NAME = "defensa-electoral-v2";
+const CACHE_NAME = "defensa-electoral-v4";
 const PRECACHE_URLS = [
   "/",
   "/manifest.webmanifest",
-  "/icon.svg",
-  "/apple-icon.png",
-  "/placeholder-logo.png"
+  "/123.jpeg"
 ];
 
 const CACHEABLE_EXTENSIONS = [
@@ -48,10 +46,27 @@ self.addEventListener("fetch", (event) => {
   const isNextAsset = url.pathname.startsWith("/_next/");
   const isApiRoute = url.pathname.startsWith("/api/");
   const isSwFile = url.pathname === "/sw.js";
+  const isManifest = url.pathname === "/manifest.webmanifest";
+  const isAppIcon = url.pathname === "/123.jpeg";
   const hasCacheableExtension = CACHEABLE_EXTENSIONS.some((ext) => url.pathname.endsWith(ext));
 
   if (!isSameOrigin || isNextAsset || isApiRoute || isSwFile) {
     event.respondWith(fetch(event.request));
+    return;
+  }
+
+  if (isManifest || isAppIcon) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
     return;
   }
 

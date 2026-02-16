@@ -10,19 +10,19 @@
   "icons": [
     {
       "src": "/123.jpeg",
-      "sizes": "any",
+      "sizes": "1024x1024",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/123.jpeg",
+      "sizes": "1024x1024",
       "type": "image/jpeg",
       "purpose": "any"
     },
     {
       "src": "/123.jpeg",
-      "sizes": "any",
-      "type": "image/jpeg",
-      "purpose": "any"
-    },
-    {
-      "src": "/123.jpeg",
-      "sizes": "any",
+      "sizes": "1024x1024",
       "type": "image/jpeg",
       "purpose": "any"
     }
