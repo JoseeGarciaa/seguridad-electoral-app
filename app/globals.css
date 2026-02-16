@@ -155,7 +155,7 @@
     overflow-x: hidden;
   }
   html {
-    font-size: clamp(17px, 4.2vw, 19px);
+    font-size: 16px;
   }
   * {
     @apply border-border outline-ring/50;
@@ -212,17 +212,8 @@
   .grid-background {
     background-size: 36px 36px;
   }
-  html {
-    font-size: calc(clamp(17px, 4.2vw, 19px) * 1.8);
-  }
   body {
-    line-height: 1.6;
+    line-height: 1.5;
     overflow-x: hidden;
-  }
-}
-
-@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
-  html {
-    zoom: 90%;
   }
 }
