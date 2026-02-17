@@ -3,6 +3,7 @@ import { pool } from "@/lib/pg"
 import { getCurrentUser, DELEGATE_ROLE } from "@/lib/auth"
 import { getStorageProvider, uploadFile } from "@/lib/storage"
 import { emitWarRoomUpdate } from "@/lib/warroom-events"
+import { buildOfficialComparison, ensureMesaFactLookupIndex } from "@/lib/mesa-fact"
 
 const dataUrlRegex = /^data:(?<mime>[^;]+);base64,(?<data>.+)$/i
 let hasEvidencesTable: boolean | null = null
@@ -302,21 +303,36 @@ export async function GET(req: NextRequest) {
            vr.municipality,
            vr.reported_at,
            vr.total_votes,
+           mf.votantes AS official_votantes,
+           mf.total_oficial AS official_total_oficial,
            COALESCE(d.full_name, 'Delegado') AS delegate_name
     FROM vote_reports vr
     LEFT JOIN delegates d ON d.id = vr.delegate_id
+    LEFT JOIN delegate_polling_assignments a ON a.id = vr.delegate_assignment_id
+    LEFT JOIN LATERAL (
+      SELECT
+        mf.votantes,
+        mf.votantes AS total_oficial
+      FROM mesa_fact mf
+      WHERE REGEXP_REPLACE(LOWER(TRIM(mf.puesto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(COALESCE(NULLIF(vr.polling_station_code, ''), a.polling_station))), '\\s+', ' ', 'g')
+      AND (
+        NULLIF(TRIM(COALESCE(vr.department, '')), '') IS NULL
+        OR REGEXP_REPLACE(LOWER(TRIM(mf.depto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(vr.department)), '\\s+', ' ', 'g')
+      )
+      AND (
+        NULLIF(TRIM(COALESCE(vr.municipality, '')), '') IS NULL
+        OR REGEXP_REPLACE(LOWER(TRIM(mf.municipio)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(vr.municipality)), '\\s+', ' ', 'g')
+      )
+      AND mf.mesa = COALESCE(
+        a.polling_station_number,
+        CASE WHEN vr.polling_station_code ~ '^[0-9]+$' THEN vr.polling_station_code::int ELSE NULL END
+      )
+      ORDER BY mf.mesaid
+      LIMIT 1
+    ) mf ON true
     ${where}
     ORDER BY vr.reported_at DESC NULLS LAST, vr.created_at DESC
     LIMIT ${limit}
-  `
-
-  const statsQuery = `
-    SELECT
-      COUNT(*) AS total,
-      0 AS criticas,
-      COUNT(*) AS abiertas
-    FROM vote_reports vr
-    ${delegateId ? "WHERE vr.delegate_id = $1" : ""}
   `
 
   if (!pool) {
@@ -327,9 +343,9 @@ export async function GET(req: NextRequest) {
     const client = await pool.connect()
     try {
       await ensureEvidencesTable()
-      const [listRes, statsRes, alertsRes] = await Promise.all([
+      await ensureMesaFactLookupIndex()
+      const [listRes, alertsRes] = await Promise.all([
         client.query(listQuery, values),
-        client.query(statsQuery, delegateId ? [delegateId] : []),
         client.query(
           `SELECT e.id, e.title, e.description, e.municipality, e.polling_station, e.uploaded_at, e.tags, e.url, e.status, e.vote_report_id,
             vr.photo_url AS report_photo_url,
@@ -345,19 +361,59 @@ export async function GET(req: NextRequest) {
         ),
       ])
 
-      const voteReportAlerts = listRes.rows.map((row) => ({
-        id: row.id as string,
-        title: `Nuevo reporte de votos (${row.delegate_name ?? "Delegado"})`,
-        level: "media" as const,
-        category: "votos",
-        municipality: (row.municipality as string | null) ?? "Sin municipio",
-        time: row.reported_at ? new Date(row.reported_at).toISOString() : null,
-        status: "abierta" as const,
-        detail: `Mesa ${row.polling_station_code ?? "Sin código"} · Total votos ${Number(row.total_votes ?? 0)}`,
-        delegateName: row.delegate_name as string,
-        reportId: row.id as string,
-        reportUrl: `/dashboard/reportes?reportId=${encodeURIComponent(row.id as string)}#reporte-${row.id as string}`,
-      }))
+      const voteReportAlerts = listRes.rows.flatMap((row) => {
+        const totalReported = Number(row.total_votes ?? 0)
+        const totalOficial = row.official_total_oficial === null || row.official_total_oficial === undefined
+          ? null
+          : Number(row.official_total_oficial)
+        const votantes = row.official_votantes === null || row.official_votantes === undefined
+          ? null
+          : Number(row.official_votantes)
+
+        const comparison = buildOfficialComparison(totalReported, totalOficial, votantes)
+
+        if (!comparison.hasOfficialData) {
+          return [{
+            id: `vr-missing-${row.id}`,
+            title: `Sin información oficial histórica (${row.delegate_name ?? "Delegado"})`,
+            level: "media" as const,
+            category: "votos",
+            municipality: (row.municipality as string | null) ?? "Sin municipio",
+            time: row.reported_at ? new Date(row.reported_at).toISOString() : null,
+            status: "abierta" as const,
+            detail: `Mesa ${row.polling_station_code ?? "Sin código"} · ${comparison.officialNotice}`,
+            delegateName: row.delegate_name as string,
+            reportId: row.id as string,
+            reportUrl: `/dashboard/reportes?reportId=${encodeURIComponent(row.id as string)}#reporte-${row.id as string}`,
+          }]
+        }
+
+        if (!comparison.outOfExpectedRange && !comparison.overVoting) return []
+
+        const title = comparison.increaseAlert
+          ? `Incremento de votación en mesa (${row.delegate_name ?? "Delegado"})`
+          : comparison.decreaseAlert
+            ? `Disminución de votación en mesa (${row.delegate_name ?? "Delegado"})`
+            : `Sobrevotación en mesa (${row.delegate_name ?? "Delegado"})`
+
+        const level = comparison.overVoting || comparison.increaseAlert ? "crítica" as const : "alta" as const
+        const scope = `Mesa ${row.polling_station_code ?? "Sin código"}`
+        const rangeText = `${comparison.expectedMin} - ${comparison.expectedMax}`
+
+        return [{
+          id: `vr-${row.id}`,
+          title,
+          level,
+          category: "votos",
+          municipality: (row.municipality as string | null) ?? "Sin municipio",
+          time: row.reported_at ? new Date(row.reported_at).toISOString() : null,
+          status: "abierta" as const,
+          detail: `${scope} · Reportado ${comparison.totalReported} · Oficial ${comparison.totalOficial} · Rango esperado (±5%) ${rangeText}`,
+          delegateName: row.delegate_name as string,
+          reportId: row.id as string,
+          reportUrl: `/dashboard/reportes?reportId=${encodeURIComponent(row.id as string)}#reporte-${row.id as string}`,
+        }]
+      })
 
       const manualAlerts = alertsRes.rows.map((row) => {
         const normalizeReportId = (value: string | null | undefined) => {
@@ -422,15 +478,17 @@ export async function GET(req: NextRequest) {
         return tb - ta
       })
 
+      const voteCriticas = voteReportAlerts.filter((v) => v.level === "crítica").length
       const manualCriticas = manualAlerts.filter((m) => m.level === "crítica").length
       const manualAbiertas = manualAlerts.filter((m) => m.status !== "resuelta").length
-      const total = Number(statsRes.rows[0]?.total ?? 0) + manualAlerts.length
+      const voteAbiertas = voteReportAlerts.length
+      const total = manualAlerts.length + voteReportAlerts.length
       return NextResponse.json({
         items: combined,
         stats: {
           total,
-          criticas: Number(statsRes.rows[0]?.criticas ?? 0) + manualCriticas,
-          abiertas: Number(statsRes.rows[0]?.abiertas ?? 0) + manualAbiertas,
+          criticas: voteCriticas + manualCriticas,
+          abiertas: voteAbiertas + manualAbiertas,
         },
         viewerRole: user.role ?? null,
       })

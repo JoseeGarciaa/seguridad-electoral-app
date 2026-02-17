@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth"
 import { pool } from "@/lib/pg"
+import { getVoteReportMesaComparison } from "@/lib/mesa-fact"
 
 function isUuid(value: string): boolean {
   return /^[0-9a-fA-F-]{36}$/.test(value)
@@ -75,6 +76,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     }
 
     const row = reportRes.rows[0]
+    const official = await getVoteReportMesaComparison(reportId)
 
     return NextResponse.json({
       id: row.id as string,
@@ -115,6 +117,23 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         uploadedBy: null,
         uploadedById: null,
       }] : [])),
+      officialMesa: official?.officialMesa ?? null,
+      officialComparison: official?.comparison ?? {
+        totalReported: Number(row.total_votes ?? 0),
+        totalOficial: null,
+        votantes: null,
+        expectedMin: null,
+        expectedMax: null,
+        diferencia: null,
+        participacion: null,
+        overVoting: false,
+        mismatch: false,
+        increaseAlert: false,
+        decreaseAlert: false,
+        outOfExpectedRange: false,
+        hasOfficialData: false,
+        officialNotice: "Sin información oficial histórica para el puesto y mesa reportados.",
+      },
     })
   } catch (error: any) {
     console.error("vote-report detail error", error)

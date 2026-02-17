@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { pool } from "@/lib/pg"
 import { getCurrentUser } from "@/lib/auth"
+import { buildOfficialComparison, ensureMesaFactLookupIndex } from "@/lib/mesa-fact"
 
 function emptyPayload() {
   return {
@@ -267,8 +268,78 @@ export async function GET() {
     ? `SELECT COUNT(*) AS missing_photo FROM vote_reports WHERE delegate_id = $1 AND photo_url IS NULL`
     : `SELECT COUNT(*) AS missing_photo FROM vote_reports WHERE photo_url IS NULL`
 
+  const voteRangeAlertsQuery = delegateId
+    ? `
+      SELECT
+        vr.id,
+        vr.total_votes,
+        vr.polling_station_code,
+        vr.municipality,
+        vr.reported_at,
+        mf.votantes,
+        mf.votantes AS total_oficial
+      FROM vote_reports vr
+      LEFT JOIN delegate_polling_assignments a ON a.id = vr.delegate_assignment_id
+      LEFT JOIN LATERAL (
+        SELECT *
+        FROM mesa_fact mf
+        WHERE REGEXP_REPLACE(LOWER(TRIM(mf.puesto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(COALESCE(NULLIF(vr.polling_station_code, ''), a.polling_station))), '\\s+', ' ', 'g')
+        AND (
+          NULLIF(TRIM(COALESCE(vr.department, '')), '') IS NULL
+          OR REGEXP_REPLACE(LOWER(TRIM(mf.depto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(vr.department)), '\\s+', ' ', 'g')
+        )
+        AND (
+          NULLIF(TRIM(COALESCE(vr.municipality, '')), '') IS NULL
+          OR REGEXP_REPLACE(LOWER(TRIM(mf.municipio)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(vr.municipality)), '\\s+', ' ', 'g')
+        )
+        AND mf.mesa = COALESCE(
+          a.polling_station_number,
+          CASE WHEN vr.polling_station_code ~ '^[0-9]+$' THEN vr.polling_station_code::int ELSE NULL END
+        )
+        ORDER BY mf.mesaid
+        LIMIT 1
+      ) mf ON true
+      WHERE vr.delegate_id = $1
+      ORDER BY vr.reported_at DESC NULLS LAST, vr.created_at DESC
+      LIMIT 150
+    `
+    : `
+      SELECT
+        vr.id,
+        vr.total_votes,
+        vr.polling_station_code,
+        vr.municipality,
+        vr.reported_at,
+        mf.votantes,
+        mf.votantes AS total_oficial
+      FROM vote_reports vr
+      LEFT JOIN delegate_polling_assignments a ON a.id = vr.delegate_assignment_id
+      LEFT JOIN LATERAL (
+        SELECT *
+        FROM mesa_fact mf
+        WHERE REGEXP_REPLACE(LOWER(TRIM(mf.puesto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(COALESCE(NULLIF(vr.polling_station_code, ''), a.polling_station))), '\\s+', ' ', 'g')
+        AND (
+          NULLIF(TRIM(COALESCE(vr.department, '')), '') IS NULL
+          OR REGEXP_REPLACE(LOWER(TRIM(mf.depto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(vr.department)), '\\s+', ' ', 'g')
+        )
+        AND (
+          NULLIF(TRIM(COALESCE(vr.municipality, '')), '') IS NULL
+          OR REGEXP_REPLACE(LOWER(TRIM(mf.municipio)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(vr.municipality)), '\\s+', ' ', 'g')
+        )
+        AND mf.mesa = COALESCE(
+          a.polling_station_number,
+          CASE WHEN vr.polling_station_code ~ '^[0-9]+$' THEN vr.polling_station_code::int ELSE NULL END
+        )
+        ORDER BY mf.mesaid
+        LIMIT 1
+      ) mf ON true
+      ORDER BY vr.reported_at DESC NULLS LAST, vr.created_at DESC
+      LIMIT 150
+    `
+
   const client = await pool.connect()
   try {
+    await ensureMesaFactLookupIndex()
     const [statsRows, candidateRows, partyCandidateRows, partyListRows, partyCandidateDetailRows, feedRows, evidenceRows, photoMissRows] = await Promise.all([
       safeQuery<any>(client, statsQuery, delegateParams),
       safeQuery<any>(client, candidateQuery, delegateParams),
@@ -279,6 +350,7 @@ export async function GET() {
       safeQuery<any>(client, evidencesQuery, delegateParams),
       safeQuery<any>(client, missingPhotoQuery, delegateParams),
     ])
+    const voteRangeRows = await safeQuery<any>(client, voteRangeAlertsQuery, delegateParams)
 
     let muniRows = await safeQuery<any>(client, municipalitiesQuery, delegateParams)
     if (muniRows.length === 0) {
@@ -553,7 +625,34 @@ export async function GET() {
         ]
       : []
 
-    const alerts = [...lowCoverageAlerts, ...warningCoverageAlerts, ...photoAlerts].slice(0, 10)
+    const voteRangeAlerts = voteRangeRows
+      .flatMap((row, idx) => {
+        const totalReported = Number(row.total_votes ?? 0)
+        const totalOficial = row.total_oficial === null || row.total_oficial === undefined ? null : Number(row.total_oficial)
+        const votantes = row.votantes === null || row.votantes === undefined ? null : Number(row.votantes)
+        const comparison = buildOfficialComparison(totalReported, totalOficial, votantes)
+
+        if (!comparison.hasOfficialData) return []
+        if (!comparison.outOfExpectedRange && !comparison.overVoting) return []
+
+        const severity = comparison.overVoting || comparison.increaseAlert ? "critical" as const : "warning" as const
+        const title = comparison.increaseAlert
+          ? "Incremento de votación"
+          : comparison.decreaseAlert
+            ? "Disminución de votación"
+            : "Sobrevotación"
+
+        return [{
+          id: `vote-range-${idx}-${row.id}`,
+          severity,
+          title,
+          message: `Mesa ${row.polling_station_code ?? "Sin código"} · Reportado ${comparison.totalReported} · Oficial ${comparison.totalOficial} · Rango ±5% ${comparison.expectedMin}-${comparison.expectedMax}`,
+          time: row.reported_at ? new Date(row.reported_at as string).toISOString() : statsPayload.lastUpdated,
+        }]
+      })
+      .slice(0, 6)
+
+    const alerts = [...voteRangeAlerts, ...lowCoverageAlerts, ...warningCoverageAlerts, ...photoAlerts].slice(0, 10)
 
     return NextResponse.json({
       stats: statsPayload,

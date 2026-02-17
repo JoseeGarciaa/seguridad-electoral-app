@@ -10,6 +10,7 @@ import {
   Users, 
   Camera,
   Bell,
+  BarChart3,
   Settings,
   CheckSquare,
   FileCheck,
@@ -33,12 +34,20 @@ interface SidebarProps {
   user: User
 }
 
-const navigation = [
+type NavItem = {
+  name: string
+  href: string
+  icon: any
+  adminOnly?: boolean
+}
+
+const navigation: NavItem[] = [
   { name: "Centro de Mando", href: "/dashboard", icon: LayoutDashboard },
   { name: "Territorio PRO", href: "/dashboard/territorio", icon: Map },
   { name: "Equipo", href: "/dashboard/equipo", icon: Users },
   { name: "Evidencias", href: "/dashboard/evidencias", icon: Camera },
   { name: "Alertas", href: "/dashboard/alertas", icon: Bell },
+  { name: "Resultados 2022", href: "/dashboard/resultados-2022", icon: BarChart3, adminOnly: true },
   { name: "Cumplimiento", href: "/dashboard/cumplimiento", icon: FileCheck },
 ]
 
@@ -51,9 +60,10 @@ const witnessNavigation = [
   { name: "Carga E14", href: "/dashboard/testigo#e14", icon: Camera },
 ]
 
-const simplifiedNavigation = [
+const simplifiedNavigation: NavItem[] = [
   { name: "Evidencias", href: "/dashboard/evidencias", icon: Camera },
   { name: "Alertas", href: "/dashboard/alertas", icon: Bell },
+  { name: "Resultados 2022", href: "/dashboard/resultados-2022", icon: BarChart3, adminOnly: true },
   { name: "Cumplimiento", href: "/dashboard/cumplimiento", icon: FileCheck },
 ]
 
@@ -62,6 +72,7 @@ export function DashboardSidebar({ user }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   const roleLabel = user.profile?.role_extended?.toLowerCase() ?? ""
   const isWitness = user.role === "witness" || roleLabel.includes("testigo")
+  const isAdmin = user.role === "admin"
 
   const restrictedForDelegate = new Set([
     "/dashboard/territorio",
@@ -71,9 +82,10 @@ export function DashboardSidebar({ user }: SidebarProps) {
   const isDelegate = !isWitness && (user.role === "delegate" || roleLabel.includes("delegado"))
   const isSimplifiedRole = isWitness || isDelegate
   const baseNavigation = isSimplifiedRole ? simplifiedNavigation : navigation
+  const roleFilteredNavigation = baseNavigation.filter((item) => !item.adminOnly || isAdmin)
   const visibleNavigation = isDelegate
-    ? baseNavigation.filter((item) => !restrictedForDelegate.has(item.href))
-    : baseNavigation
+    ? roleFilteredNavigation.filter((item) => !restrictedForDelegate.has(item.href))
+    : roleFilteredNavigation
   const visibleBottomNavigation = isWitness ? [] : bottomNavigation
 
   return (

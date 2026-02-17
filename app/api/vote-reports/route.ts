@@ -1,5 +1,6 @@
 import { pool } from "@/lib/pg"
 import { getCurrentUser } from "@/lib/auth"
+import { buildOfficialComparison, ensureMesaFactLookupIndex } from "@/lib/mesa-fact"
 
 export async function GET(req: Request) {
   const user = await getCurrentUser()
@@ -39,6 +40,8 @@ export async function GET(req: Request) {
       vr.total_votes,
       vr.reported_at,
       vr.notes,
+      mf.votantes AS official_votantes,
+      mf.total_oficial AS official_total_oficial,
       json_agg(
         json_build_object(
           'candidateId', c.id,
@@ -54,18 +57,53 @@ export async function GET(req: Request) {
     FROM vote_reports vr
     LEFT JOIN delegates d ON d.id = vr.delegate_id
     LEFT JOIN delegate_polling_assignments a ON a.id = vr.delegate_assignment_id
+    LEFT JOIN LATERAL (
+      SELECT
+        mf.votantes,
+        mf.votantes AS total_oficial
+      FROM mesa_fact mf
+      WHERE REGEXP_REPLACE(LOWER(TRIM(mf.puesto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(COALESCE(NULLIF(vr.polling_station_code, ''), a.polling_station))), '\\s+', ' ', 'g')
+      AND (
+        NULLIF(TRIM(COALESCE(vr.department, '')), '') IS NULL
+        OR REGEXP_REPLACE(LOWER(TRIM(mf.depto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(vr.department)), '\\s+', ' ', 'g')
+      )
+      AND (
+        NULLIF(TRIM(COALESCE(vr.municipality, '')), '') IS NULL
+        OR REGEXP_REPLACE(LOWER(TRIM(mf.municipio)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(vr.municipality)), '\\s+', ' ', 'g')
+      )
+      AND mf.mesa = COALESCE(
+        a.polling_station_number,
+        CASE WHEN vr.polling_station_code ~ '^[0-9]+$' THEN vr.polling_station_code::int ELSE NULL END
+      )
+      ORDER BY mf.mesaid
+      LIMIT 1
+    ) mf ON true
     LEFT JOIN vote_details vd ON vd.vote_report_id = vr.id
     LEFT JOIN candidates c ON c.id = vd.candidate_id
     ${where}
-    GROUP BY vr.id, d.full_name, a.polling_station_number
+    GROUP BY vr.id, d.full_name, a.polling_station_number, mf.votantes, mf.total_oficial
     ORDER BY vr.reported_at DESC NULLS LAST, vr.created_at DESC
     LIMIT 300
   `
 
   try {
+    await ensureMesaFactLookupIndex()
     const { rows } = await pool.query(query, params)
     return Response.json({
       items: rows.map((row: any) => ({
+        ...(() => {
+          const totalVotes = Number(row.total_votes ?? 0)
+          const totalOficial = row.official_total_oficial === null || row.official_total_oficial === undefined
+            ? null
+            : Number(row.official_total_oficial)
+          const votantes = row.official_votantes === null || row.official_votantes === undefined
+            ? null
+            : Number(row.official_votantes)
+
+          return {
+            officialComparison: buildOfficialComparison(totalVotes, totalOficial, votantes),
+          }
+        })(),
         id: row.id as string,
         delegateId: row.delegate_id as string | null,
         assignmentId: row.delegate_assignment_id as string | null,

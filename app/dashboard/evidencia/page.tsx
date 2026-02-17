@@ -233,6 +233,37 @@ const SPECIAL_VOTE_LABELS: Record<"blank" | "nulls" | "unmarked", string> = {
 
 const normalizeNonNegativeInt = (value: number) => Math.max(0, Math.min(9999, Math.trunc(Number.isFinite(value) ? value : 0)))
 
+const HIDDEN_TECHNICAL_TAG_KEYS = new Set([
+  "scope",
+  "level",
+  "kind",
+  "audience",
+  "alerttype",
+  "threshold",
+  "expected_per_table",
+  "report",
+  "dept",
+  "puesto",
+])
+
+function getDisplayTags(tags: string[]): string[] {
+  const unique = new Set<string>()
+  tags.forEach((rawTag) => {
+    const tag = String(rawTag ?? "").trim()
+    if (!tag) return
+
+    const separatorIndex = tag.indexOf(":")
+    if (separatorIndex > 0) {
+      const key = tag.slice(0, separatorIndex).trim().toLowerCase()
+      if (HIDDEN_TECHNICAL_TAG_KEYS.has(key)) return
+    }
+
+    unique.add(tag.replace(/\s+/g, " "))
+  })
+
+  return Array.from(unique)
+}
+
 const parseSummaryFromNotes = (rawNotes?: string | null) => {
   const notes = typeof rawNotes === "string" ? rawNotes : ""
   const summaryMatch = notes.match(/\[ResumenMesa\]\s*blanco=(\d+)\s*;\s*nulos=(\d+)\s*;\s*no_marcados=(\d+)/i)
@@ -1426,7 +1457,7 @@ export default function EvidenciaPage() {
                 <DialogTitle>{detailItem?.title ?? "Evidencia"}</DialogTitle>
               </DialogHeader>
               {detailItem && (
-                <div className="grid gap-4 md:grid-cols-[2fr,1fr]">
+                <div className="grid gap-4 md:grid-cols-[2fr,1fr] min-w-0">
                   <div className="rounded-xl border border-zinc-800 overflow-hidden bg-zinc-950/50">
                     <img
                       src={detailItem.url || detailItem.localPreview || ""}
@@ -1434,19 +1465,19 @@ export default function EvidenciaPage() {
                       className="w-full h-[320px] md:h-[420px] object-contain bg-black"
                     />
                   </div>
-                  <div className="space-y-4 text-sm text-muted-foreground">
+                  <div className="space-y-4 text-sm text-muted-foreground min-w-0">
                     <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                      <div className="flex items-center justify-between">
-                        <div>
+                      <div className="flex items-center justify-between gap-2 min-w-0">
+                        <div className="min-w-0">
                           <p className="text-xs uppercase tracking-wide text-zinc-500">Mesa reportada</p>
-                          <p className="text-foreground font-semibold">{detailItem.pollingStation ?? "Sin dato"}</p>
+                          <p className="text-foreground font-semibold break-words">{detailItem.pollingStation ?? "Sin dato"}</p>
                         </div>
-                        <Badge className="bg-zinc-800 border-zinc-700 text-xs">{detailItem.status}</Badge>
+                        <Badge className="bg-zinc-800 border-zinc-700 text-xs shrink-0 max-w-full">{detailItem.status}</Badge>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
                           <p className="text-[11px] uppercase text-zinc-500">Municipio</p>
-                          <p className="text-foreground font-semibold">{detailItem.municipality ?? "Sin dato"}</p>
+                          <p className="text-foreground font-semibold break-words">{detailItem.municipality ?? "Sin dato"}</p>
                         </div>
                         <div className="sm:text-right">
                           <p className="text-[11px] uppercase text-zinc-500">Subido</p>
@@ -1462,19 +1493,19 @@ export default function EvidenciaPage() {
                       </div>
                       <div>
                         <p className="text-[11px] uppercase text-zinc-500">Subido por</p>
-                        <p className="text-foreground font-semibold">{detailItem.uploadedBy ?? "Sin dato"}</p>
+                        <p className="text-foreground font-semibold break-words">{detailItem.uploadedBy ?? "Sin dato"}</p>
                       </div>
                       <div>
                         <p className="text-[11px] uppercase text-zinc-500">Descripcion</p>
-                        <p className="text-foreground leading-snug">{detailItem.description ?? "Sin descripcion"}</p>
+                        <p className="text-foreground leading-snug break-words">{detailItem.description ?? "Sin descripcion"}</p>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {detailItem.tags.map((tag) => (
-                          <Badge key={`${detailItem.id}-detail-${tag}`} variant="outline" className="bg-zinc-800/50 border-zinc-700 text-xs">
+                        {getDisplayTags(detailItem.tags).map((tag) => (
+                          <Badge key={`${detailItem.id}-detail-${tag}`} variant="outline" className="bg-zinc-800/50 border-zinc-700 text-xs max-w-full whitespace-normal break-words text-left h-auto py-1">
                             {tag}
                           </Badge>
                         ))}
-                        {detailItem.tags.length === 0 && <p className="text-xs text-muted-foreground">Sin etiquetas</p>}
+                        {getDisplayTags(detailItem.tags).length === 0 && <p className="text-xs text-muted-foreground">Sin etiquetas visibles</p>}
                       </div>
                     </div>
 
@@ -1493,11 +1524,11 @@ export default function EvidenciaPage() {
                           </div>
                           <div className="flex items-center justify-between text-sm">
                             <span className="text-muted-foreground">Mesa</span>
-                            <span className="text-foreground font-semibold">{reportDetail.pollingStation ?? detailItem.pollingStation ?? "Sin dato"}</span>
+                            <span className="text-foreground font-semibold break-words text-right">{reportDetail.pollingStation ?? detailItem.pollingStation ?? "Sin dato"}</span>
                           </div>
                           <div className="flex items-center justify-between text-sm">
                             <span className="text-muted-foreground">Municipio</span>
-                            <span className="text-foreground font-semibold">{reportDetail.municipality ?? detailItem.municipality ?? "Sin dato"}</span>
+                            <span className="text-foreground font-semibold break-words text-right">{reportDetail.municipality ?? detailItem.municipality ?? "Sin dato"}</span>
                           </div>
                         </div>
 
@@ -2121,25 +2152,27 @@ function ConfirmStep({ flow, onSubmit }: { flow: VoteFlowState; onSubmit: () => 
 
 function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter }: { item: EvidenceItem; onVerify: () => void; onView: () => void; onDelete: () => void; dateFormatter: Intl.DateTimeFormat }) {
   const isVerified = item.status === "verified"
+  const displayTags = getDisplayTags(item.tags)
+
   return (
-    <Card className="bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 transition-colors">
-      <CardContent className="p-4 space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2">
+    <Card className="bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 transition-colors overflow-hidden">
+      <CardContent className="p-4 space-y-3 min-w-0">
+        <div className="flex items-start justify-between gap-3 min-w-0">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <div className="p-2 rounded-lg bg-zinc-800 border-zinc-700">
               {typeIcons[item.type] ?? <FileText className="h-5 w-5" />}
             </div>
-            <div>
-              <p className="font-semibold text-foreground leading-tight">{item.title}</p>
-              <p className="text-xs text-muted-foreground">{item.municipality ?? ""}</p>
+            <div className="min-w-0">
+              <p className="font-semibold text-foreground leading-tight break-words">{item.title}</p>
+              <p className="text-xs text-muted-foreground break-words">{item.municipality ?? ""}</p>
             </div>
           </div>
-          <Badge className={statusConfig[item.status]?.color ?? "bg-zinc-700/50"}>
+          <Badge className={`shrink-0 max-w-full ${statusConfig[item.status]?.color ?? "bg-zinc-700/50"}`}>
             {statusConfig[item.status]?.label ?? item.status}
           </Badge>
         </div>
 
-        <p className="text-sm text-muted-foreground line-clamp-2">{item.description}</p>
+        <p className="text-sm text-muted-foreground line-clamp-2 break-words">{item.description}</p>
 
         <div className="flex flex-wrap gap-2">
           {item.pollingStation && (
@@ -2156,31 +2189,32 @@ function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter }: { ite
           )}
         </div>
 
-        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+        <div className="flex min-w-0 flex-wrap gap-2 text-xs text-muted-foreground">
           {item.pollingStation && (
-            <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {item.pollingStation}</span>
+            <span className="flex min-w-0 items-start gap-1 break-words"><MapPin className="h-3 w-3 mt-0.5 shrink-0" /> <span className="break-words">{item.pollingStation}</span></span>
           )}
           {item.uploadedBy && (
-            <span className="flex items-center gap-1"><User className="h-3 w-3" /> {item.uploadedBy}</span>
+            <span className="flex min-w-0 items-start gap-1 break-words"><User className="h-3 w-3 mt-0.5 shrink-0" /> <span className="break-words">{item.uploadedBy}</span></span>
           )}
           {item.uploadedAt && (
-            <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {dateFormatter.format(new Date(item.uploadedAt))}</span>
+            <span className="flex min-w-0 items-start gap-1 break-words"><Clock className="h-3 w-3 mt-0.5 shrink-0" /> <span className="break-words">{dateFormatter.format(new Date(item.uploadedAt))}</span></span>
           )}
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {item.tags.map((tag) => (
-            <Badge key={`${item.id}-${tag}`} variant="outline" className="bg-zinc-800/50 border-zinc-700 text-xs">
+          {displayTags.map((tag) => (
+            <Badge key={`${item.id}-${tag}`} variant="outline" className="bg-zinc-800/50 border-zinc-700 text-xs max-w-full whitespace-normal break-words text-left h-auto py-1">
               {tag}
             </Badge>
           ))}
+          {displayTags.length === 0 && <p className="text-xs text-muted-foreground">Sin etiquetas visibles</p>}
         </div>
 
         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-800">
           <Button
             variant="outline"
             size="sm"
-            className="h-9 bg-zinc-800/60 border-zinc-700"
+            className="h-9 bg-zinc-800/60 border-zinc-700 max-w-full"
             onClick={onView}
           >
             <Eye className="h-4 w-4 mr-2" /> Ver
@@ -2188,7 +2222,7 @@ function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter }: { ite
           <Button
             variant="outline"
             size="sm"
-            className="h-9 bg-emerald-600/30 border-emerald-700 text-emerald-100"
+            className="h-9 bg-emerald-600/30 border-emerald-700 text-emerald-100 max-w-full"
             onClick={onVerify}
             disabled={isVerified}
           >

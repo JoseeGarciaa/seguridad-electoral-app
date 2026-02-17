@@ -708,19 +708,25 @@ export default function AlertasPage() {
             className={`bg-zinc-900/60 border-zinc-800 overflow-hidden ${isCritica ? "border-red-500/70 ring-2 ring-red-500/40" : ""}`}
           >
             <div className={`h-1 w-full bg-gradient-to-r from-cyan-500 via-amber-500 to-red-500 ${isCritica ? "bg-red-600" : ""}`} />
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <h3 className="font-semibold text-foreground">{alerta.title}</h3>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <MapPin className="h-3 w-3" /> {alerta.department ? `${alerta.department} · ${alerta.municipality}` : alerta.municipality}
-                    <Clock className="h-3 w-3" /> {alerta.time}
-                    {alerta.delegateName && <span className="truncate">· {alerta.delegateName}</span>}
+            <CardContent className="p-4 space-y-3 min-w-0">
+              <div className="flex items-start justify-between gap-3 min-w-0">
+                <div className="space-y-1 min-w-0 flex-1">
+                  <h3 className="font-semibold text-foreground break-words">{alerta.title}</h3>
+                  <div className="flex min-w-0 flex-wrap items-start gap-2 text-xs text-muted-foreground">
+                    <span className="flex min-w-0 items-start gap-1 break-words">
+                      <MapPin className="h-3 w-3 mt-0.5 shrink-0" />
+                      <span className="break-words">{alerta.department ? `${alerta.department} · ${alerta.municipality}` : alerta.municipality}</span>
+                    </span>
+                    <span className="flex min-w-0 items-start gap-1 break-words">
+                      <Clock className="h-3 w-3 mt-0.5 shrink-0" />
+                      <span className="break-words">{alerta.time}</span>
+                    </span>
+                    {alerta.delegateName && <span className="break-words">· {alerta.delegateName}</span>}
                   </div>
                 </div>
-                <Badge className={levelColor[alerta.level] ?? "bg-zinc-700"}>{alerta.level}</Badge>
+                <Badge className={`shrink-0 max-w-full ${levelColor[alerta.level] ?? "bg-zinc-700"}`}>{alerta.level}</Badge>
               </div>
-              <p className="text-sm text-muted-foreground leading-relaxed">{alerta.detail}</p>
+              <p className="text-sm text-muted-foreground leading-relaxed break-words">{alerta.detail}</p>
 
               {alerta.photos && alerta.photos.length > 0 && (
                 <div className="flex gap-2 overflow-x-auto py-1">
@@ -742,12 +748,12 @@ export default function AlertasPage() {
                 </div>
               )}
 
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <Badge className="bg-zinc-800/80 border-zinc-700">{alerta.category}</Badge>
-                  <Badge className={statusColor[statusDisplay] ?? "bg-zinc-700"}>{statusDisplay}</Badge>
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <Badge className="bg-zinc-800/80 border-zinc-700 max-w-full whitespace-normal break-words text-left h-auto py-1">{alerta.category}</Badge>
+                  <Badge className={`max-w-full whitespace-normal break-words text-left h-auto py-1 ${statusColor[statusDisplay] ?? "bg-zinc-700"}`}>{statusDisplay}</Badge>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     className="text-xs text-cyan-400 hover:underline"
                     onClick={() => {
@@ -784,17 +790,17 @@ export default function AlertasPage() {
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {selected?.title}
-              {selected && <Badge className={levelColor[selected.level] ?? "bg-zinc-700"}>{selected.level}</Badge>}
+            <DialogTitle className="flex items-center gap-2 min-w-0">
+              <span className="break-words">{selected?.title}</span>
+              {selected && <Badge className={`shrink-0 max-w-full ${levelColor[selected.level] ?? "bg-zinc-700"}`}>{selected.level}</Badge>}
             </DialogTitle>
-            <DialogDescription className="text-xs">
+            <DialogDescription className="text-xs break-words">
               {selected?.department ? `${selected.department} · ${selected.municipality}` : selected?.municipality} • {selected?.time} {selected?.delegateName ? `• ${selected.delegateName}` : ""}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3 text-sm text-foreground">
-            <p className="text-muted-foreground">{selected?.detail || "Sin notas"}</p>
+          <div className="space-y-3 text-sm text-foreground min-w-0">
+            <p className="text-muted-foreground break-words">{selected?.detail || "Sin notas"}</p>
             {selected?.photos && selected.photos.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {selected.photos.map((src, idx) => (
@@ -818,10 +824,10 @@ export default function AlertasPage() {
             )}
           </div>
 
-          <DialogFooter className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Badge className="bg-zinc-800/80 border-zinc-700">{selected?.category}</Badge>
-              <Badge className={statusColor[selected?.statusLabel ?? selected?.status ?? ""] ?? "bg-zinc-700"}>
+          <DialogFooter className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="bg-zinc-800/80 border-zinc-700 max-w-full whitespace-normal break-words text-left h-auto py-1">{selected?.category}</Badge>
+              <Badge className={`max-w-full whitespace-normal break-words text-left h-auto py-1 ${statusColor[selected?.statusLabel ?? selected?.status ?? ""] ?? "bg-zinc-700"}`}>
                 {selected?.statusLabel ?? selected?.status}
               </Badge>
             </div>
