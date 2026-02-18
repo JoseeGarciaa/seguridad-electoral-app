@@ -349,6 +349,64 @@ async function validateCodes(
   return { deptCode: validDept, muniCode: validMuni }
 }
 
+async function resolveAssignmentLocationIds(
+  client: any,
+  pollingStationId: string | null,
+  pollingStationCode: string | null,
+  departmentCode: string | null,
+  municipalityCode: string | null,
+): Promise<string[]> {
+  const normalizeExpr = (columnExpr: string) => `
+    UPPER(
+      REGEXP_REPLACE(
+        TRANSLATE(TRIM(${columnExpr}), 'áàäâãéèëêíìïîóòöôõúùüûñçÁÀÄÂÃÉÈËÊÍÌÏÎÓÒÖÔÕÚÙÜÛÑÇ', 'aaaaaeeeeiiiiooooouuuuncAAAAAEEEEIIIIOOOOOUUUUNC'),
+        '\\s+',
+        ' ',
+        'g'
+      )
+    )
+  `
+
+  if (pollingStationId) {
+    const byIdRes = await client.query<{ id: string }>(
+      `WITH target AS (
+         SELECT dd, mm, ${normalizeExpr("puesto")} AS puesto_key
+         FROM divipole_locations
+         WHERE id = $1
+         LIMIT 1
+       )
+       SELECT d.id::text AS id
+       FROM divipole_locations d
+       JOIN target t
+         ON d.dd = t.dd
+        AND d.mm = t.mm
+        AND ${normalizeExpr("d.puesto")} = t.puesto_key`,
+      [pollingStationId]
+    )
+
+    if (byIdRes.rowCount) {
+      return Array.from(new Set(byIdRes.rows.map((r) => r.id).filter(Boolean)))
+    }
+
+    return [pollingStationId]
+  }
+
+  if (!pollingStationCode || !departmentCode || !municipalityCode) {
+    return []
+  }
+
+  const byCodeRes = await client.query<{ id: string }>(
+    `SELECT id::text AS id
+     FROM divipole_locations
+     WHERE dd = $1
+       AND mm = $2
+       AND ${normalizeExpr("puesto")} = ${normalizeExpr("$3")}`,
+    [departmentCode, municipalityCode, pollingStationCode]
+  )
+
+  return Array.from(new Set(byCodeRes.rows.map((r) => r.id).filter(Boolean)))
+}
+
 async function upsertDelegateAndProfile(client: any, payload: MemberPayload, meta: DelegateMeta) {
   const supervisorId = meta.hasSupervisor ? await resolveSupervisor(client, payload.supervisor_email) : null
   const role = meta.hasRole ? payload.role ?? "witness" : null
@@ -476,6 +534,16 @@ async function upsertDelegateAndProfile(client: any, payload: MemberPayload, met
 
   const assignments = assignmentNumbers
 
+  const assignmentLocationIds = meta.hasDpaLocationId
+    ? await resolveAssignmentLocationIds(
+        client,
+        pollingStationId,
+        payload.polling_station_code ?? null,
+        deptCode ?? null,
+        muniCode ?? null,
+      )
+    : []
+
   if (meta.hasTeamProfiles) {
     const updateProfileSql = `
       UPDATE team_profiles
@@ -504,19 +572,35 @@ async function upsertDelegateAndProfile(client: any, payload: MemberPayload, met
     }
   }
 
-  await client.query(`DELETE FROM delegate_polling_assignments WHERE delegate_id = $1`, [savedDelegateId])
   if (assignments.length) {
+    if (meta.hasDpaLocationId && assignmentLocationIds.length === 0) {
+      throw new Error("Selecciona un puesto de votación válido")
+    }
+
     const conflict = await client.query(
       meta.hasDpaLocationId
         ? `SELECT polling_station_number FROM delegate_polling_assignments
-           WHERE divipole_location_id = $1 AND polling_station_number = ANY($2)`
+           WHERE divipole_location_id::text = ANY($1::text[])
+             AND polling_station_number = ANY($2)
+             AND delegate_id <> $3`
         : `SELECT polling_station_number FROM delegate_polling_assignments
-           WHERE polling_station = $1 AND polling_station_number = ANY($2)`,
-      [meta.hasDpaLocationId ? pollingStationId : payload.polling_station_code ?? null, assignments]
+           WHERE polling_station = $1
+             AND polling_station_number = ANY($2)
+             AND delegate_id <> $3`,
+      [
+        meta.hasDpaLocationId ? assignmentLocationIds : payload.polling_station_code ?? null,
+        assignments,
+        savedDelegateId,
+      ]
     )
     if (conflict.rowCount) {
       throw new Error("Algunas mesas ya están asignadas a otro testigo")
     }
+  }
+
+  await client.query(`DELETE FROM delegate_polling_assignments WHERE delegate_id = $1`, [savedDelegateId])
+
+  if (assignments.length) {
 
     for (const num of assignments) {
       const assignmentId = crypto.randomUUID()
@@ -757,22 +841,39 @@ export async function PATCH(req: NextRequest) {
       )
     }
 
-    await client.query(`DELETE FROM delegate_polling_assignments WHERE delegate_id = $1`, [id])
+    const assignmentLocationIds = meta.hasDpaLocationId
+      ? await resolveAssignmentLocationIds(
+          client,
+          nextLocationId ?? null,
+          nextCode ?? null,
+          nextDept ?? null,
+          nextMuni ?? null,
+        )
+      : []
+
     if ((meta.hasDpaLocationId ? nextLocationId : nextCode) && assignmentNumbers.length) {
-      if (meta.hasDpaLocationId && !nextLocationId) {
+      if (meta.hasDpaLocationId && assignmentLocationIds.length === 0) {
         throw new Error("Selecciona un puesto de votación válido")
       }
       const conflict = await client.query(
         meta.hasDpaLocationId
           ? `SELECT polling_station_number FROM delegate_polling_assignments
-             WHERE divipole_location_id = $1 AND polling_station_number = ANY($2) AND delegate_id <> $3`
+             WHERE divipole_location_id::text = ANY($1::text[])
+               AND polling_station_number = ANY($2)
+               AND delegate_id <> $3`
           : `SELECT polling_station_number FROM delegate_polling_assignments
              WHERE polling_station = $1 AND polling_station_number = ANY($2) AND delegate_id <> $3`,
-        [meta.hasDpaLocationId ? nextLocationId : nextCode, assignmentNumbers, id]
+        [meta.hasDpaLocationId ? assignmentLocationIds : nextCode, assignmentNumbers, id]
       )
       if (conflict.rowCount) {
         throw new Error("Algunas mesas ya están asignadas a otro testigo")
       }
+
+    }
+
+    await client.query(`DELETE FROM delegate_polling_assignments WHERE delegate_id = $1`, [id])
+
+    if ((meta.hasDpaLocationId ? nextLocationId : nextCode) && assignmentNumbers.length) {
 
       for (const num of assignmentNumbers) {
         const assignmentId = crypto.randomUUID()

@@ -21,6 +21,14 @@ type PuestoRow = {
   longitud: number | null
 }
 
+const normalizeName = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase()
+
 export async function GET(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams
   const dept = searchParams.get("dept")?.trim() || null
@@ -176,6 +184,71 @@ export async function GET(req: NextRequest) {
         [dept, muni]
       )
 
+      const dpaColumnsRes = await client.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'delegate_polling_assignments'`
+      )
+      const dpaCols = new Set<string>(dpaColumnsRes.rows.map((r: any) => r.column_name))
+      const hasDpaLocationId = dpaCols.has("divipole_location_id")
+
+      const takenByPuesto = new Map<string, Set<number>>()
+
+      if (rows.length > 0) {
+        if (hasDpaLocationId) {
+          const locationIds = Array.from(new Set(rows.flatMap((r) => r.location_ids ?? []).filter(Boolean)))
+          if (locationIds.length > 0) {
+            const takenRes = await client.query<{ location_id: string; polling_station_number: number }>(
+              `SELECT divipole_location_id::text AS location_id, polling_station_number
+               FROM delegate_polling_assignments
+               WHERE divipole_location_id::text = ANY($1::text[])
+                 AND polling_station_number IS NOT NULL`,
+              [locationIds]
+            )
+
+            const byLocation = new Map<string, Set<number>>()
+            for (const row of takenRes.rows) {
+              const tableNumber = Number(row.polling_station_number)
+              if (!Number.isInteger(tableNumber)) continue
+              const bucket = byLocation.get(row.location_id) ?? new Set<number>()
+              bucket.add(tableNumber)
+              byLocation.set(row.location_id, bucket)
+            }
+
+            for (const puesto of rows) {
+              const key = normalizeName(puesto.puesto)
+              const bucket = takenByPuesto.get(key) ?? new Set<number>()
+              for (const locationId of puesto.location_ids ?? []) {
+                const used = byLocation.get(locationId)
+                if (!used) continue
+                for (const tableNumber of used) bucket.add(tableNumber)
+              }
+              takenByPuesto.set(key, bucket)
+            }
+          }
+        }
+
+        if (!hasDpaLocationId) {
+          const stationNames = Array.from(new Set(rows.map((r) => r.puesto).filter(Boolean)))
+          if (stationNames.length > 0) {
+            const takenRes = await client.query<{ polling_station: string; polling_station_number: number }>(
+              `SELECT polling_station, polling_station_number
+               FROM delegate_polling_assignments
+               WHERE polling_station = ANY($1::text[])
+                 AND polling_station_number IS NOT NULL`,
+              [stationNames]
+            )
+
+            for (const row of takenRes.rows) {
+              const key = normalizeName(row.polling_station)
+              const tableNumber = Number(row.polling_station_number)
+              if (!key || !Number.isInteger(tableNumber)) continue
+              const bucket = takenByPuesto.get(key) ?? new Set<number>()
+              bucket.add(tableNumber)
+              takenByPuesto.set(key, bucket)
+            }
+          }
+        }
+      }
+
       return NextResponse.json({
         puestos: rows.map((r) => ({
           id: r.id,
@@ -190,7 +263,7 @@ export async function GET(req: NextRequest) {
           total: r.total,
           lat: r.latitud,
           lng: r.longitud,
-          takenTables: [],
+          takenTables: Array.from(takenByPuesto.get(normalizeName(r.puesto)) ?? []).sort((a, b) => a - b),
         })),
       })
     } finally {

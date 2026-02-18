@@ -77,6 +77,11 @@ type PuestoOption = {
   takenTables?: number[]
 }
 
+type MesaOption = {
+  value: string
+  unavailable: boolean
+}
+
 const roleLabels: Record<string, string> = {
   witness: "Testigo",
   coordinator: "Coordinador",
@@ -318,7 +323,7 @@ function EquipoInner() {
     [puestos, newMember.pollingStationCode, newMember.pollingStationId]
   )
 
-  const mesaOptions = useMemo(() => {
+  const mesaOptions = useMemo<MesaOption[]>(() => {
     const total = selectedPuesto?.mesas ?? 0
     if (total <= 0) return []
 
@@ -327,16 +332,30 @@ function EquipoInner() {
       .map((n) => Number(n))
       .filter((n) => Number.isInteger(n))
     const isEditingSamePuesto = selectedMember && selectedMember.pollingStationCode === selectedPuesto?.code
-    if (isEditingSamePuesto) {
-      currentNumbers.forEach((n) => taken.delete(n))
-    }
+    const currentSet = new Set(currentNumbers)
 
     return Array.from({ length: total }, (_, i) => i + 1)
-      .filter((num) => !taken.has(num))
-      .map((num) => String(num))
+      .map((num) => {
+        const unavailable = taken.has(num) && !(isEditingSamePuesto && currentSet.has(num))
+        return { value: String(num), unavailable }
+      })
   }, [selectedPuesto, newMember.pollingStationNumbers, selectedMember])
 
-  const toggleMesa = (value: string) => {
+  useEffect(() => {
+    const available = new Set(mesaOptions.filter((m) => !m.unavailable).map((m) => m.value))
+    setNewMember((prev) => {
+      const filtered = prev.pollingStationNumbers.filter((m) => available.has(m))
+      if (filtered.length === prev.pollingStationNumbers.length) return prev
+      return {
+        ...prev,
+        pollingStationNumbers: filtered,
+        pollingStationNumber: filtered[0] ?? "",
+      }
+    })
+  }, [mesaOptions])
+
+  const toggleMesa = (value: string, unavailable: boolean) => {
+    if (unavailable) return
     setNewMember((prev) => {
       const exists = prev.pollingStationNumbers.includes(value)
       const next = exists
@@ -729,22 +748,32 @@ function EquipoInner() {
                 {mesaOptions.length === 0 ? (
                   <p className="text-xs text-muted-foreground">Sin mesas disponibles en este puesto.</p>
                 ) : (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
                     {mesaOptions.map((m) => {
-                      const active = newMember.pollingStationNumbers.includes(m)
+                      const active = newMember.pollingStationNumbers.includes(m.value)
                       return (
                         <Button
-                          key={m}
+                          key={m.value}
                           type="button"
                           size="sm"
+                          disabled={m.unavailable}
                           variant={active ? "default" : "outline"}
-                          className={active ? "bg-cyan-600 hover:bg-cyan-700" : "bg-zinc-800/50 border-zinc-700"}
-                          onClick={() => toggleMesa(m)}
+                          className={
+                            m.unavailable
+                              ? "bg-zinc-900/80 border-zinc-800 text-zinc-500 cursor-not-allowed"
+                              : active
+                              ? "bg-cyan-600 hover:bg-cyan-700"
+                              : "bg-zinc-800/50 border-zinc-700"
+                          }
+                          onClick={() => toggleMesa(m.value, m.unavailable)}
                         >
-                          Mesa {m}
+                          Mesa {m.value}
                         </Button>
                       )
                     })}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">Las mesas atenuadas ya están asignadas y no se pueden seleccionar.</p>
                   </div>
                 )}
               </div>
@@ -949,22 +978,32 @@ function EquipoInner() {
                 {mesaOptions.length === 0 ? (
                   <p className="text-xs text-muted-foreground">Sin mesas disponibles en este puesto.</p>
                 ) : (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
                     {mesaOptions.map((m) => {
-                      const active = newMember.pollingStationNumbers.includes(m)
+                      const active = newMember.pollingStationNumbers.includes(m.value)
                       return (
                         <Button
-                          key={m}
+                          key={m.value}
                           type="button"
                           size="sm"
+                          disabled={m.unavailable}
                           variant={active ? "default" : "outline"}
-                          className={active ? "bg-cyan-600 hover:bg-cyan-700" : "bg-zinc-800/50 border-zinc-700"}
-                          onClick={() => toggleMesa(m)}
+                          className={
+                            m.unavailable
+                              ? "bg-zinc-900/80 border-zinc-800 text-zinc-500 cursor-not-allowed"
+                              : active
+                              ? "bg-cyan-600 hover:bg-cyan-700"
+                              : "bg-zinc-800/50 border-zinc-700"
+                          }
+                          onClick={() => toggleMesa(m.value, m.unavailable)}
                         >
-                          Mesa {m}
+                          Mesa {m.value}
                         </Button>
                       )
                     })}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">Las mesas atenuadas ya están asignadas y no se pueden seleccionar.</p>
                   </div>
                 )}
               </div>
