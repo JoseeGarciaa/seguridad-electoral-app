@@ -362,6 +362,7 @@ const chipFilters = [
 export default function EvidenciaPage() {
   const mesasSectionRef = useRef<HTMLDivElement | null>(null)
   const [view, setView] = useState<"hub" | "wizard" | "evidencias">("hub")
+  const [viewerRole, setViewerRole] = useState<string | null>(null)
   const [flow, setFlow] = useState<VoteFlowState>({
     votos: 0,
     photos: [],
@@ -398,6 +399,7 @@ export default function EvidenciaPage() {
     () => new Intl.DateTimeFormat("es-CO", { dateStyle: "short", timeStyle: "short", timeZone: "UTC" }),
     []
   )
+  const isAdmin = viewerRole === "admin"
 
   const notify = (message: string, description?: string) => toast({ title: message, description })
 
@@ -584,6 +586,7 @@ export default function EvidenciaPage() {
       setPartidos(mappedPartidos)
       setCandidatos(catalogosData?.candidatos ?? [])
       const evidenceItems = evidencesData?.items ?? []
+      setViewerRole(typeof evidencesData?.viewerRole === "string" ? evidencesData.viewerRole : null)
       setItems(evidenceItems)
       setStats(evidencesData?.stats ?? defaultStats)
 
@@ -622,6 +625,12 @@ export default function EvidenciaPage() {
   useEffect(() => {
     preload()
   }, [preload])
+
+  useEffect(() => {
+    if (viewerRole === "admin" && view === "hub") {
+      setView("evidencias")
+    }
+  }, [viewerRole, view])
 
   useEffect(() => {
     setIsOffline(typeof navigator !== "undefined" ? !navigator.onLine : false)
@@ -1192,7 +1201,7 @@ export default function EvidenciaPage() {
         </div>
       )}
 
-      {view === "hub" && (
+      {view === "hub" && !isAdmin && (
         <div className="grid gap-4 lg:grid-cols-3">
           <Card className="lg:col-span-2 border-border/70 bg-card/60 backdrop-blur">
             <CardHeader className="pb-2 space-y-2">
@@ -1349,20 +1358,24 @@ export default function EvidenciaPage() {
       {view === "evidencias" && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              className="bg-zinc-800/60 border-zinc-700"
-              onClick={() => setView("hub")}
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" /> Volver
-            </Button>
-            <Button
-              variant="outline"
-              className="bg-zinc-800/60 border-zinc-700"
-              onClick={() => setView("wizard")}
-            >
-              <Camera className="h-4 w-4 mr-2" /> Registrar votos
-            </Button>
+            {!isAdmin && (
+              <Button
+                variant="outline"
+                className="bg-zinc-800/60 border-zinc-700"
+                onClick={() => setView("hub")}
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" /> Volver
+              </Button>
+            )}
+            {!isAdmin && (
+              <Button
+                variant="outline"
+                className="bg-zinc-800/60 border-zinc-700"
+                onClick={() => setView("wizard")}
+              >
+                <Camera className="h-4 w-4 mr-2" /> Registrar votos
+              </Button>
+            )}
             <Button className="bg-emerald-600 hover:bg-emerald-700">
               <ImageIcon className="h-4 w-4 mr-2" /> Ver evidencias
             </Button>

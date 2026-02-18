@@ -188,7 +188,10 @@ export async function GET(req: NextRequest) {
 
   if (!pool) {
     console.warn("DATABASE_URL not set; serving evidences fallback data")
-    return NextResponse.json(fallbackData)
+    return NextResponse.json({
+      ...fallbackData,
+      viewerRole: user.role,
+    })
   }
 
   await ensureEvidencesTable()
@@ -227,13 +230,18 @@ export async function GET(req: NextRequest) {
           documents: Number(statsRes.rows[0]?.documents ?? 0),
           verified: Number(statsRes.rows[0]?.verified ?? 0),
         },
+        viewerRole: user.role,
       })
     } finally {
       client.release()
     }
   } catch (error) {
     console.error("Evidences GET error", error)
-    return NextResponse.json({ ...fallbackData, warning: "DB no disponible, usando datos de respaldo" })
+    return NextResponse.json({
+      ...fallbackData,
+      warning: "DB no disponible, usando datos de respaldo",
+      viewerRole: user.role,
+    })
   }
 }
 
