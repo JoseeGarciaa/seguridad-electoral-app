@@ -1,26 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import { AlertTriangle, AlertCircle, XCircle, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { toast } from "@/components/ui/use-toast"
 import { useWarRoomData, type WarRoomAlert } from "./warroom-data-provider"
 
 type ApiAlertStatus = "abierta" | "atendida" | "resuelta"
-
-type ApiAlertItem = {
-  id: string
-  title?: string
-  level?: "crítica" | "alta" | "media"
-  category?: string
-  municipality?: string
-  time?: string | null
-  detail?: string | null
-  status?: ApiAlertStatus | string | null
-  reportUrl?: string | null
-}
 
 type PanelAlert = WarRoomAlert & {
   reportUrl?: string | null
@@ -56,11 +43,7 @@ const noticeStyles = {
 
 export function AlertsPanel() {
   const router = useRouter()
-  const { data, error: warroomError } = useWarRoomData()
-  const [alerts, setAlerts] = useState<PanelAlert[]>([])
-  const [loading, setLoading] = useState(true)
-  const [alertsError, setAlertsError] = useState<string | null>(null)
-  const isFirstLoad = useRef(true)
+  const { data, error: warroomError, loading } = useWarRoomData()
 
   const normalizeStatus = (value?: string | null): ApiAlertStatus => {
     const normalized = value?.toLowerCase()
@@ -77,69 +60,9 @@ export function AlertsPanel() {
     return normalized && normalized.length > 0 ? normalized : null
   }
 
-  useEffect(() => {
-    let cancelled = false
-
-    const severityMap: Record<string, keyof typeof severityStyles> = {
-      "crítica": "critical",
-      "alta": "warning",
-      "media": "info",
-    }
-
-    const mapApiAlert = (item: ApiAlertItem, idx: number) => {
-      const isVoteNotice = (item.category ?? "").toLowerCase() === "votos"
-      const severity = isVoteNotice ? "warning" : severityMap[item.level ?? ""] ?? "info"
-      const municipality = item.municipality?.trim() || "Sin municipio"
-      const detail = item.detail?.trim()
-      const message = detail ? `${municipality} - ${detail}` : municipality
-      const time = item.time ?? new Date().toISOString()
-      const status = normalizeStatus(item.status)
-      const id = resolveAlertId(item.id) ?? `alert-${idx}-${time}`
-      return {
-        id,
-        severity,
-        title: item.title || "Alerta",
-        message,
-        time,
-        status,
-        category: item.category,
-        reportUrl: item.reportUrl ?? null,
-      }
-    }
-
-    const loadAlerts = async () => {
-      if (isFirstLoad.current) {
-        setLoading(true)
-      }
-      setAlertsError(null)
-      try {
-        const res = await fetch("/api/alerts?limit=20", { cache: "no-store" })
-        if (!res.ok) throw new Error("No se pudo cargar las alertas reales")
-        const json = await res.json()
-        if (cancelled) return
-        const items: ApiAlertItem[] = Array.isArray(json?.items) ? json.items : []
-        const mapped = filterOpenAlerts(items.map(mapApiAlert))
-        const fallback = filterOpenAlerts((data?.alerts ?? []).map((a) => ({ ...a, status: a.status ?? "abierta" })))
-        setAlerts(mapped.length > 0 ? mapped : fallback)
-      } catch (err: any) {
-        if (cancelled) return
-        const fallback = data?.alerts ?? []
-        setAlerts(filterOpenAlerts(fallback))
-        const message = err?.message ?? "No se pudo cargar las alertas"
-        setAlertsError(message)
-        toast({ title: "Alertas", description: message })
-      } finally {
-        if (!cancelled) {
-          setLoading(false)
-          isFirstLoad.current = false
-        }
-      }
-    }
-
-    loadAlerts()
-    return () => {
-      cancelled = true
-    }
+  const alerts = useMemo<PanelAlert[]>(() => {
+    const items = (data?.alerts ?? []) as PanelAlert[]
+    return filterOpenAlerts(items.map((item) => ({ ...item, status: item.status ?? "abierta" })))
   }, [data?.alerts])
 
   const handleAlert = (id?: string, reportUrl?: string | null) => {
@@ -181,7 +104,7 @@ export function AlertsPanel() {
       {/* Alerts List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         <AnimatePresence>
-          {(alertsError || warroomError) && <p className="text-sm text-destructive px-2">{alertsError || warroomError}</p>}
+          {warroomError && <p className="text-sm text-destructive px-2">{warroomError}</p>}
           {loading && <div className="h-16 rounded-lg bg-secondary/50 animate-pulse" />}
           {!loading && renderAlerts.map((alert, index) => {
             const keyId = resolveAlertId(alert.id)

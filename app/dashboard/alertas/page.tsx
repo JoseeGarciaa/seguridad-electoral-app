@@ -94,9 +94,13 @@ function getPreferredPhotoSource(src: string): string {
 }
 
 export default function AlertasPage() {
+  const INITIAL_VISIBLE_ALERTS = 3
+  const LOAD_MORE_STEP = 3
+
   const router = useRouter()
   const [data, setData] = useState<AlertItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [statsLoading, setStatsLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [level, setLevel] = useState("todas")
   const [stats, setStats] = useState({ total: 0, criticas: 0, abiertas: 0 })
@@ -114,6 +118,8 @@ export default function AlertasPage() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [photoDataUrls, setPhotoDataUrls] = useState<Record<string, string>>({})
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_ALERTS)
+  const isInitialLoading = statsLoading
 
   const fetchImageAsDataUrl = useCallback(async (url?: string | null) => {
     if (!url) return null
@@ -197,8 +203,14 @@ export default function AlertasPage() {
     return { items, statsPayload, viewerRole: payload?.viewerRole ?? null }
   }, [])
 
-  const fetchAlerts = useCallback(async () => {
-    const res = await fetch("/api/alerts", { cache: "no-store", credentials: "include" })
+  const fetchAlerts = useCallback(async (options?: { limit?: number; signal?: AbortSignal }) => {
+    const limit = options?.limit ?? 200
+    const query = new URLSearchParams({ limit: String(limit) })
+    const res = await fetch(`/api/alerts?${query.toString()}`, {
+      cache: "no-store",
+      credentials: "include",
+      signal: options?.signal,
+    })
     if (res.status === 401) {
       throw new Error("AUTH_REQUIRED")
     }
@@ -210,51 +222,114 @@ export default function AlertasPage() {
     return mapApiAlerts(json)
   }, [mapApiAlerts])
 
+  const fetchAlertStats = useCallback(async (options?: { signal?: AbortSignal }) => {
+    const query = new URLSearchParams({ mode: "stats", limit: "200" })
+    const res = await fetch(`/api/alerts?${query.toString()}`, {
+      cache: "no-store",
+      credentials: "include",
+      signal: options?.signal,
+    })
+    if (res.status === 401) {
+      throw new Error("AUTH_REQUIRED")
+    }
+    if (res.status === 403) {
+      throw new Error("FORBIDDEN")
+    }
+    if (!res.ok) throw new Error("No se pudo cargar indicadores")
+    const json = await res.json()
+    return {
+      total: Number(json?.stats?.total ?? 0),
+      criticas: Number(json?.stats?.criticas ?? 0),
+      abiertas: Number(json?.stats?.abiertas ?? 0),
+      viewerRole: json?.viewerRole ?? null,
+    }
+  }, [])
+
   const fetchAlertsRef = useRef(fetchAlerts)
+  const fetchAlertStatsRef = useRef(fetchAlertStats)
   useEffect(() => {
     fetchAlertsRef.current = fetchAlerts
   }, [fetchAlerts])
+  useEffect(() => {
+    fetchAlertStatsRef.current = fetchAlertStats
+  }, [fetchAlertStats])
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
+
+    const handleLoadError = (err: any) => {
+      if (err?.name === "AbortError") return
+      if (err?.message === "AUTH_REQUIRED") {
+        if (!cancelled) {
+          setData([])
+          setStats({ total: 0, criticas: 0, abiertas: 0 })
+          setViewerRole(null)
+          router.replace("/login")
+        }
+        return
+      }
+      if (err?.message === "FORBIDDEN") {
+        if (!cancelled) {
+          setData([])
+          setStats({ total: 0, criticas: 0, abiertas: 0 })
+          setViewerRole(null)
+          toast({ title: "Alertas", description: "No tienes permisos para ver esta vista" })
+        }
+        return
+      }
+      console.error(err)
+      if (!cancelled) {
+        toast({ title: "Alertas", description: err?.message ?? "No se pudo cargar" })
+      }
+    }
+
     const load = async () => {
       setLoading(true)
+      setStatsLoading(true)
       try {
-        const { items, statsPayload, viewerRole } = await fetchAlertsRef.current()
+        const statsPromise = fetchAlertStatsRef.current({ signal: controller.signal })
+          .then((statsResult) => {
+            if (cancelled) return
+            setStats({
+              total: statsResult.total,
+              criticas: statsResult.criticas,
+              abiertas: statsResult.abiertas,
+            })
+            setViewerRole(statsResult.viewerRole)
+            setStatsLoading(false)
+          })
+          .catch((err) => {
+            handleLoadError(err)
+            if (!cancelled) setStatsLoading(false)
+          })
+
+        const quick = await fetchAlertsRef.current({ limit: 40, signal: controller.signal })
         if (cancelled) return
-        setData(items)
-        setStats(statsPayload)
-        setViewerRole(viewerRole ?? null)
+        setData(quick.items)
+        setViewerRole(quick.viewerRole ?? null)
+        setLoading(false)
+
+        const full = await fetchAlertsRef.current({ limit: 200, signal: controller.signal })
+        if (cancelled) return
+        setData(full.items)
+        setViewerRole(full.viewerRole ?? null)
+
+        await statsPromise
       } catch (err: any) {
-        if (err?.message === "AUTH_REQUIRED") {
-          if (!cancelled) {
-            setData([])
-            setStats({ total: 0, criticas: 0, abiertas: 0 })
-            setViewerRole(null)
-            router.replace("/login")
-          }
-          return
-        }
-        if (err?.message === "FORBIDDEN") {
-          if (!cancelled) {
-            setData([])
-            setStats({ total: 0, criticas: 0, abiertas: 0 })
-            setViewerRole(null)
-            toast({ title: "Alertas", description: "No tienes permisos para ver esta vista" })
-          }
-          return
-        }
-        console.error(err)
-        toast({ title: "Alertas", description: err?.message ?? "No se pudo cargar" })
+        handleLoadError(err)
+        if (!cancelled) setStatsLoading(false)
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
+
     load()
     return () => {
       cancelled = true
+      controller.abort()
     }
-  }, [])
+  }, [router])
 
   useEffect(() => {
     if (loading) return
@@ -318,6 +393,14 @@ export default function AlertasPage() {
       return matchesSearch && matchesLevel;
     });
   }, [data, level, search]);
+
+  const visibleAlerts = useMemo(() => {
+    return filtered.slice(0, visibleCount)
+  }, [filtered, visibleCount])
+
+  useEffect(() => {
+    setVisibleCount(INITIAL_VISIBLE_ALERTS)
+  }, [search, level])
 
   const puestos = useMemo(() => {
     const map = new Map<string, string>()
@@ -460,10 +543,15 @@ export default function AlertasPage() {
 
       // Refresh from server to ensure persistence across navigations
       try {
-        const { items, statsPayload, viewerRole } = await fetchAlerts()
+        const { items, viewerRole } = await fetchAlerts()
         setData(items)
-        setStats(statsPayload)
         setViewerRole(viewerRole ?? null)
+        const freshStats = await fetchAlertStats()
+        setStats({
+          total: freshStats.total,
+          criticas: freshStats.criticas,
+          abiertas: freshStats.abiertas,
+        })
         setSelected((prev) => (prev ? items.find((i) => i.id === prev.id) ?? prev : prev))
       } catch (refreshErr) {
         console.error(refreshErr)
@@ -607,7 +695,7 @@ export default function AlertasPage() {
             </div>
           )}
 
-          <div className={`space-y-3 ${isAdmin ? "md:col-span-4" : ""}`}>
+          <div className={`space-y-3 ${canReportAlerts ? "" : "md:col-span-4"}`}>
             <p className="text-sm text-white/70">Estado rapido</p>
             <div className={statusGridClass}>
               <Card className="bg-white/10 border-white/10 text-white">
@@ -615,7 +703,7 @@ export default function AlertasPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-white/70">Alertas totales</p>
-                      <p className="text-2xl font-semibold">{stats.total}</p>
+                      <p className="text-2xl font-semibold">{isInitialLoading ? "—" : stats.total}</p>
                     </div>
                     <Bell className="h-5 w-5" />
                   </div>
@@ -626,7 +714,7 @@ export default function AlertasPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-white/70">Criticas</p>
-                      <p className="text-2xl font-semibold">{stats.criticas}</p>
+                      <p className="text-2xl font-semibold">{isInitialLoading ? "—" : stats.criticas}</p>
                     </div>
                     <AlertTriangle className="h-5 w-5" />
                   </div>
@@ -637,7 +725,7 @@ export default function AlertasPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-white/70">Abiertas</p>
-                      <p className="text-2xl font-semibold">{stats.abiertas}</p>
+                      <p className="text-2xl font-semibold">{isInitialLoading ? "—" : stats.abiertas}</p>
                     </div>
                     <Shield className="h-5 w-5" />
                   </div>
@@ -648,7 +736,7 @@ export default function AlertasPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-white/70">Resueltas</p>
-                      <p className="text-2xl font-semibold">{resolvedCount}</p>
+                      <p className="text-2xl font-semibold">{isInitialLoading ? "—" : resolvedCount}</p>
                     </div>
                     <CheckCircle className="h-5 w-5" />
                   </div>
@@ -697,7 +785,7 @@ export default function AlertasPage() {
             <CardContent className="p-4 text-sm text-muted-foreground">Sin alertas de incumplimiento.</CardContent>
           </Card>
         )}
-        {!loading && filtered.map((alerta) => {
+        {!loading && visibleAlerts.map((alerta) => {
           const isCritica = alerta.level === "crítica"
           const statusDisplay = alerta.statusLabel ?? alerta.status
 
@@ -785,6 +873,18 @@ export default function AlertasPage() {
             </CardContent>
           </Card>
         )})}
+
+        {!loading && filtered.length > visibleCount && (
+          <div className="flex items-center justify-center pt-1">
+            <button
+              type="button"
+              onClick={() => setVisibleCount((prev) => prev + LOAD_MORE_STEP)}
+              className="inline-flex items-center rounded-md border border-zinc-700 bg-zinc-900/60 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+            >
+              Cargar más
+            </button>
+          </div>
+        )}
       </div>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>

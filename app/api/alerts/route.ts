@@ -257,7 +257,12 @@ export async function GET(req: NextRequest) {
   const search = searchParams.get("search")?.trim() ?? ""
   const level = searchParams.get("level") ?? ""
   const status = searchParams.get("status") ?? ""
-  const limit = Math.min(Number(searchParams.get("limit") || 200), 400)
+  const requestedLimit = Number(searchParams.get("limit"))
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+    ? Math.min(Math.trunc(requestedLimit), 400)
+    : 200
+  const mode = searchParams.get("mode")
+  const statsOnly = mode === "stats"
 
   const isWitness = user.role === "delegate" || user.role === "witness"
   let delegateId = isWitness ? user.delegateId : null
@@ -283,12 +288,18 @@ export async function GET(req: NextRequest) {
     )
   }
   if (level) {
-    values.push(level)
-    filters.push(`'media' = $${values.length}`)
+    if (level === "crítica") {
+      filters.push(`(vr.total_votes > COALESCE(mf.votantes, 0) OR vr.total_votes > FLOOR(COALESCE(mf.votantes, 0) * 1.05))`)
+    } else if (level === "alta") {
+      filters.push(`(mf.votantes IS NOT NULL AND vr.total_votes < CEIL(COALESCE(mf.votantes, 0) * 0.95))`)
+    } else if (level === "media") {
+      filters.push(`mf.votantes IS NULL`)
+    }
   }
   if (status) {
-    values.push(status)
-    filters.push(`'abierta' = $${values.length}`)
+    if (status === "abierta") {
+      filters.push("TRUE")
+    }
   }
   if (delegateId) {
     values.push(delegateId)
@@ -343,7 +354,101 @@ export async function GET(req: NextRequest) {
     const client = await pool.connect()
     try {
       await ensureEvidencesTable()
-      await ensureMesaFactLookupIndex()
+      ensureMesaFactLookupIndex().catch((error) => {
+        console.warn("mesa_fact lookup index ensure failed", error)
+      })
+
+      if (statsOnly) {
+        const statsFilters: string[] = []
+        const statsValues: any[] = [user.role === "admin"]
+        if (delegateId) {
+          statsValues.push(delegateId)
+          statsFilters.push(`vr.delegate_id = $${statsValues.length}`)
+        }
+        const statsWhere = statsFilters.length ? `WHERE ${statsFilters.join(" AND ")}` : ""
+
+        const statsQuery = `
+          WITH vote_base AS (
+            SELECT vr.id,
+                   vr.total_votes,
+                   mf.votantes AS official_votantes
+            FROM vote_reports vr
+            LEFT JOIN delegates d ON d.id = vr.delegate_id
+            LEFT JOIN delegate_polling_assignments a ON a.id = vr.delegate_assignment_id
+            LEFT JOIN LATERAL (
+              SELECT mf.votantes
+              FROM mesa_fact mf
+              WHERE REGEXP_REPLACE(LOWER(TRIM(mf.puesto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(COALESCE(NULLIF(vr.polling_station_code, ''), a.polling_station))), '\\s+', ' ', 'g')
+                AND (
+                  NULLIF(TRIM(COALESCE(vr.department, '')), '') IS NULL
+                  OR REGEXP_REPLACE(LOWER(TRIM(mf.depto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(vr.department)), '\\s+', ' ', 'g')
+                )
+                AND (
+                  NULLIF(TRIM(COALESCE(vr.municipality, '')), '') IS NULL
+                  OR REGEXP_REPLACE(LOWER(TRIM(mf.municipio)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(vr.municipality)), '\\s+', ' ', 'g')
+                )
+                AND mf.mesa = COALESCE(
+                  a.polling_station_number,
+                  CASE WHEN vr.polling_station_code ~ '^[0-9]+$' THEN vr.polling_station_code::int ELSE NULL END
+                )
+              ORDER BY mf.mesaid
+              LIMIT 1
+            ) mf ON true
+            ${statsWhere}
+            ORDER BY vr.reported_at DESC NULLS LAST, vr.created_at DESC
+            LIMIT ${limit}
+          ),
+          vote_stats AS (
+            SELECT
+              COUNT(*) FILTER (
+                WHERE official_votantes IS NULL
+                   OR total_votes > FLOOR(official_votantes * 1.05)
+                   OR total_votes < CEIL(official_votantes * 0.95)
+                   OR total_votes > official_votantes
+              )::int AS total,
+              COUNT(*) FILTER (
+                WHERE total_votes > COALESCE(official_votantes, 0)
+                   OR total_votes > FLOOR(COALESCE(official_votantes, 0) * 1.05)
+              )::int AS criticas
+            FROM vote_base
+          ),
+          manual_stats AS (
+            SELECT
+              COUNT(*)::int AS total,
+              COUNT(*) FILTER (
+                WHERE EXISTS (
+                  SELECT 1 FROM unnest(COALESCE(e.tags, '{}'::text[])) tag
+                  WHERE tag = 'level:crítica'
+                )
+              )::int AS criticas,
+              COUNT(*) FILTER (
+                WHERE LOWER(COALESCE(e.status, 'open')) NOT IN ('resolved', 'verified')
+              )::int AS abiertas
+            FROM evidences e
+            WHERE e.type = 'alert'
+              AND ($1::boolean OR NOT (COALESCE(e.tags, '{}'::text[]) @> ARRAY['audience:admin']::text[]))
+          )
+          SELECT
+            (COALESCE(vs.total, 0) + COALESCE(ms.total, 0))::int AS total,
+            (COALESCE(vs.criticas, 0) + COALESCE(ms.criticas, 0))::int AS criticas,
+            (COALESCE(vs.total, 0) + COALESCE(ms.abiertas, 0))::int AS abiertas
+          FROM vote_stats vs
+          CROSS JOIN manual_stats ms
+        `
+
+        const statsRes = await client.query(statsQuery, statsValues)
+        const statsRow = statsRes.rows[0] ?? { total: 0, criticas: 0, abiertas: 0 }
+        return NextResponse.json({
+          items: [],
+          stats: {
+            total: Number(statsRow.total ?? 0),
+            criticas: Number(statsRow.criticas ?? 0),
+            abiertas: Number(statsRow.abiertas ?? 0),
+          },
+          viewerRole: user.role ?? null,
+        })
+      }
+
       const [listRes, alertsRes] = await Promise.all([
         client.query(listQuery, values),
         client.query(
@@ -356,8 +461,8 @@ export async function GET(req: NextRequest) {
             WHERE type = 'alert'
               AND ($1::boolean OR NOT (COALESCE(e.tags, '{}'::text[]) @> ARRAY['audience:admin']::text[]))
             ORDER BY uploaded_at DESC
-            LIMIT 200`,
-          [user.role === "admin"],
+            LIMIT $2`,
+          [user.role === "admin", limit],
         ),
       ])
 

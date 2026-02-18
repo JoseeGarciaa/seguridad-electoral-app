@@ -27,6 +27,16 @@ export async function ensureMesaFactLookupIndex() {
     ON mesa_fact (depto, municipio, puesto, mesa)
   `)
 
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_mesa_fact_lookup_norm
+    ON mesa_fact (
+      REGEXP_REPLACE(LOWER(TRIM(depto)), '\\s+', ' ', 'g'),
+      REGEXP_REPLACE(LOWER(TRIM(municipio)), '\\s+', ' ', 'g'),
+      REGEXP_REPLACE(LOWER(TRIM(puesto)), '\\s+', ' ', 'g'),
+      mesa
+    )
+  `)
+
   lookupIndexEnsured = true
 }
 

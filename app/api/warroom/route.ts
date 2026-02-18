@@ -1,7 +1,27 @@
 import { NextResponse } from "next/server"
 import { pool } from "@/lib/pg"
 import { getCurrentUser } from "@/lib/auth"
-import { buildOfficialComparison, ensureMesaFactLookupIndex } from "@/lib/mesa-fact"
+import { buildOfficialComparison } from "@/lib/mesa-fact"
+
+let warRoomIndexesEnsured = false
+const WARROOM_CACHE_TTL_MS = 30_000
+const warRoomPayloadCache = new Map<string, { ts: number; payload: ReturnType<typeof emptyPayload> }>()
+
+async function ensureWarRoomIndexes() {
+  if (!pool || warRoomIndexesEnsured) return
+
+  await Promise.all([
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_vote_reports_reported_created ON vote_reports (reported_at DESC, created_at DESC)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_vote_reports_delegate_reported_created ON vote_reports (delegate_id, reported_at DESC, created_at DESC)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_vote_reports_delegate_station ON vote_reports (delegate_id, polling_station_code)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_vote_reports_municipality ON vote_reports (municipality)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_vote_details_report_candidate ON vote_details (vote_report_id, candidate_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_vote_party_details_report ON vote_party_details (vote_report_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_delegate_assignments_delegate ON delegate_polling_assignments (delegate_id)`),
+  ])
+
+  warRoomIndexesEnsured = true
+}
 
 function emptyPayload() {
   return {
@@ -23,14 +43,14 @@ function emptyPayload() {
 }
 
 async function safeQuery<T>(
-  client: { query: <R>(queryText: string, params?: any[]) => Promise<{ rows: R[] }> },
   queryText: string,
   params: any[] = [],
   fallback: T[] = [],
 ): Promise<T[]> {
+  if (!pool) return fallback
   try {
-    const { rows } = await client.query<T>(queryText, params)
-    return rows
+    const result = await pool.query(queryText, params)
+    return result.rows as T[]
   } catch (err: any) {
     if (err?.code === "42P01" || err?.code === "42703") {
       return fallback
@@ -58,7 +78,22 @@ export async function GET() {
   if (isWitness && !delegateId) {
     return NextResponse.json(emptyPayload())
   }
+
+  const cacheKey = `${user.role}:${delegateId ?? "global"}`
+  const now = Date.now()
+  const cached = warRoomPayloadCache.get(cacheKey)
+  if (cached && now - cached.ts < WARROOM_CACHE_TTL_MS) {
+    return NextResponse.json(cached.payload)
+  }
+
   const delegateParams = delegateId ? [delegateId] : []
+  const enableVoteRangeAlerts = false
+
+  if (!warRoomIndexesEnsured) {
+    void ensureWarRoomIndexes().catch((err) => {
+      console.error("warroom index init error", err)
+    })
+  }
 
   const statsQuery = delegateId
     ? `
@@ -136,26 +171,52 @@ export async function GET() {
 
   const partyCandidateDetailQuery = delegateId
     ? `
-      SELECT COALESCE(c.party, 'Sin partido') AS party,
-             c.id,
-             c.full_name,
-             SUM(vd.votes)::bigint AS votes
-      FROM vote_details vd
-      JOIN vote_reports vr ON vr.id = vd.vote_report_id
-      JOIN candidates c ON c.id = vd.candidate_id
-      WHERE vr.delegate_id = $1
-      GROUP BY COALESCE(c.party, 'Sin partido'), c.id, c.full_name
-      ORDER BY COALESCE(c.party, 'Sin partido') ASC, votes DESC
+      WITH party_votes AS (
+        SELECT COALESCE(c.party, 'Sin partido') AS party,
+               c.id,
+               c.full_name,
+               SUM(vd.votes)::bigint AS votes
+        FROM vote_details vd
+        JOIN vote_reports vr ON vr.id = vd.vote_report_id
+        JOIN candidates c ON c.id = vd.candidate_id
+        WHERE vr.delegate_id = $1
+        GROUP BY COALESCE(c.party, 'Sin partido'), c.id, c.full_name
+      ), ranked AS (
+        SELECT party,
+               id,
+               full_name,
+               votes,
+               ROW_NUMBER() OVER (PARTITION BY party ORDER BY votes DESC) AS row_num,
+               COUNT(*) OVER (PARTITION BY party) AS candidate_count
+        FROM party_votes
+      )
+      SELECT party, id, full_name, votes, candidate_count
+      FROM ranked
+      WHERE row_num <= 3
+      ORDER BY party ASC, votes DESC
     `
     : `
-      SELECT COALESCE(c.party, 'Sin partido') AS party,
-             c.id,
-             c.full_name,
-             SUM(vd.votes)::bigint AS votes
-      FROM vote_details vd
-      JOIN candidates c ON c.id = vd.candidate_id
-      GROUP BY COALESCE(c.party, 'Sin partido'), c.id, c.full_name
-      ORDER BY COALESCE(c.party, 'Sin partido') ASC, votes DESC
+      WITH party_votes AS (
+        SELECT COALESCE(c.party, 'Sin partido') AS party,
+               c.id,
+               c.full_name,
+               SUM(vd.votes)::bigint AS votes
+        FROM vote_details vd
+        JOIN candidates c ON c.id = vd.candidate_id
+        GROUP BY COALESCE(c.party, 'Sin partido'), c.id, c.full_name
+      ), ranked AS (
+        SELECT party,
+               id,
+               full_name,
+               votes,
+               ROW_NUMBER() OVER (PARTITION BY party ORDER BY votes DESC) AS row_num,
+               COUNT(*) OVER (PARTITION BY party) AS candidate_count
+        FROM party_votes
+      )
+      SELECT party, id, full_name, votes, candidate_count
+      FROM ranked
+      WHERE row_num <= 3
+      ORDER BY party ASC, votes DESC
     `
 
   const feedQuery = delegateId
@@ -181,52 +242,57 @@ export async function GET() {
 
   const municipalitiesQuery = delegateId
     ? `
-      WITH assigned AS (
-        SELECT COALESCE(dl.municipio, dpa.municipality, 'Municipio') AS municipality,
-               COALESCE(dl.mesas, 1) AS mesas
-        FROM delegate_polling_assignments dpa
-        LEFT JOIN divipole_locations dl ON dl.id = dpa.divipole_location_id
-        WHERE dpa.delegate_id = $1
-      ), reported AS (
-        SELECT municipality, COUNT(*) AS reported_mesas
+      WITH reported AS (
+        SELECT COALESCE(municipality, 'Sin municipio') AS municipality,
+               COUNT(*)::int AS reported
         FROM vote_reports
         WHERE delegate_id = $1
-        GROUP BY municipality
+        GROUP BY COALESCE(municipality, 'Sin municipio')
+      ), assigned AS (
+        SELECT COALESCE(municipality, 'Sin municipio') AS municipality,
+               COUNT(*)::int AS assigned
+        FROM delegate_polling_assignments
+        WHERE delegate_id = $1
+        GROUP BY COALESCE(municipality, 'Sin municipio')
       )
-      SELECT a.municipality AS name,
-             COALESCE(r.reported_mesas, 0) AS reported,
-             COALESCE(SUM(a.mesas), 0) AS total,
-             CASE WHEN COALESCE(SUM(a.mesas), 0) = 0 THEN 0
-                  ELSE ROUND((COALESCE(r.reported_mesas, 0)::numeric / SUM(a.mesas)) * 100)
-             END AS coverage
+      SELECT COALESCE(a.municipality, r.municipality) AS name,
+             COALESCE(r.reported, 0) AS reported,
+             GREATEST(COALESCE(a.assigned, 0), COALESCE(r.reported, 0), 1) AS total,
+             ROUND(
+               (
+                 COALESCE(r.reported, 0)::numeric
+                 / GREATEST(COALESCE(a.assigned, 0), COALESCE(r.reported, 0), 1)
+               ) * 100
+             ) AS coverage
       FROM assigned a
-      LEFT JOIN reported r ON r.municipality = a.municipality
-      GROUP BY a.municipality, r.reported_mesas
-      ORDER BY coverage DESC NULLS LAST
+      FULL OUTER JOIN reported r ON r.municipality = a.municipality
+      ORDER BY coverage DESC NULLS LAST, reported DESC
       LIMIT 60
     `
     : `
-      WITH assigned AS (
-        SELECT COALESCE(dl.municipio, dpa.municipality, 'Municipio') AS municipality,
-               COUNT(*) AS assigned_mesas
-        FROM delegate_polling_assignments dpa
-        LEFT JOIN divipole_locations dl ON dl.id = dpa.divipole_location_id
-        GROUP BY COALESCE(dl.municipio, dpa.municipality, 'Municipio')
-      ), reported AS (
-        SELECT municipality, COUNT(*) AS reported_mesas
+      WITH reported AS (
+        SELECT COALESCE(municipality, 'Sin municipio') AS municipality,
+               COUNT(*)::int AS reported
         FROM vote_reports
-        GROUP BY municipality
+        GROUP BY COALESCE(municipality, 'Sin municipio')
+      ), assigned AS (
+        SELECT COALESCE(municipality, 'Sin municipio') AS municipality,
+               COUNT(*)::int AS assigned
+        FROM delegate_polling_assignments
+        GROUP BY COALESCE(municipality, 'Sin municipio')
       )
-      SELECT a.municipality AS name,
-             COALESCE(r.reported_mesas, 0) AS reported,
-             a.assigned_mesas AS total,
-             CASE WHEN a.assigned_mesas = 0 THEN 0
-                  ELSE ROUND((COALESCE(r.reported_mesas, 0)::numeric / a.assigned_mesas) * 100)
-             END AS coverage
+      SELECT COALESCE(a.municipality, r.municipality) AS name,
+             COALESCE(r.reported, 0) AS reported,
+             GREATEST(COALESCE(a.assigned, 0), COALESCE(r.reported, 0), 1) AS total,
+             ROUND(
+               (
+                 COALESCE(r.reported, 0)::numeric
+                 / GREATEST(COALESCE(a.assigned, 0), COALESCE(r.reported, 0), 1)
+               ) * 100
+             ) AS coverage
       FROM assigned a
-      LEFT JOIN reported r ON r.municipality = a.municipality
-      WHERE a.assigned_mesas > 0
-      ORDER BY coverage DESC NULLS LAST
+      FULL OUTER JOIN reported r ON r.municipality = a.municipality
+      ORDER BY coverage DESC NULLS LAST, reported DESC
       LIMIT 60
     `
 
@@ -270,89 +336,119 @@ export async function GET() {
 
   const voteRangeAlertsQuery = delegateId
     ? `
+      WITH recent_reports AS (
+        SELECT
+          vr.id,
+          vr.total_votes,
+          vr.polling_station_code,
+          vr.municipality,
+          vr.department,
+          vr.reported_at,
+          vr.created_at,
+          a.polling_station,
+          a.polling_station_number
+        FROM vote_reports vr
+        LEFT JOIN delegate_polling_assignments a ON a.id = vr.delegate_assignment_id
+        WHERE vr.delegate_id = $1
+        ORDER BY vr.reported_at DESC NULLS LAST, vr.created_at DESC
+        LIMIT 80
+      )
       SELECT
-        vr.id,
-        vr.total_votes,
-        vr.polling_station_code,
-        vr.municipality,
-        vr.reported_at,
+        rr.id,
+        rr.total_votes,
+        rr.polling_station_code,
+        rr.municipality,
+        rr.reported_at,
         mf.votantes,
         mf.votantes AS total_oficial
-      FROM vote_reports vr
-      LEFT JOIN delegate_polling_assignments a ON a.id = vr.delegate_assignment_id
+      FROM recent_reports rr
       LEFT JOIN LATERAL (
         SELECT *
         FROM mesa_fact mf
-        WHERE REGEXP_REPLACE(LOWER(TRIM(mf.puesto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(COALESCE(NULLIF(vr.polling_station_code, ''), a.polling_station))), '\\s+', ' ', 'g')
+        WHERE REGEXP_REPLACE(LOWER(TRIM(mf.puesto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(COALESCE(NULLIF(rr.polling_station_code, ''), rr.polling_station))), '\\s+', ' ', 'g')
         AND (
-          NULLIF(TRIM(COALESCE(vr.department, '')), '') IS NULL
-          OR REGEXP_REPLACE(LOWER(TRIM(mf.depto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(vr.department)), '\\s+', ' ', 'g')
+          NULLIF(TRIM(COALESCE(rr.department, '')), '') IS NULL
+          OR REGEXP_REPLACE(LOWER(TRIM(mf.depto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(rr.department)), '\\s+', ' ', 'g')
         )
         AND (
-          NULLIF(TRIM(COALESCE(vr.municipality, '')), '') IS NULL
-          OR REGEXP_REPLACE(LOWER(TRIM(mf.municipio)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(vr.municipality)), '\\s+', ' ', 'g')
+          NULLIF(TRIM(COALESCE(rr.municipality, '')), '') IS NULL
+          OR REGEXP_REPLACE(LOWER(TRIM(mf.municipio)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(rr.municipality)), '\\s+', ' ', 'g')
         )
         AND mf.mesa = COALESCE(
-          a.polling_station_number,
-          CASE WHEN vr.polling_station_code ~ '^[0-9]+$' THEN vr.polling_station_code::int ELSE NULL END
+          rr.polling_station_number,
+          CASE WHEN rr.polling_station_code ~ '^[0-9]+$' THEN rr.polling_station_code::int ELSE NULL END
         )
         ORDER BY mf.mesaid
         LIMIT 1
       ) mf ON true
-      WHERE vr.delegate_id = $1
-      ORDER BY vr.reported_at DESC NULLS LAST, vr.created_at DESC
-      LIMIT 150
+      ORDER BY rr.reported_at DESC NULLS LAST, rr.created_at DESC
     `
     : `
+      WITH recent_reports AS (
+        SELECT
+          vr.id,
+          vr.total_votes,
+          vr.polling_station_code,
+          vr.municipality,
+          vr.department,
+          vr.reported_at,
+          vr.created_at,
+          a.polling_station,
+          a.polling_station_number
+        FROM vote_reports vr
+        LEFT JOIN delegate_polling_assignments a ON a.id = vr.delegate_assignment_id
+        ORDER BY vr.reported_at DESC NULLS LAST, vr.created_at DESC
+        LIMIT 80
+      )
       SELECT
-        vr.id,
-        vr.total_votes,
-        vr.polling_station_code,
-        vr.municipality,
-        vr.reported_at,
+        rr.id,
+        rr.total_votes,
+        rr.polling_station_code,
+        rr.municipality,
+        rr.reported_at,
         mf.votantes,
         mf.votantes AS total_oficial
-      FROM vote_reports vr
-      LEFT JOIN delegate_polling_assignments a ON a.id = vr.delegate_assignment_id
+      FROM recent_reports rr
       LEFT JOIN LATERAL (
         SELECT *
         FROM mesa_fact mf
-        WHERE REGEXP_REPLACE(LOWER(TRIM(mf.puesto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(COALESCE(NULLIF(vr.polling_station_code, ''), a.polling_station))), '\\s+', ' ', 'g')
+        WHERE REGEXP_REPLACE(LOWER(TRIM(mf.puesto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(COALESCE(NULLIF(rr.polling_station_code, ''), rr.polling_station))), '\\s+', ' ', 'g')
         AND (
-          NULLIF(TRIM(COALESCE(vr.department, '')), '') IS NULL
-          OR REGEXP_REPLACE(LOWER(TRIM(mf.depto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(vr.department)), '\\s+', ' ', 'g')
+          NULLIF(TRIM(COALESCE(rr.department, '')), '') IS NULL
+          OR REGEXP_REPLACE(LOWER(TRIM(mf.depto)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(rr.department)), '\\s+', ' ', 'g')
         )
         AND (
-          NULLIF(TRIM(COALESCE(vr.municipality, '')), '') IS NULL
-          OR REGEXP_REPLACE(LOWER(TRIM(mf.municipio)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(vr.municipality)), '\\s+', ' ', 'g')
+          NULLIF(TRIM(COALESCE(rr.municipality, '')), '') IS NULL
+          OR REGEXP_REPLACE(LOWER(TRIM(mf.municipio)), '\\s+', ' ', 'g') = REGEXP_REPLACE(LOWER(TRIM(rr.municipality)), '\\s+', ' ', 'g')
         )
         AND mf.mesa = COALESCE(
-          a.polling_station_number,
-          CASE WHEN vr.polling_station_code ~ '^[0-9]+$' THEN vr.polling_station_code::int ELSE NULL END
+          rr.polling_station_number,
+          CASE WHEN rr.polling_station_code ~ '^[0-9]+$' THEN rr.polling_station_code::int ELSE NULL END
         )
         ORDER BY mf.mesaid
         LIMIT 1
       ) mf ON true
-      ORDER BY vr.reported_at DESC NULLS LAST, vr.created_at DESC
-      LIMIT 150
+      ORDER BY rr.reported_at DESC NULLS LAST, rr.created_at DESC
     `
 
-  const client = await pool.connect()
   try {
-    await ensureMesaFactLookupIndex()
-    const [statsRows, candidateRows, partyCandidateRows, partyListRows, partyCandidateDetailRows, feedRows, evidenceRows, photoMissRows] = await Promise.all([
-      safeQuery<any>(client, statsQuery, delegateParams),
-      safeQuery<any>(client, candidateQuery, delegateParams),
-      safeQuery<any>(client, partyCandidateQuery, delegateParams),
-      safeQuery<any>(client, partyListVoteQuery, delegateParams),
-      safeQuery<any>(client, partyCandidateDetailQuery, delegateParams),
-      safeQuery<any>(client, feedQuery, delegateParams),
-      safeQuery<any>(client, evidencesQuery, delegateParams),
-      safeQuery<any>(client, missingPhotoQuery, delegateParams),
+    const [
+      statsRows,
+      feedRows,
+      evidenceRows,
+      photoMissRows,
+      voteRangeRows,
+    ] = await Promise.all([
+      safeQuery<any>(statsQuery, delegateParams),
+      safeQuery<any>(feedQuery, delegateParams),
+      safeQuery<any>(evidencesQuery, delegateParams),
+      safeQuery<any>(missingPhotoQuery, delegateParams),
+      enableVoteRangeAlerts
+        ? safeQuery<any>(voteRangeAlertsQuery, delegateParams)
+        : Promise.resolve([]),
     ])
-    const voteRangeRows = await safeQuery<any>(client, voteRangeAlertsQuery, delegateParams)
 
-    let muniRows = await safeQuery<any>(client, municipalitiesQuery, delegateParams)
+    let muniRows = await safeQuery<any>(municipalitiesQuery, delegateParams)
     if (muniRows.length === 0) {
       const fallbackMunicipalities = delegateId
         ? `
@@ -376,7 +472,7 @@ export async function GET() {
           ORDER BY reported DESC
           LIMIT 60
         `
-      muniRows = await safeQuery<any>(client, fallbackMunicipalities, delegateParams)
+      muniRows = await safeQuery<any>(fallbackMunicipalities, delegateParams)
     }
 
     const municipalityMap = new Map<string, { name: string; reported: number; total: number }>()
@@ -420,90 +516,24 @@ export async function GET() {
       lastUpdated: new Date().toISOString(),
     }
 
-    const totalVotes = candidateRows.reduce((acc, row) => acc + Number(row.votes ?? 0), 0)
-    const candidates = candidateRows.map((row) => ({
-      id: row.id as string,
-      name: (row.full_name as string) ?? "",
-      party: (row.party as string) ?? null,
-      votes: Number(row.votes ?? 0),
-      percentage: totalVotes === 0 ? 0 : Number(((Number(row.votes ?? 0) / totalVotes) * 100).toFixed(1)),
-      color: (row.color as string) ?? null,
-    }))
+    const candidates: Array<{
+      id: string
+      name: string
+      party: string | null
+      votes: number
+      percentage: number
+      color: string | null
+    }> = []
 
-    const partyMap = new Map<string, { party: string; candidateVotes: number; listVotes: number; candidates: { id: string; name: string; votes: number }[] }>()
-
-    for (const row of partyCandidateRows) {
-      const partyName = ((row.party as string) ?? "Sin partido").trim() || "Sin partido"
-      const existing = partyMap.get(partyName)
-      if (existing) {
-        existing.candidateVotes = Number(row.candidate_votes ?? 0)
-      } else {
-        partyMap.set(partyName, {
-          party: partyName,
-          candidateVotes: Number(row.candidate_votes ?? 0),
-          listVotes: 0,
-          candidates: [],
-        })
-      }
-    }
-
-    for (const row of partyListRows) {
-      const partyName = ((row.party as string) ?? "Sin partido").trim() || "Sin partido"
-      const existing = partyMap.get(partyName)
-      if (existing) {
-        existing.listVotes = Number(row.list_votes ?? 0)
-      } else {
-        partyMap.set(partyName, {
-          party: partyName,
-          candidateVotes: 0,
-          listVotes: Number(row.list_votes ?? 0),
-          candidates: [],
-        })
-      }
-    }
-
-    for (const row of partyCandidateDetailRows) {
-      const partyName = ((row.party as string) ?? "Sin partido").trim() || "Sin partido"
-      const existing = partyMap.get(partyName)
-      const candidateRecord = {
-        id: String(row.id),
-        name: ((row.full_name as string) ?? "Candidato").trim() || "Candidato",
-        votes: Number(row.votes ?? 0),
-      }
-      if (existing) {
-        existing.candidates.push(candidateRecord)
-      } else {
-        partyMap.set(partyName, {
-          party: partyName,
-          candidateVotes: 0,
-          listVotes: 0,
-          candidates: [candidateRecord],
-        })
-      }
-    }
-
-    const totalPartyVotes = Array.from(partyMap.values()).reduce(
-      (acc, row) => acc + row.candidateVotes + row.listVotes,
-      0,
-    )
-
-    const parties = Array.from(partyMap.values())
-      .map((row) => {
-        const total = row.candidateVotes + row.listVotes
-        const topCandidates = row.candidates
-          .sort((a, b) => b.votes - a.votes)
-          .slice(0, 3)
-        return {
-          party: row.party,
-          candidateVotes: row.candidateVotes,
-          listVotes: row.listVotes,
-          totalVotes: total,
-          percentage: totalPartyVotes === 0 ? 0 : Number(((total / totalPartyVotes) * 100).toFixed(1)),
-          candidateCount: row.candidates.length,
-          topCandidates,
-        }
-      })
-      .sort((a, b) => b.totalVotes - a.totalVotes)
+    const parties: Array<{
+      party: string
+      candidateVotes: number
+      listVotes: number
+      totalVotes: number
+      percentage: number
+      candidateCount: number
+      topCandidates: Array<{ id: string; name: string; votes: number }>
+    }> = []
 
     const feedMap = new Map<string, {
       id: string
@@ -654,7 +684,7 @@ export async function GET() {
 
     const alerts = [...voteRangeAlerts, ...lowCoverageAlerts, ...warningCoverageAlerts, ...photoAlerts].slice(0, 10)
 
-    return NextResponse.json({
+    const payload = {
       stats: statsPayload,
       candidates,
       parties,
@@ -662,14 +692,15 @@ export async function GET() {
       alerts,
       municipalities,
       evidences,
-    })
+    }
+
+    warRoomPayloadCache.set(cacheKey, { ts: Date.now(), payload })
+    return NextResponse.json(payload)
   } catch (err: any) {
     console.error("warroom error", err)
     if (err?.code === "42P01" || err?.code === "42703") {
       return NextResponse.json(emptyPayload())
     }
     return NextResponse.json({ error: "No se pudo cargar War Room" }, { status: 500 })
-  } finally {
-    client.release()
   }
 }

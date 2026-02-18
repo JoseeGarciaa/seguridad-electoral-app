@@ -107,6 +107,7 @@ export function WarRoomDataProvider({ children }: { children: React.ReactNode })
     let inFlight = false
     let source: EventSource | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null
 
     const refresh = async () => {
       if (!mounted || inFlight) return
@@ -126,14 +127,25 @@ export function WarRoomDataProvider({ children }: { children: React.ReactNode })
       }
     }
 
+    const scheduleRefresh = (delay = 250) => {
+      if (!mounted) return
+      if (refreshTimer) {
+        clearTimeout(refreshTimer)
+      }
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null
+        void refresh()
+      }, delay)
+    }
+
     const startStream = () => {
       if (!mounted || typeof window === "undefined" || !("EventSource" in window)) return
       source = new EventSource("/api/warroom/stream")
       source.addEventListener("update", () => {
-        refresh()
+        scheduleRefresh()
       })
       source.addEventListener("ready", () => {
-        refresh()
+        scheduleRefresh(0)
       })
       source.onerror = () => {
         source?.close()
@@ -148,13 +160,14 @@ export function WarRoomDataProvider({ children }: { children: React.ReactNode })
     startStream()
 
     const interval = setInterval(() => {
-      refresh()
+      scheduleRefresh(0)
     }, 30_000)
 
     return () => {
       mounted = false
       clearInterval(interval)
       if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (refreshTimer) clearTimeout(refreshTimer)
       if (source) source.close()
     }
   }, [])

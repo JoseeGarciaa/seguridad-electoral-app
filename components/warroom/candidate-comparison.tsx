@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion"
 import { TrendingUp, TrendingDown } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { useWarRoomData } from "./warroom-data-provider"
@@ -10,8 +10,45 @@ import { useWarRoomData } from "./warroom-data-provider"
 export function CandidateComparison() {
   const { data, loading, error } = useWarRoomData()
   const [search, setSearch] = useState("")
-  const candidates = data?.candidates ?? []
-  const parties = data?.parties ?? []
+  const [localCandidates, setLocalCandidates] = useState(data?.candidates ?? [])
+  const [localParties, setLocalParties] = useState(data?.parties ?? [])
+  const [localLoading, setLocalLoading] = useState(true)
+  const [localError, setLocalError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const load = async () => {
+      setLocalError(null)
+      try {
+        const res = await fetch("/api/warroom/candidates", { cache: "no-store" })
+        if (!res.ok) {
+          throw new Error(`Comparativo API error ${res.status}`)
+        }
+        const json = await res.json()
+        if (cancelled) return
+        setLocalCandidates(Array.isArray(json?.candidates) ? json.candidates : [])
+        setLocalParties(Array.isArray(json?.parties) ? json.parties : [])
+      } catch (err: any) {
+        if (cancelled) return
+        setLocalError(err?.message ?? "No se pudo cargar comparativo")
+      } finally {
+        if (!cancelled) {
+          setLocalLoading(false)
+        }
+      }
+    }
+
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const candidates = localCandidates.length > 0 ? localCandidates : (data?.candidates ?? [])
+  const parties = localParties.length > 0 ? localParties : (data?.parties ?? [])
+  const comparisonLoading = loading || localLoading
+  const comparisonError = localError || error
   const normalizedSearch = search.trim().toLowerCase()
   const filteredCandidates = useMemo(() => {
     if (!normalizedSearch) return candidates
@@ -48,12 +85,12 @@ export function CandidateComparison() {
           <div>
             <h3 className="text-base font-semibold text-foreground">Comparativo de Candidatos</h3>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {loading ? "Cargando..." : `${totalPartyVotes.toLocaleString()} votos contabilizados`}
+              {comparisonLoading ? "Cargando..." : `${totalPartyVotes.toLocaleString()} votos contabilizados`}
             </p>
           </div>
           <div className="text-right">
             <p className="text-sm text-muted-foreground">Reportes verificados</p>
-            <p className="text-xl font-bold text-foreground">{loading ? "--" : data?.stats.reports ?? 0}</p>
+            <p className="text-xl font-bold text-foreground">{comparisonLoading ? "--" : data?.stats.reports ?? 0}</p>
           </div>
         </div>
       </div>
@@ -75,13 +112,13 @@ export function CandidateComparison() {
         <TabsContent value="candidates" className="flex-1 min-h-0 flex flex-col">
           <div className="p-4 border-b border-border/50">
             <div className="h-8 rounded-lg overflow-hidden flex">
-              {loading && <div className="w-full bg-secondary animate-pulse" />}
-              {!loading && filteredCandidates.length === 0 && (
+              {comparisonLoading && <div className="w-full bg-secondary animate-pulse" />}
+              {!comparisonLoading && filteredCandidates.length === 0 && (
                 <div className="w-full bg-secondary/40 text-center text-sm text-muted-foreground flex items-center justify-center">
                   {normalizedSearch ? "Sin coincidencias" : "Sin datos de votos"}
                 </div>
               )}
-              {!loading && filteredCandidates.map((candidate, index) => (
+              {!comparisonLoading && filteredCandidates.map((candidate, index) => (
                 <motion.div
                   key={candidate.id}
                   initial={{ width: 0 }}
@@ -96,9 +133,9 @@ export function CandidateComparison() {
 
           <div className="flex-1 overflow-y-auto p-4">
             <div className="space-y-4">
-              {error && <p className="text-sm text-destructive">{error}</p>}
-              {loading && <div className="h-24 rounded-lg bg-secondary/50 animate-pulse" />}
-              {!loading && filteredCandidates.map((candidate, index) => (
+              {comparisonError && <p className="text-sm text-destructive">{comparisonError}</p>}
+              {comparisonLoading && <div className="h-24 rounded-lg bg-secondary/50 animate-pulse" />}
+              {!comparisonLoading && filteredCandidates.map((candidate, index) => (
                 <motion.div
                   key={candidate.id}
                   initial={{ opacity: 0, x: -10 }}
@@ -156,14 +193,14 @@ export function CandidateComparison() {
         <TabsContent value="parties" className="flex-1 min-h-0 flex flex-col">
           <div className="flex-1 overflow-y-auto p-4">
             <div className="space-y-4">
-              {error && <p className="text-sm text-destructive">{error}</p>}
-              {loading && <div className="h-24 rounded-lg bg-secondary/50 animate-pulse" />}
-              {!loading && filteredParties.length === 0 && (
+              {comparisonError && <p className="text-sm text-destructive">{comparisonError}</p>}
+              {comparisonLoading && <div className="h-24 rounded-lg bg-secondary/50 animate-pulse" />}
+              {!comparisonLoading && filteredParties.length === 0 && (
                 <div className="p-4 rounded-lg bg-secondary/40 text-sm text-muted-foreground">
                   {normalizedSearch ? "Sin coincidencias" : "Sin datos de partidos"}
                 </div>
               )}
-              {!loading && filteredParties.map((party, index) => (
+              {!comparisonLoading && filteredParties.map((party, index) => (
                 <motion.div
                   key={party.party}
                   initial={{ opacity: 0, y: 6 }}
