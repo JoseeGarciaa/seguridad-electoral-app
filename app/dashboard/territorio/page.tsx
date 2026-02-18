@@ -137,23 +137,30 @@ export default function TerritorioPage() {
     [municipalities, selectedMunicipality],
   )
 
-  // Traer puestos solo cuando hay departamento y municipio seleccionados; evita cargar todo el país.
+  // Traer puestos cuando hay departamento; municipio es opcional ("Todos").
   useEffect(() => {
     const controller = new AbortController()
     const fetchData = async () => {
-      if (!selectedDepartment || !selectedMunicipality) {
+      if (!selectedDepartment) {
         setFeatures([])
         setTotals({ total_puestos: 0, total_mesas: 0, with_coords: 0, total_voters: 0, reported_mesas: 0 })
         return
       }
-      const fetchKey = `${selectedDepartment}|${selectedMunicipality}`
+      if (!selectedDepartmentName) {
+        return
+      }
+      if (selectedMunicipality && !selectedMunicipalityName) {
+        return
+      }
+
+      const fetchKey = `${selectedDepartment}|${selectedMunicipality ?? "__all__"}`
       if (hasHydrated && lastFetchedKeyRef.current === fetchKey && features.length > 0) {
         return
       }
       setLoading(true)
       try {
         const params = new URLSearchParams()
-        if (selectedDepartmentName) params.set("department", selectedDepartmentName)
+        params.set("department", selectedDepartmentName)
         if (selectedMunicipalityName) params.set("municipality", selectedMunicipalityName)
         params.set("limit", "6000")
 
@@ -295,7 +302,7 @@ export default function TerritorioPage() {
             <div className="h-full animate-pulse bg-secondary/50 rounded-xl" />
           ) : filteredFeatures.length === 0 ? (
             <div className="h-full rounded-xl border border-dashed border-border/60 flex items-center justify-center text-sm text-muted-foreground px-6 text-center">
-              Selecciona un departamento y un municipio para cargar los puestos de votación.
+              Selecciona un departamento para cargar los puestos de votación.
             </div>
           ) : (
             <TerritoryMap

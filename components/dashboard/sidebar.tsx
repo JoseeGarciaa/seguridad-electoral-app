@@ -11,6 +11,7 @@ import {
   Camera,
   Bell,
   BarChart3,
+  Download,
   Settings,
   CheckSquare,
   FileCheck,
@@ -47,6 +48,7 @@ const navigation: NavItem[] = [
   { name: "Equipo", href: "/dashboard/equipo", icon: Users },
   { name: "Evidencias", href: "/dashboard/evidencias", icon: Camera },
   { name: "Alertas", href: "/dashboard/alertas", icon: Bell },
+  { name: "Centro Descargas", href: "/dashboard/centro-descargas", icon: Download, adminOnly: true },
   { name: "Resultados 2022", href: "/dashboard/resultados-2022", icon: BarChart3, adminOnly: true },
   { name: "Cumplimiento", href: "/dashboard/cumplimiento", icon: FileCheck },
 ]
