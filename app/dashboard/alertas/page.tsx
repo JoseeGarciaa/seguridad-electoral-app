@@ -424,6 +424,7 @@ export default function AlertasPage() {
   }, [mesas])
 
   const isAdmin = viewerRole === "admin"
+  const canOpenReports = viewerRole !== "delegate"
   const canReportAlerts = viewerRole !== null && viewerRole !== "admin"
   const headerGridClass = canReportAlerts ? "grid gap-4 md:grid-cols-3" : "grid gap-4 md:grid-cols-4"
   const statusGridClass = canReportAlerts ? "grid gap-3 sm:grid-cols-2" : "grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-4"
@@ -851,7 +852,7 @@ export default function AlertasPage() {
                   >
                     Ver detalle
                   </button>
-                  {alerta.reportUrl && (
+                  {canOpenReports && alerta.reportUrl && (
                     <button
                       className="text-xs text-indigo-400 hover:underline"
                       onClick={() => router.push(alerta.reportUrl!)}
@@ -931,7 +932,7 @@ export default function AlertasPage() {
                 {selected?.statusLabel ?? selected?.status}
               </Badge>
             </div>
-            {selected?.reportUrl && (
+            {canOpenReports && selected?.reportUrl && (
               <button
                 className="inline-flex items-center rounded-md bg-indigo-500 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-400"
                 onClick={() => router.push(selected.reportUrl!)}

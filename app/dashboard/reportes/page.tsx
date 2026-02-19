@@ -49,6 +49,8 @@ export default function ReportesPage() {
   const [loadingVotes, setLoadingVotes] = useState(false);
   const [votesError, setVotesError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [viewerRole, setViewerRole] = useState<string | null>(null);
+  const canExportData = viewerRole === "admin";
 
   useEffect(() => {
     const targetReportId = searchParams.get("reportId");
@@ -76,6 +78,7 @@ export default function ReportesPage() {
         const json = await res.json();
         if (cancelled) return;
         setVoteReports(Array.isArray(json.items) ? json.items : []);
+        setViewerRole(typeof json.viewerRole === "string" ? json.viewerRole : null);
       } catch (err: any) {
         if (cancelled) return;
         setVotesError(err?.message ?? "No se pudieron cargar los votos");
@@ -97,11 +100,13 @@ export default function ReportesPage() {
     });
 
   const handlePrint = () => {
+    if (!canExportData) return;
     if (typeof window === "undefined") return;
     window.print();
   };
 
   const handleExportAll = () => {
+    if (!canExportData) return;
     try {
       import("xlsx").then((XLSX) => {
         const summaryRows = voteReports.map((report) => ({
@@ -267,35 +272,37 @@ export default function ReportesPage() {
         </CardContent>
       </Card>
 
-      <Card className="bg-zinc-900/50 border-zinc-800">
-        <CardContent className="p-6 min-w-0">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4 min-w-0">
-            <div className="min-w-0">
-              <h3 className="font-semibold text-foreground mb-1">Exportar Datos Completos</h3>
-              <p className="text-sm text-muted-foreground break-words">
-                Descarga todos los datos de la jornada electoral en diferentes formatos
-              </p>
+      {canExportData && (
+        <Card className="bg-zinc-900/50 border-zinc-800">
+          <CardContent className="p-6 min-w-0">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4 min-w-0">
+              <div className="min-w-0">
+                <h3 className="font-semibold text-foreground mb-1">Exportar Datos Completos</h3>
+                <p className="text-sm text-muted-foreground break-words">
+                  Descarga todos los datos de la jornada electoral en diferentes formatos
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  variant="outline"
+                  className="bg-transparent border-zinc-700 max-w-full"
+                  onClick={handlePrint}
+                >
+                  <Printer className="h-4 w-4 mr-2" />
+                  Imprimir
+                </Button>
+                <Button
+                  className="bg-cyan-600 hover:bg-cyan-700 text-white max-w-full"
+                  onClick={handleExportAll}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Exportar Todo
+                </Button>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-3">
-              <Button
-                variant="outline"
-                className="bg-transparent border-zinc-700 max-w-full"
-                onClick={handlePrint}
-              >
-                <Printer className="h-4 w-4 mr-2" />
-                Imprimir
-              </Button>
-              <Button
-                className="bg-cyan-600 hover:bg-cyan-700 text-white max-w-full"
-                onClick={handleExportAll}
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Exportar Todo
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

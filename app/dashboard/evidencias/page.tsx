@@ -1,7 +1,12 @@
-"use client";
+import { redirect } from "next/navigation"
+import { getCurrentUser } from "@/lib/auth"
+import EvidenciaPage from "../evidencia/client-page"
 
-import EvidenciaPage from "../evidencia/page";
+export default async function EvidenciasPage() {
+  const user = await getCurrentUser()
+  if (!user) {
+    redirect("/login")
+  }
 
-export default function EvidenciasPage() {
-  return <EvidenciaPage />;
+  return <EvidenciaPage initialViewerRole={user.role ?? null} />
 }

@@ -465,6 +465,7 @@ export async function GET(req: NextRequest) {
           [user.role === "admin", limit],
         ),
       ])
+      const canOpenReports = user.role !== "delegate"
 
       const voteReportAlerts = listRes.rows.flatMap((row) => {
         const totalReported = Number(row.total_votes ?? 0)
@@ -489,7 +490,7 @@ export async function GET(req: NextRequest) {
             detail: `Mesa ${row.polling_station_code ?? "Sin código"} · ${comparison.officialNotice}`,
             delegateName: row.delegate_name as string,
             reportId: row.id as string,
-            reportUrl: `/dashboard/reportes?reportId=${encodeURIComponent(row.id as string)}#reporte-${row.id as string}`,
+            reportUrl: canOpenReports ? `/dashboard/reportes?reportId=${encodeURIComponent(row.id as string)}#reporte-${row.id as string}` : null,
           }]
         }
 
@@ -516,7 +517,7 @@ export async function GET(req: NextRequest) {
           detail: `${scope} · Reportado ${comparison.totalReported} · Oficial ${comparison.totalOficial} · Rango esperado (±5%) ${rangeText}`,
           delegateName: row.delegate_name as string,
           reportId: row.id as string,
-          reportUrl: `/dashboard/reportes?reportId=${encodeURIComponent(row.id as string)}#reporte-${row.id as string}`,
+          reportUrl: canOpenReports ? `/dashboard/reportes?reportId=${encodeURIComponent(row.id as string)}#reporte-${row.id as string}` : null,
         }]
       })
 
@@ -573,7 +574,7 @@ export async function GET(req: NextRequest) {
           delegateName: row.delegate_name as string,
           photos: orderedPhotos.length > 0 ? [orderedPhotos[0]] : [],
           reportId,
-          reportUrl: reportId ? `/dashboard/reportes?reportId=${encodeURIComponent(reportId)}#reporte-${reportId}` : null,
+          reportUrl: canOpenReports && reportId ? `/dashboard/reportes?reportId=${encodeURIComponent(reportId)}#reporte-${reportId}` : null,
         }
       })
 

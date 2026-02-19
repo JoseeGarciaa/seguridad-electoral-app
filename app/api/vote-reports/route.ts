@@ -120,6 +120,7 @@ export async function GET(req: Request) {
         notes: row.notes as string | null,
         details: Array.isArray(row.details) ? row.details.filter(Boolean) : [],
       })),
+      viewerRole: user.role,
     })
   } catch (error: any) {
     console.error("vote-reports list error", error)
