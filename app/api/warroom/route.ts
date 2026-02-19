@@ -120,7 +120,7 @@ export async function GET(req: NextRequest) {
   }
 
   const delegateParams = delegateId ? [delegateId] : []
-  const enableVoteRangeAlerts = false
+  const enableVoteRangeAlerts = true
 
   if (!warRoomIndexesEnsured) {
     void ensureWarRoomIndexes().catch((err) => {

@@ -42,6 +42,8 @@ const noticeStyles = {
 }
 
 export function AlertsPanel() {
+  const MAX_VISIBLE_ALERTS = 5
+  const ALERT_CARD_HEIGHT_PX = 140
   const router = useRouter()
   const { data, error: warroomError, loading } = useWarRoomData()
   const timeFormatter = useMemo(
@@ -84,9 +86,12 @@ export function AlertsPanel() {
   const warningCount = useMemo(() => alerts.filter((a) => a.severity === "warning").length, [alerts])
 
   const renderAlerts = useMemo(() => alerts, [alerts])
+  const hasAlerts = renderAlerts.length > 0
+  const enableScroll = !loading && hasAlerts && renderAlerts.length > MAX_VISIBLE_ALERTS
+  const maxListHeight = !loading && hasAlerts ? Math.min(renderAlerts.length, MAX_VISIBLE_ALERTS) * ALERT_CARD_HEIGHT_PX : undefined
 
   return (
-    <div className="glass rounded-xl border border-border/50 h-full flex flex-col overflow-hidden">
+    <div className="glass rounded-xl border border-border/50 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="p-3 border-b border-border/50">
         <div className="flex items-center justify-between">
@@ -106,7 +111,10 @@ export function AlertsPanel() {
       </div>
 
       {/* Alerts List */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-2">
+      <div
+        className={`p-2 space-y-2 ${enableScroll ? "overflow-y-auto" : "overflow-visible"}`}
+        style={maxListHeight ? { maxHeight: `${maxListHeight}px` } : undefined}
+      >
         <AnimatePresence>
           {warroomError && renderAlerts.length === 0 && <p className="text-sm text-destructive px-2">{warroomError}</p>}
           {loading && <div className="h-16 rounded-lg bg-secondary/50 animate-pulse" />}
