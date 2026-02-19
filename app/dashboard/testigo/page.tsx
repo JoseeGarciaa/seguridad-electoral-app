@@ -104,6 +104,21 @@ const partyNameContainsTokens = (normalizedPartyName: string, tokens: string[]) 
   return tokens.every((token) => words.has(token))
 }
 
+const NON_PREFERENTIAL_PARTIES: Array<{ tokens: string[] }> = [
+  { tokens: ["colombia", "renaciente"] },
+  { tokens: ["pacto", "historico"] },
+  { tokens: ["centro", "democratico"] },
+]
+
+const isForcedNonPreferentialParty = (partyName: string | null | undefined) => {
+  const normalizedPartyName = normalizePartyName(partyName ?? "")
+  if (!normalizedPartyName) return false
+  return NON_PREFERENTIAL_PARTIES.some(({ tokens }) => partyNameContainsTokens(normalizedPartyName, tokens))
+}
+
+const resolveListTypeForParty = (partyName: string | null | undefined): ListType =>
+  isForcedNonPreferentialParty(partyName) ? "No Preferente" : "Preferente"
+
 const PARTY_LOGOS: Array<{ tokens: string[]; src: string }> = [
   { tokens: ["coalicion", "verde"], src: "/Coalición_verde.png" },
   { tokens: ["alianza", "verde"], src: "/Coalición_verde.png" },
@@ -141,22 +156,46 @@ const resolvePartyLogo = (partyName: string | null | undefined, explicitLogo?: s
 const safePartyKey = (party: string | null | undefined) =>
   (party ?? "Independiente").trim().toLowerCase()
 
-const mergeNotesWithSpecialVotes = (baseNote: string, specialVotes: SpecialVotes) => {
+const mergeNotesWithSpecialVotes = (baseNote: string, specialVotes: SpecialVotes, listVoteNotes: string[] = []) => {
   const summary = `[ResumenMesa] blanco=${specialVotes.blank}; nulos=${specialVotes.nulls}; no_marcados=${specialVotes.unmarked}`
-  const cleanBase = baseNote.trim().replace(/\n?\[ResumenMesa\].*$/i, "")
-  return cleanBase ? `${cleanBase}\n${summary}` : summary
+  const listSummary = listVoteNotes.length ? `[VotoLista] ${listVoteNotes.join("; ")}` : ""
+  const cleanBase = baseNote
+    .trim()
+    .replace(/\n?\[ResumenMesa\][^\n\r]*/gi, "")
+    .replace(/\n?\[VotoLista\][^\n\r]*/gi, "")
+    .trim()
+
+  const sections = [cleanBase, summary, listSummary].filter(Boolean)
+  return sections.join("\n")
 }
 
 const splitNotesFromSpecialVotes = (rawNote: string | null | undefined) => {
   const text = String(rawNote ?? "")
   const match = text.match(/\[ResumenMesa\]\s*blanco=(\d+);\s*nulos=(\d+);\s*no_marcados=(\d+)/i)
+  const partyMatch = text.match(/\[VotoLista\]\s*([^\n\r]+)/i)
   const special: SpecialVotes = {
     blank: match ? normalizeNonNegativeInt(match[1]) : 0,
     nulls: match ? normalizeNonNegativeInt(match[2]) : 0,
     unmarked: match ? normalizeNonNegativeInt(match[3]) : 0,
   }
-  const baseNote = text.replace(/\n?\[ResumenMesa\].*$/i, "").trim()
-  return { baseNote, special }
+  const partyVotes: Record<string, number> = {}
+  const rawPartyBlock = partyMatch?.[1]?.trim() ?? ""
+  if (rawPartyBlock) {
+    rawPartyBlock.split(";").forEach((entry) => {
+      const [rawPartyKey, rawVotes] = entry.split("=").map((part) => part.trim())
+      if (!rawPartyKey) return
+      const parsedVotes = normalizeNonNegativeInt(rawVotes)
+      if (parsedVotes > 0) {
+        partyVotes[rawPartyKey] = parsedVotes
+      }
+    })
+  }
+
+  const baseNote = text
+    .replace(/\n?\[ResumenMesa\][^\n\r]*/gi, "")
+    .replace(/\n?\[VotoLista\][^\n\r]*/gi, "")
+    .trim()
+  return { baseNote, special, partyVotes }
 }
 
 type MesaReportData = {
@@ -164,6 +203,7 @@ type MesaReportData = {
   total: number
   note: string
   draftVotes: Record<string, number>
+  partyVotes: Record<string, number>
   specialVotes: SpecialVotes
   existingPhotoUrls: string[]
 }
@@ -178,6 +218,7 @@ export default function TestigoElectoralPage() {
   const [savingState, setSavingState] = useState<"idle" | "saving" | "saved">("idle")
   const [photos, setPhotos] = useState<PhotoItem[]>([])
   const [draftVotes, setDraftVotes] = useState<Record<string, number>>({})
+  const [partyVotes, setPartyVotes] = useState<Record<string, number>>({})
   const [specialVotes, setSpecialVotes] = useState<SpecialVotes>(EMPTY_SPECIAL_VOTES)
   const [note, setNote] = useState("")
   const [completedMesas, setCompletedMesas] = useState<CompletedMesa[]>([])
@@ -188,6 +229,8 @@ export default function TestigoElectoralPage() {
   const [isWitnessFlowRole, setIsWitnessFlowRole] = useState(true)
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const autoAdvanceTimerRef = useRef<number | null>(null)
+
+  const makePartyVoteFieldKey = (partyKey: string) => `party:${partyKey}`
 
   const maxPhotos = 4
   const currentMesa = mesas[mesaIndex]
@@ -238,9 +281,7 @@ export default function TestigoElectoralPage() {
               (typeof party?.image_url === "string" && party.image_url) ||
               (typeof party?.party_logo === "string" && party.party_logo) ||
               null
-            const listType = normalizeListType(
-              party?.list_type ?? party?.tipo_lista ?? party?.lista_tipo ?? party?.tipo,
-            )
+            const listType = resolveListTypeForParty(partyName)
             partyMetaByName.set(safePartyKey(partyName), { logo: resolvePartyLogo(partyName, logo), listType })
           })
         }
@@ -266,10 +307,7 @@ export default function TestigoElectoralPage() {
                       partyMeta?.logo ||
                       null,
                   ),
-                listType:
-                  normalizeListType(c.list_type ?? c.tipo_lista ?? c.lista_tipo ?? c.tipo) ??
-                  partyMeta?.listType ??
-                  null,
+                listType: resolveListTypeForParty(partyName) ?? partyMeta?.listType ?? "Preferente",
               }
             })
           : []
@@ -343,6 +381,7 @@ export default function TestigoElectoralPage() {
               total: Number(item.total_votes) || 0,
               note: parsedNotes.baseNote,
               draftVotes: existingVotes,
+              partyVotes: parsedNotes.partyVotes,
               specialVotes: parsedNotes.special,
               existingPhotoUrls: photoUrls,
             }
@@ -372,8 +411,69 @@ export default function TestigoElectoralPage() {
     candidates.forEach((candidate) => {
       zeros[candidate.id] = 0
     })
+
+    const partiesForMesa = new Map<
+      string,
+      {
+        key: string
+        name: string
+        listType: ListType
+        candidates: Candidate[]
+      }
+    >()
+    candidates.forEach((candidate) => {
+      const name = candidate.party ?? "Independiente"
+      const key = safePartyKey(name)
+      if (!partiesForMesa.has(key)) {
+        partiesForMesa.set(key, {
+          key,
+          name,
+          listType: candidate.listType,
+          candidates: [candidate],
+        })
+      } else {
+        const item = partiesForMesa.get(key)!
+        item.candidates.push(candidate)
+      }
+    })
+
     const currentReportData = mesaReportDataMap[currentMesa.id]
-    setDraftVotes({ ...zeros, ...(currentReportData?.draftVotes ?? {}) })
+    const nextDraftVotes = { ...zeros, ...(currentReportData?.draftVotes ?? {}) }
+    const loadedPartyVotes = currentReportData?.partyVotes ?? {}
+    const nextPartyVotes: Record<string, number> = {}
+
+    Array.from(partiesForMesa.values()).forEach((party) => {
+      const directKeyVotes = normalizeNonNegativeInt(loadedPartyVotes[party.key])
+      const byPartyNameVotes = normalizeNonNegativeInt(loadedPartyVotes[party.name])
+      const normalizedName = normalizePartyName(party.name)
+      const byNormalizedNameVotes = Object.entries(loadedPartyVotes).reduce((acc, [rawKey, value]) => {
+        if (normalizePartyName(rawKey) === normalizedName) {
+          return Math.max(acc, normalizeNonNegativeInt(value))
+        }
+        return acc
+      }, 0)
+
+      if (party.listType === "No Preferente") {
+        const migratedCandidateVotes = party.candidates.reduce(
+          (acc, candidate) => acc + normalizeNonNegativeInt(nextDraftVotes[candidate.id]),
+          0,
+        )
+        const resolvedPartyVotes = Math.max(directKeyVotes, byPartyNameVotes, byNormalizedNameVotes, migratedCandidateVotes)
+        nextPartyVotes[party.key] = resolvedPartyVotes
+        party.candidates.forEach((candidate) => {
+          nextDraftVotes[candidate.id] = 0
+        })
+        return
+      }
+
+      const resolvedPartyVotes = Math.max(directKeyVotes, byPartyNameVotes, byNormalizedNameVotes)
+      if (resolvedPartyVotes > 0) {
+        nextPartyVotes[party.key] = resolvedPartyVotes
+      }
+    })
+
+    setDraftVotes(nextDraftVotes)
+    setPartyVotes(nextPartyVotes)
     setSpecialVotes(currentReportData?.specialVotes ?? EMPTY_SPECIAL_VOTES)
     setNote(currentReportData?.note ?? "")
     setExistingPhotoUrls(currentReportData?.existingPhotoUrls ?? [])
@@ -435,21 +535,35 @@ export default function TestigoElectoralPage() {
   }, [candidates])
 
   const orderedFieldKeys = useMemo(() => {
-    const candidateKeys = groupedParties.flatMap((party) =>
-      party.candidates.map((candidate) => `candidate:${candidate.id}`),
-    )
-    return [...candidateKeys, "special:blank", "special:nulls", "special:unmarked"]
+    const keys = groupedParties.flatMap((party) => {
+      if (party.listType === "No Preferente") {
+        return [makePartyVoteFieldKey(party.key)]
+      }
+      return party.candidates.map((candidate) => `candidate:${candidate.id}`)
+    })
+    return [...keys, "special:blank", "special:nulls", "special:unmarked"]
   }, [groupedParties])
 
-  const totalVotosCandidatos = useMemo(
-    () => Object.values(draftVotes).reduce((acc, value) => acc + (Number.isNaN(value) ? 0 : value), 0),
-    [draftVotes],
+  const totalVotosCandidatos = useMemo(() => {
+    return groupedParties
+      .filter((party) => party.listType !== "No Preferente")
+      .reduce(
+        (partyAcc, party) =>
+          partyAcc +
+          party.candidates.reduce((candidateAcc, candidate) => candidateAcc + normalizeNonNegativeInt(draftVotes[candidate.id]), 0),
+        0,
+      )
+  }, [draftVotes, groupedParties])
+
+  const totalVotosLista = useMemo(
+    () => Object.values(partyVotes).reduce((acc, value) => acc + normalizeNonNegativeInt(value), 0),
+    [partyVotes],
   )
 
   const totalVotosBlanco = specialVotes.blank
   const totalVotosNulos = specialVotes.nulls
   const totalVotosNoMarcados = specialVotes.unmarked
-  const totalGeneralVotos = totalVotosCandidatos + totalVotosBlanco + totalVotosNulos + totalVotosNoMarcados
+  const totalGeneralVotos = totalVotosCandidatos + totalVotosLista + totalVotosBlanco + totalVotosNulos + totalVotosNoMarcados
   const mesaCapacity = currentMesa?.totalVoters ?? null
   const warningOver = mesaCapacity !== null && totalGeneralVotos > mesaCapacity
   const completedCount = completedMesas.length
@@ -493,6 +607,12 @@ export default function TestigoElectoralPage() {
     if (autoAdvance) scheduleAutoAdvance(`special:${type}`)
   }
 
+  const updatePartyVotes = (partyKey: string, value: number, autoAdvance = false) => {
+    setSavingState("idle")
+    setPartyVotes((prev) => ({ ...prev, [partyKey]: normalizeNonNegativeInt(value) }))
+    if (autoAdvance) scheduleAutoAdvance(makePartyVoteFieldKey(partyKey))
+  }
+
   const incrementCandidate = (candidateId: string) => {
     vibrate(5)
     updateCandidateVotes(candidateId, (draftVotes[candidateId] ?? 0) + 1)
@@ -511,6 +631,16 @@ export default function TestigoElectoralPage() {
   const decrementSpecial = (type: SpecialVoteKey) => {
     vibrate(5)
     updateSpecialVotes(type, (specialVotes[type] ?? 0) - 1)
+  }
+
+  const incrementParty = (partyKey: string) => {
+    vibrate(5)
+    updatePartyVotes(partyKey, (partyVotes[partyKey] ?? 0) + 1)
+  }
+
+  const decrementParty = (partyKey: string) => {
+    vibrate(5)
+    updatePartyVotes(partyKey, (partyVotes[partyKey] ?? 0) - 1)
   }
 
   const clearPhotos = () => {
@@ -608,13 +738,35 @@ export default function TestigoElectoralPage() {
 
       const photoPayloads = await Promise.all(photos.map((photo) => fileToDataUrl(photo.file)))
 
+      const listVoteNotes = groupedParties
+        .filter((party) => party.listType === "No Preferente")
+        .map((party) => ({ party, votes: normalizeNonNegativeInt(partyVotes[party.key]) }))
+        .filter((record) => record.votes > 0)
+        .map(({ party, votes }) => `${party.key}=${votes}`)
+
+      const aggregatedByCandidate = new Map<string, number>()
+      candidates.forEach((candidate) => {
+        aggregatedByCandidate.set(candidate.id, normalizeNonNegativeInt(draftVotes[candidate.id]))
+      })
+
+      groupedParties
+        .filter((party) => party.listType === "No Preferente")
+        .forEach((party) => {
+          const firstCandidate = party.candidates[0]
+          if (!firstCandidate) return
+          const listVotes = normalizeNonNegativeInt(partyVotes[party.key])
+          if (listVotes <= 0) return
+          const current = aggregatedByCandidate.get(firstCandidate.id) ?? 0
+          aggregatedByCandidate.set(firstCandidate.id, current + listVotes)
+        })
+
       const payload = {
         delegate_assignment_id: currentMesa.id,
         divipole_location_id: null,
-        notes: mergeNotesWithSpecialVotes(note, specialVotes),
+        notes: mergeNotesWithSpecialVotes(note, specialVotes, listVoteNotes),
         details: candidates.map((candidate) => ({
           candidate_id: candidate.id,
-          votes: draftVotes[candidate.id] ?? 0,
+          votes: aggregatedByCandidate.get(candidate.id) ?? 0,
         })),
         photos: photoPayloads,
         existing_photo_urls: existingPhotoUrls,
@@ -647,6 +799,7 @@ export default function TestigoElectoralPage() {
           total: totalGeneralVotos,
           note,
           draftVotes: { ...draftVotes },
+          partyVotes: { ...partyVotes },
           specialVotes: { ...specialVotes },
           existingPhotoUrls: existingPhotoUrls.length > 0 ? [...existingPhotoUrls] : [],
         },
@@ -660,6 +813,7 @@ export default function TestigoElectoralPage() {
         zeros[candidate.id] = 0
       })
       setDraftVotes(zeros)
+      setPartyVotes({})
       setSpecialVotes(EMPTY_SPECIAL_VOTES)
       setNote("")
       setExistingPhotoUrls([])
@@ -692,6 +846,7 @@ export default function TestigoElectoralPage() {
       zeros[candidate.id] = 0
     })
     setDraftVotes(zeros)
+    setPartyVotes({})
     setSpecialVotes(EMPTY_SPECIAL_VOTES)
     setNote("")
     clearPhotos()
@@ -814,7 +969,7 @@ export default function TestigoElectoralPage() {
             </div>
             <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
               <Table className="h-4 w-4" />
-              Captura por tarjetón: partidos, candidatos y votos especiales.
+              Captura por tarjetón: voto por lista, candidatos y votos especiales.
             </div>
           </CardContent>
         </Card>
@@ -950,6 +1105,52 @@ export default function TestigoElectoralPage() {
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-3">
+                      {party.listType === "No Preferente" && (
+                        <div className="rounded-xl border border-border/60 bg-muted/20 p-3 space-y-2">
+                          <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Voto por lista (partido)</p>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-12 w-12 p-0"
+                              onClick={() => decrementParty(party.key)}
+                            >
+                              <Minus className="h-5 w-5" />
+                            </Button>
+                            <input
+                              ref={(element) => {
+                                inputRefs.current[makePartyVoteFieldKey(party.key)] = element
+                              }}
+                              type="number"
+                              min={0}
+                              max={9999}
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              value={(partyVotes[party.key] ?? 0) === 0 ? "" : partyVotes[party.key]}
+                              onFocus={(event) => event.currentTarget.select()}
+                              onChange={(event) => {
+                                updatePartyVotes(party.key, normalizeNonNegativeInt(event.target.value), true)
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault()
+                                  focusNextField(makePartyVoteFieldKey(party.key))
+                                }
+                              }}
+                              className="h-12 w-full rounded-lg border border-border/60 bg-background px-3 text-center text-2xl font-bold tracking-tight text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                              aria-label={`Voto por lista ${party.name}`}
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-12 w-12 p-0"
+                              onClick={() => incrementParty(party.key)}
+                            >
+                              <Plus className="h-5 w-5" />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                       {party.candidates.map((candidate) => {
                         const votes = draftVotes[candidate.id] ?? 0
                         return (
@@ -966,47 +1167,51 @@ export default function TestigoElectoralPage() {
                                 {candidate.ballotNumber !== null ? `#${candidate.ballotNumber}` : "S/N"}
                               </Badge>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-12 w-12 p-0"
-                                onClick={() => decrementCandidate(candidate.id)}
-                              >
-                                <Minus className="h-5 w-5" />
-                              </Button>
-                              <input
-                                ref={(element) => {
-                                  inputRefs.current[`candidate:${candidate.id}`] = element
-                                }}
-                                type="number"
-                                min={0}
-                                max={9999}
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                value={votes === 0 ? "" : votes}
-                                onFocus={(event) => event.currentTarget.select()}
-                                onChange={(event) => {
-                                  updateCandidateVotes(candidate.id, normalizeNonNegativeInt(event.target.value), true)
-                                }}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter") {
-                                    event.preventDefault()
-                                    focusNextField(`candidate:${candidate.id}`)
-                                  }
-                                }}
-                                className="h-12 w-full rounded-lg border border-border/60 bg-background px-3 text-center text-2xl font-bold tracking-tight text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                                aria-label={`Votos de ${candidate.fullName}`}
-                              />
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-12 w-12 p-0"
-                                onClick={() => incrementCandidate(candidate.id)}
-                              >
-                                <Plus className="h-5 w-5" />
-                              </Button>
-                            </div>
+                            {party.listType === "No Preferente" ? (
+                              <p className="text-xs text-muted-foreground">Registro por lista cerrada: votos individuales ocultos.</p>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-12 w-12 p-0"
+                                  onClick={() => decrementCandidate(candidate.id)}
+                                >
+                                  <Minus className="h-5 w-5" />
+                                </Button>
+                                <input
+                                  ref={(element) => {
+                                    inputRefs.current[`candidate:${candidate.id}`] = element
+                                  }}
+                                  type="number"
+                                  min={0}
+                                  max={9999}
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  value={votes === 0 ? "" : votes}
+                                  onFocus={(event) => event.currentTarget.select()}
+                                  onChange={(event) => {
+                                    updateCandidateVotes(candidate.id, normalizeNonNegativeInt(event.target.value), true)
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault()
+                                      focusNextField(`candidate:${candidate.id}`)
+                                    }
+                                  }}
+                                  className="h-12 w-full rounded-lg border border-border/60 bg-background px-3 text-center text-2xl font-bold tracking-tight text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                  aria-label={`Votos de ${candidate.fullName}`}
+                                />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-12 w-12 p-0"
+                                  onClick={() => incrementCandidate(candidate.id)}
+                                >
+                                  <Plus className="h-5 w-5" />
+                                </Button>
+                              </div>
+                            )}
                           </div>
                         )
                       })}
@@ -1100,6 +1305,10 @@ export default function TestigoElectoralPage() {
                     <span className="font-semibold">{totalVotosCandidatos}</span>
                   </div>
                   <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Total voto por lista</span>
+                    <span className="font-semibold">{totalVotosLista}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Total votos en blanco</span>
                     <span className="font-semibold">{totalVotosBlanco}</span>
                   </div>
@@ -1133,7 +1342,7 @@ export default function TestigoElectoralPage() {
                     </span>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    Candidatos {totalVotosCandidatos} · Blanco {totalVotosBlanco} · Nulos {totalVotosNulos} · No marcados {totalVotosNoMarcados}
+                    Candidatos {totalVotosCandidatos} · Lista {totalVotosLista} · Blanco {totalVotosBlanco} · Nulos {totalVotosNulos} · No marcados {totalVotosNoMarcados}
                   </p>
                 </CardContent>
               </Card>
@@ -1230,6 +1439,10 @@ export default function TestigoElectoralPage() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Total candidatos</span>
                   <span className="font-semibold">{totalVotosCandidatos}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Total voto por lista</span>
+                  <span className="font-semibold">{totalVotosLista}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Voto en blanco</span>
