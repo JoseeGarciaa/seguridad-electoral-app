@@ -91,8 +91,8 @@ async function fetchWarRoomBootstrapData(user: BootstrapUser | null) {
       SELECT
         (SELECT COUNT(*) FROM vote_reports) AS reports,
         (SELECT COUNT(DISTINCT delegate_id) FROM delegate_polling_assignments) AS active_delegates,
-        (SELECT COUNT(*) FROM divipole_locations) AS total_locations,
-        (SELECT COUNT(DISTINCT polling_station_code) FROM vote_reports WHERE polling_station_code IS NOT NULL) AS reported_locations
+        (SELECT COUNT(*) FROM delegate_polling_assignments) AS total_locations,
+        (SELECT COUNT(DISTINCT delegate_assignment_id) FROM vote_reports WHERE delegate_assignment_id IS NOT NULL) AS reported_locations
     `
 
   const feedQuery = delegateId
@@ -362,13 +362,14 @@ async function fetchWarRoomBootstrapData(user: BootstrapUser | null) {
     const activeDelegates = Number(statsRow.active_delegates ?? 0)
     const totalLocations = Number(statsRow.total_locations ?? 0)
     const reportedLocations = Number(statsRow.reported_locations ?? 0)
+    const reportedForCoverage = isAdmin ? reports : reportedLocations
 
     payload.stats = {
       reports,
       activeDelegates,
       totalLocations,
       reportedLocations,
-      coverage: totalLocations > 0 ? Math.round((reportedLocations / totalLocations) * 100) : 0,
+      coverage: totalLocations > 0 ? Math.round((reportedForCoverage / totalLocations) * 100) : 0,
       lastUpdated: nowIso,
     }
 

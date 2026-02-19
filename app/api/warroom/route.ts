@@ -123,8 +123,8 @@ export async function GET(req: NextRequest) {
       SELECT
         (SELECT COUNT(*) FROM vote_reports) AS reports,
         (SELECT COUNT(DISTINCT delegate_id) FROM delegate_polling_assignments) AS active_delegates,
-        (SELECT COUNT(*) FROM divipole_locations) AS total_locations,
-        (SELECT COUNT(DISTINCT polling_station_code) FROM vote_reports WHERE polling_station_code IS NOT NULL) AS reported_locations
+        (SELECT COUNT(*) FROM delegate_polling_assignments) AS total_locations,
+        (SELECT COUNT(DISTINCT delegate_assignment_id) FROM vote_reports WHERE delegate_assignment_id IS NOT NULL) AS reported_locations
     `
 
   const candidateQuery = delegateId
@@ -557,17 +557,19 @@ export async function GET(req: NextRequest) {
     const statsRow = statsRows[0] ?? {}
     const derivedReportedLocations = uniqueMunicipalityRows.reduce((acc, row) => acc + Number(row.reported ?? 0), 0)
     const derivedTotalLocations = uniqueMunicipalityRows.reduce((acc, row) => acc + Number(row.total ?? 0), 0)
+    const reportCount = Number(statsRow?.reports ?? 0) || derivedReportedLocations
     const safeReportedLocations = Number(statsRow?.reported_locations ?? 0) || derivedReportedLocations
     const safeTotalLocations = Number(statsRow?.total_locations ?? 0) || derivedTotalLocations
+    const reportedForCoverage = user.role === "admin" ? reportCount : safeReportedLocations
     const statsPayload = {
-      reports: Number(statsRow?.reports ?? 0) || derivedReportedLocations,
+      reports: reportCount,
       activeDelegates: Number(statsRow?.active_delegates ?? 0),
       totalLocations: safeTotalLocations,
       reportedLocations: safeReportedLocations,
       coverage:
         safeTotalLocations === 0
           ? 0
-          : Math.round((safeReportedLocations / safeTotalLocations) * 100),
+          : Math.round((reportedForCoverage / safeTotalLocations) * 100),
       lastUpdated: new Date().toISOString(),
     }
 

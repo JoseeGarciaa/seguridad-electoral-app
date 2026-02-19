@@ -31,7 +31,7 @@ export function WarRoomHeader({
   const stats = [
     { label: "Reportes Hoy", value: data?.stats.reports ?? 0, icon: CheckCircle },
     { label: "Testigos Activos", value: data?.stats.activeDelegates ?? 0, icon: Users },
-    { label: "Cobertura", value: data?.stats.coverage ?? 0, icon: Radio },
+    { label: "Avance", value: data?.stats.coverage ?? 0, icon: Radio, isPercentage: true },
   ].filter((stat) => showActiveWitnesses || stat.label !== "Testigos Activos")
 
   return (
@@ -73,7 +73,7 @@ export function WarRoomHeader({
               </div>
               <div>
                 <p className="text-xl font-bold text-foreground">
-                  {loading ? "--" : stat.label === "Cobertura" ? `${stat.value}%` : formatNumber(Number(stat.value))}
+                  {loading ? "--" : stat.isPercentage ? `${stat.value}%` : formatNumber(Number(stat.value))}
                 </p>
                 <p className="text-xs sm:text-[10px] text-muted-foreground">{stat.label}</p>
               </div>
