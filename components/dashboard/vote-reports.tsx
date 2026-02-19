@@ -7,7 +7,7 @@ const numberFormatter = new Intl.NumberFormat("es-CO")
 
 export function VoteReportsCard({ reports, canOpenReports = true }: { reports: VoteReportSummary[]; canOpenReports?: boolean }) {
   return (
-    <div className="glass rounded-xl border border-border/50 p-4 lg:p-6 h-full">
+    <div className="glass rounded-xl border border-border/50 p-4 lg:p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-foreground">Votos recientes</h2>
         {canOpenReports && (

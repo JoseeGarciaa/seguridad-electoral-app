@@ -7,6 +7,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { useWarRoomData } from "./warroom-data-provider"
 
+const normalizeMarkerText = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+
+const OUR_CANDIDATE_MARKER = "katerin marieth galvan quintero"
+const OUR_PARTY_MARKER = "coalicion verde en marcha la fuerza"
+
 export function CandidateComparison() {
   const { data, loading, error } = useWarRoomData()
   const [search, setSearch] = useState("")
@@ -89,8 +100,20 @@ export function CandidateComparison() {
     [filteredParties],
   )
 
+  const isOurCandidate = (candidate: { id?: string | number; name: string }) => {
+    const normalizedName = normalizeMarkerText(candidate.name ?? "")
+    if (normalizedName === OUR_CANDIDATE_MARKER) return true
+    const normalizedId = String(candidate.id ?? "").trim()
+    return normalizedId === "104"
+  }
+
+  const isOurParty = (party: { party: string }) => {
+    const normalizedParty = normalizeMarkerText(party.party ?? "")
+    return normalizedParty === OUR_PARTY_MARKER
+  }
+
   return (
-    <div className="glass rounded-xl border border-border/50 h-full flex flex-col overflow-hidden">
+    <div className="glass rounded-xl border border-border/50 overflow-hidden">
       {/* Header */}
       <div className="p-4 border-b border-border/50">
         <div className="flex items-center justify-between">
@@ -107,7 +130,7 @@ export function CandidateComparison() {
         </div>
       </div>
 
-      <Tabs defaultValue="candidates" className="flex-1 min-h-0">
+      <Tabs defaultValue="candidates">
         <div className="px-4 pt-4">
           <TabsList className="w-full grid grid-cols-2">
             <TabsTrigger value="candidates">Por Candidato</TabsTrigger>
@@ -121,7 +144,7 @@ export function CandidateComparison() {
           />
         </div>
 
-        <TabsContent value="candidates" className="flex-1 min-h-0 flex flex-col">
+        <TabsContent value="candidates">
           <div className="p-4 border-b border-border/50">
             <div className="h-8 rounded-lg overflow-hidden flex">
               {comparisonLoading && <div className="w-full bg-secondary animate-pulse" />}
@@ -143,18 +166,21 @@ export function CandidateComparison() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="p-4">
             <div className="space-y-4">
               {comparisonError && !hasRenderableData && <p className="text-sm text-destructive">{comparisonError}</p>}
               {comparisonLoading && <div className="h-24 rounded-lg bg-secondary/50 animate-pulse" />}
               {!comparisonLoading && filteredCandidates.map((candidate, index) => (
+                (() => {
+                  const ourCandidate = isOurCandidate(candidate)
+                  return (
                 <motion.div
                   key={candidate.id}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.1 }}
                   className={`p-3 rounded-lg transition-colors ${
-                    index === 0 ? "bg-primary/10 border border-primary/20" : "bg-secondary/30"
+                    ourCandidate ? "bg-primary/10 border border-primary/20" : "bg-secondary/30"
                   }`}
                 >
                   <div className="flex items-center justify-between">
@@ -163,7 +189,7 @@ export function CandidateComparison() {
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="text-base font-medium text-foreground">{candidate.name}</p>
-                          {index === 0 && (
+                          {ourCandidate && (
                             <span className="px-1.5 py-0.5 rounded text-xs bg-primary/20 text-primary font-medium">
                               NUESTRO
                             </span>
@@ -193,6 +219,8 @@ export function CandidateComparison() {
                     />
                   </div>
                 </motion.div>
+                  )
+                })()
               ))}
             </div>
           </div>
@@ -202,8 +230,8 @@ export function CandidateComparison() {
           </div>
         </TabsContent>
 
-        <TabsContent value="parties" className="flex-1 min-h-0 flex flex-col">
-          <div className="flex-1 overflow-y-auto p-4">
+        <TabsContent value="parties">
+          <div className="p-4">
             <div className="space-y-4">
               {comparisonError && !hasRenderableData && <p className="text-sm text-destructive">{comparisonError}</p>}
               {comparisonLoading && <div className="h-24 rounded-lg bg-secondary/50 animate-pulse" />}
@@ -213,16 +241,26 @@ export function CandidateComparison() {
                 </div>
               )}
               {!comparisonLoading && filteredParties.map((party, index) => (
+                (() => {
+                  const ourParty = isOurParty(party)
+                  return (
                 <motion.div
                   key={party.party}
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.06 }}
-                  className={`p-3 rounded-lg transition-colors ${index === 0 ? "bg-primary/10 border border-primary/20" : "bg-secondary/30"}`}
+                  className={`p-3 rounded-lg transition-colors ${ourParty ? "bg-primary/10 border border-primary/20" : "bg-secondary/30"}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-base font-semibold text-foreground">{party.party}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-base font-semibold text-foreground">{party.party}</p>
+                        {ourParty && (
+                          <span className="px-1.5 py-0.5 rounded text-xs bg-primary/20 text-primary font-medium">
+                            NUESTRO
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground">{party.candidateCount} candidatos con votos</p>
                     </div>
                     <div className="text-right">
@@ -253,6 +291,8 @@ export function CandidateComparison() {
                     </div>
                   )}
                 </motion.div>
+                  )
+                })()
               ))}
             </div>
           </div>

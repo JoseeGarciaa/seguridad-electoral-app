@@ -51,13 +51,13 @@ export function EvidenceGallery() {
 
       {/* Gallery Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-        {!mounted && <div className="col-span-full h-24 rounded-lg bg-secondary/50 animate-pulse" />}
+        {!mounted && <div className="col-span-full rounded-lg bg-secondary/50 animate-pulse py-6" />}
         {mounted && (
           <>
         {error && evidences.length === 0 && <p className="col-span-full text-sm text-destructive">{error}</p>}
-        {loading && <div className="col-span-full h-24 rounded-lg bg-secondary/50 animate-pulse" />}
+        {loading && <div className="col-span-full rounded-lg bg-secondary/50 animate-pulse py-6" />}
         {!loading && !error && evidences.length === 0 && (
-          <div className="col-span-full h-24 rounded-lg border border-border/50 bg-secondary/20 flex items-center justify-center px-3">
+          <div className="col-span-full rounded-lg border border-border/50 bg-secondary/20 flex items-center justify-center px-3 py-6">
             <p className="text-sm text-muted-foreground text-center">Sin evidencias recientes</p>
           </div>
         )}

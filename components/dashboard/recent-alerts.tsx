@@ -38,7 +38,7 @@ const iconForSeverity = {
 
 export function RecentAlerts({ alerts }: { alerts: AlertItem[] }) {
   return (
-    <div className="glass rounded-xl border border-border/50 p-4 lg:p-6 h-full">
+    <div className="glass rounded-xl border border-border/50 p-4 lg:p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-foreground">Alertas Recientes</h2>
         <Link href="/dashboard/alertas">

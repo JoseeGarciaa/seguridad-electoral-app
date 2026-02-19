@@ -351,12 +351,18 @@ const resolvePartyLogo = (partido?: Partido | null) => {
   return null
 }
 
-const chipFilters = [
+const typeFilterOptions = [
   { key: "all", label: "Todos" },
   { key: "image", label: "Imagenes" },
   { key: "video", label: "Videos" },
   { key: "document", label: "Documentos" },
-  { key: "verified", label: "Verificados" },
+]
+
+const statusFilterOptions = [
+  { key: "all", label: "Todos" },
+  { key: "pending", label: "Pendiente" },
+  { key: "verified", label: "Verificado" },
+  { key: "flagged", label: "Marcado" },
 ]
 
 type EvidenciaPageProps = {
@@ -389,7 +395,6 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState("all")
-  const [typeChip, setTypeChip] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
   const [submitting, setSubmitting] = useState(false)
   const [isOffline, setIsOffline] = useState(false)
@@ -1234,45 +1239,6 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
     }
   }
 
-  const typeButtons = (
-    <div className="flex flex-wrap gap-2">
-      {chipFilters.map((chip) => (
-        <Button
-          key={chip.key}
-          variant={typeChip === chip.key ? "default" : "outline"}
-          className={`rounded-full px-4 py-2 ${typeChip === chip.key ? "bg-cyan-600 text-white" : "bg-zinc-800/60 border-zinc-700"}`}
-          onClick={() => {
-            setTypeChip(chip.key)
-            if (chip.key === "verified") {
-              setStatusFilter("verified")
-              setTypeFilter("all")
-              return
-            }
-            setStatusFilter("all")
-            setTypeFilter(chip.key)
-          }}
-        >
-          {chip.label}
-        </Button>
-      ))}
-    </div>
-  )
-
-  const statusButtons = (
-    <div className="flex flex-wrap gap-2">
-      {["all", "pending", "verified", "flagged"].map((status) => (
-        <Button
-          key={status}
-          variant={statusFilter === status ? "default" : "outline"}
-          className={`rounded-full px-4 py-2 ${statusFilter === status ? "bg-emerald-600 text-white" : "bg-zinc-800/60 border-zinc-700"}`}
-          onClick={() => setStatusFilter(status)}
-        >
-          {statusConfig[status]?.label ?? (status === "all" ? "Todos" : status)}
-        </Button>
-      ))}
-    </div>
-  )
-
   const wizardControls = (
     <div className="fixed bottom-4 left-4 right-4 z-40 flex items-center justify-between gap-3">
       <Button
@@ -1501,45 +1467,72 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
           </div>
 
           <Card className="bg-zinc-900/70 border-zinc-800">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center justify-between text-base">
+            <CardHeader className="px-4 pt-3 pb-1">
+              <CardTitle className={`flex items-center gap-2 text-sm ${isAdmin ? "justify-start" : "justify-between"}`}>
                 <span className="flex items-center gap-2">
                   <Filter className="h-4 w-4" /> Filtros
                 </span>
-                <div className="flex gap-2">
-                  <Dialog open={photoDialogOpen} onOpenChange={setPhotoDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button className="bg-cyan-600 hover:bg-cyan-700 text-white">
-                        <Upload className="h-4 w-4 mr-2" /> Subir evidencia
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="bg-zinc-900 border-zinc-800">
-                      <DialogHeader>
-                        <DialogTitle>Subir evidencia rapida</DialogTitle>
-                      </DialogHeader>
-                      <QuickUpload onDone={preload} />
-                    </DialogContent>
-                  </Dialog>
-                </div>
+                {!isAdmin && (
+                  <div className="flex gap-2">
+                    <Dialog open={photoDialogOpen} onOpenChange={setPhotoDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button size="sm" className="bg-cyan-600 hover:bg-cyan-700 text-white h-8">
+                          <Upload className="h-4 w-4 mr-2" /> Subir evidencia
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="bg-zinc-900 border-zinc-800">
+                        <DialogHeader>
+                          <DialogTitle>Subir evidencia rapida</DialogTitle>
+                        </DialogHeader>
+                        <QuickUpload onDone={preload} />
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                )}
               </CardTitle>
             </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-3 lg:grid-cols-4">
-              <div className="relative lg:col-span-2">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar mesa, municipio, titulo"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 bg-zinc-800/50 border-zinc-700 h-12"
-                />
+            <CardContent className="px-4 pb-3 pt-0 grid grid-cols-1 gap-2 md:grid-cols-12 md:items-end">
+              <div className="space-y-0.5 md:col-span-6">
+                <p className="text-xs text-muted-foreground">Buscar</p>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar mesa, municipio, titulo"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9 bg-zinc-800/50 border-zinc-700 h-9"
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-0.5 md:col-span-3">
                 <p className="text-xs text-muted-foreground">Tipo</p>
-                {typeButtons}
+                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                  <SelectTrigger className="w-full bg-zinc-800/50 border-zinc-700 h-9">
+                    <SelectValue placeholder="Selecciona tipo" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-zinc-900 border-zinc-800 text-foreground">
+                    {typeFilterOptions.map((option) => (
+                      <SelectItem key={option.key} value={option.key}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-0.5 md:col-span-3">
                 <p className="text-xs text-muted-foreground">Estado</p>
-                {statusButtons}
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="w-full bg-zinc-800/50 border-zinc-700 h-9">
+                    <SelectValue placeholder="Selecciona estado" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-zinc-900 border-zinc-800 text-foreground">
+                    {statusFilterOptions.map((option) => (
+                      <SelectItem key={option.key} value={option.key}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>

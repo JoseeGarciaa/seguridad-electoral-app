@@ -74,7 +74,7 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
   }
 
   return (
-    <div className="glass rounded-xl border border-border/50 h-full flex flex-col overflow-hidden">
+    <div className="glass rounded-xl border border-border/50 overflow-hidden">
       {/* Header */}
       <div className="p-3 border-b border-border/50">
         <div className="flex items-center justify-between mb-3">
@@ -93,7 +93,7 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-y-auto">
+      <div>
         {displayed.length === 0 ? (
           <div className="p-4 text-sm text-muted-foreground">Sin resultados para estos filtros.</div>
         ) : (

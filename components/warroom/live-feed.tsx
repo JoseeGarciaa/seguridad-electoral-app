@@ -20,11 +20,8 @@ export function LiveFeed() {
     () => new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Bogota" }),
     [],
   )
-  const rowsToShow = loading ? 2 : Math.max(feedItems.length, 1)
-  const dynamicHeight = Math.min(Math.max(156 + rowsToShow * 72, 228), 500)
-
   return (
-    <div className="glass rounded-xl border border-border/50 flex flex-col overflow-hidden" style={{ height: `${dynamicHeight}px` }}>
+    <div className="glass rounded-xl border border-border/50 overflow-hidden">
       {/* Header */}
       <div className="p-3 border-b border-border/50 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -35,12 +32,12 @@ export function LiveFeed() {
       </div>
 
       {/* Feed */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-2">
+      <div className="p-2 space-y-2">
         <AnimatePresence>
           {error && feedItems.length === 0 && <p className="text-sm text-destructive px-2">{error}</p>}
-          {loading && <div className="h-24 rounded-lg bg-secondary/50 animate-pulse" />}
+          {loading && <div className="rounded-lg bg-secondary/50 animate-pulse py-6" />}
           {!loading && !error && feedItems.length === 0 && (
-            <div className="h-24 rounded-lg border border-border/50 bg-secondary/20 flex items-center justify-center px-3">
+            <div className="rounded-lg border border-border/50 bg-secondary/20 flex items-center justify-center px-3 py-6">
               <p className="text-sm text-muted-foreground text-center">Sin actividad reciente</p>
             </div>
           )}

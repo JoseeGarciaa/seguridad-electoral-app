@@ -32,26 +32,26 @@ export default async function DashboardPage() {
 
         <div className="grid lg:grid-cols-2 gap-4">
           <div>
-            <Suspense fallback={<div className="h-full animate-pulse bg-secondary/50 rounded-xl" />}>
+            <Suspense fallback={<div className="h-48 animate-pulse bg-secondary/50 rounded-xl" />}>
               <LiveFeed />
             </Suspense>
           </div>
 
-          <div className="h-[500px]">
-            <Suspense fallback={<div className="h-full animate-pulse bg-secondary/50 rounded-xl" />}>
+          <div>
+            <Suspense fallback={<div className="h-48 animate-pulse bg-secondary/50 rounded-xl" />}>
               <AlertsPanel />
             </Suspense>
           </div>
         </div>
 
         <div className="grid lg:grid-cols-1 gap-4">
-          <Suspense fallback={<div className="h-80 animate-pulse bg-secondary/50 rounded-xl" />}>
+          <Suspense fallback={<div className="h-56 animate-pulse bg-secondary/50 rounded-xl" />}>
             <MunicipalTrafficLight />
           </Suspense>
         </div>
 
-        <div className="h-[650px]">
-          <Suspense fallback={<div className="h-full animate-pulse bg-secondary/50 rounded-xl" />}>
+        <div>
+          <Suspense fallback={<div className="h-56 animate-pulse bg-secondary/50 rounded-xl" />}>
             <CandidateComparison />
           </Suspense>
         </div>

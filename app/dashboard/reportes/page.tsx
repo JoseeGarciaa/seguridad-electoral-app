@@ -220,35 +220,57 @@ export default function ReportesPage() {
     if (!canExportData || reports.length === 0) return;
     if (typeof window === "undefined") return;
 
-    const popup = window.open("", "_blank", "noopener,noreferrer,width=960,height=720");
-    if (!popup) {
-      toast({ title: "Imprimir", description: "No se pudo abrir la vista de impresión" });
-      return;
-    }
-
     const body = reports
       .map((report) => {
         const details = report.details.length
           ? `<ul>${report.details
               .map(
                 (detail) =>
-                  `<li>${escapeHtml(detail.fullName ?? "Candidato")} · ${escapeHtml(detail.party ?? "Sin partido")} · ${escapeHtml(detail.position ?? "Sin cargo")} · ${detail.votes} votos</li>`,
+                  `<li>${escapeHtml(detail.fullName ?? "Candidato")} · ${escapeHtml(detail.position ?? "Sin cargo")} · ${escapeHtml(detail.party ?? "Sin partido")}${detail.ballotNumber ? ` · Tarjetón ${detail.ballotNumber}` : ""} · ${detail.votes} votos</li>`,
               )
               .join("")}</ul>`
           : "<p>Sin detalle por candidato.</p>";
+
+        const official = report.officialComparison;
+        const officialBlock = !official
+          ? ""
+          : `
+            <div style="margin:10px 0 10px 0;padding:10px;border:1px solid #ddd;border-radius:8px;background:#fafafa;">
+              <h4 style="margin:0 0 8px 0;">Datos oficiales mesa</h4>
+              <p style="margin:0 0 4px 0;">Total oficial: ${official.totalOficial ?? "N/D"}</p>
+              <p style="margin:0 0 4px 0;">Total reportado: ${official.totalReported ?? report.totalVotes}</p>
+              <p style="margin:0 0 4px 0;">Diferencia: ${official.diferencia ?? "N/D"}</p>
+              <p style="margin:0 0 4px 0;">Rango esperado (±5%): ${official.expectedMin ?? "N/D"} - ${official.expectedMax ?? "N/D"}</p>
+              <p style="margin:0 0 4px 0;">Participación: ${official.participacion !== null && official.participacion !== undefined ? `${official.participacion}%` : "N/D"}</p>
+              <p style="margin:0;">Alertas: ${!official.hasOfficialData
+                ? (official.officialNotice ?? "Sin información oficial histórica para el puesto y mesa reportados.")
+                : official.overVoting && official.increaseAlert
+                  ? "Sobrevotación e incremento fuera de rango"
+                  : official.overVoting && official.decreaseAlert
+                    ? "Sobrevotación y disminución fuera de rango"
+                    : official.increaseAlert
+                      ? "Incremento de votación fuera de rango"
+                      : official.decreaseAlert
+                        ? "Disminución de votación fuera de rango"
+                        : official.mismatch
+                          ? "Descuadre dentro de tolerancia"
+                          : "Sin alertas"}</p>
+            </div>
+          `;
 
         return `
           <section style="margin-bottom:20px;padding:12px;border:1px solid #ddd;border-radius:8px;">
             <h3 style="margin:0 0 8px 0;">${escapeHtml(report.pollingStation ?? "Mesa")} · ${escapeHtml(report.municipality ?? "Sin municipio")}</h3>
             <p style="margin:0 0 6px 0;">Delegado: ${escapeHtml(report.delegateName ?? "Sin delegado")}${report.tableNumber !== null && report.tableNumber !== undefined ? ` · Mesa ${report.tableNumber}` : ""}</p>
             <p style="margin:0 0 8px 0;">Total: ${report.totalVotes} votos${report.reportedAt ? ` · ${escapeHtml(formatReportDate(report.reportedAt))}` : ""}</p>
+            ${officialBlock}
             ${details}
           </section>
         `;
       })
       .join("");
 
-    popup.document.write(`
+    const html = `
       <!doctype html>
       <html lang="es">
         <head>
@@ -260,10 +282,56 @@ export default function ReportesPage() {
           ${body}
         </body>
       </html>
-    `);
+    `;
+
+    const printFromIframe = () => {
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "fixed";
+      iframe.style.right = "0";
+      iframe.style.bottom = "0";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "0";
+      document.body.appendChild(iframe);
+
+      const iframeWindow = iframe.contentWindow;
+      const iframeDocument = iframeWindow?.document;
+      if (!iframeWindow || !iframeDocument) {
+        iframe.remove();
+        toast({ title: "Imprimir", description: "No se pudo abrir la vista de impresión" });
+        return;
+      }
+
+      iframeDocument.open();
+      iframeDocument.write(html);
+      iframeDocument.close();
+
+      window.setTimeout(() => {
+        iframeWindow.focus();
+        iframeWindow.print();
+        window.setTimeout(() => iframe.remove(), 1_000);
+      }, 300);
+    };
+
+    const popup = window.open("", "_blank", "width=960,height=720");
+    if (!popup) {
+      printFromIframe();
+      return;
+    }
+
+    let printed = false;
+    const runPrint = () => {
+      if (printed) return;
+      printed = true;
+      popup.focus();
+      popup.print();
+    };
+
+    popup.document.open();
+    popup.document.write(html);
     popup.document.close();
-    popup.focus();
-    popup.print();
+    popup.onload = () => window.setTimeout(runPrint, 150);
+    window.setTimeout(runPrint, 800);
   };
 
   const handlePrint = () => {

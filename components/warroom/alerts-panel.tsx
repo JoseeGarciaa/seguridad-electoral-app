@@ -42,8 +42,6 @@ const noticeStyles = {
 }
 
 export function AlertsPanel() {
-  const MAX_VISIBLE_ALERTS = 5
-  const ALERT_CARD_HEIGHT_PX = 140
   const router = useRouter()
   const { data, error: warroomError, loading } = useWarRoomData()
   const timeFormatter = useMemo(
@@ -86,9 +84,6 @@ export function AlertsPanel() {
   const warningCount = useMemo(() => alerts.filter((a) => a.severity === "warning").length, [alerts])
 
   const renderAlerts = useMemo(() => alerts, [alerts])
-  const hasAlerts = renderAlerts.length > 0
-  const enableScroll = !loading && hasAlerts && renderAlerts.length > MAX_VISIBLE_ALERTS
-  const maxListHeight = !loading && hasAlerts ? Math.min(renderAlerts.length, MAX_VISIBLE_ALERTS) * ALERT_CARD_HEIGHT_PX : undefined
 
   return (
     <div className="glass rounded-xl border border-border/50 flex flex-col overflow-hidden">
@@ -111,15 +106,12 @@ export function AlertsPanel() {
       </div>
 
       {/* Alerts List */}
-      <div
-        className={`p-2 space-y-2 ${enableScroll ? "overflow-y-auto" : "overflow-visible"}`}
-        style={maxListHeight ? { maxHeight: `${maxListHeight}px` } : undefined}
-      >
+      <div className="p-2 space-y-2">
         <AnimatePresence>
           {warroomError && renderAlerts.length === 0 && <p className="text-sm text-destructive px-2">{warroomError}</p>}
           {loading && <div className="h-16 rounded-lg bg-secondary/50 animate-pulse" />}
           {!loading && !warroomError && renderAlerts.length === 0 && (
-            <div className="h-full min-h-[110px] rounded-lg border border-border/50 bg-secondary/20 flex items-center justify-center px-3">
+            <div className="rounded-lg border border-border/50 bg-secondary/20 px-3 py-6 flex items-center justify-center">
               <p className="text-sm text-muted-foreground text-center">Sin alertas activas por ahora</p>
             </div>
           )}
@@ -141,24 +133,16 @@ export function AlertsPanel() {
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
-                className={`min-h-[132px] p-2.5 rounded-lg ${styles.bg} border ${styles.border} flex`}
+                className={`p-2.5 rounded-lg ${styles.bg} border ${styles.border}`}
               >
                 <div className="flex items-start gap-2 w-full">
                   <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${styles.icon}`} />
-                  <div className="flex-1 min-w-0 flex flex-col h-full">
+                  <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground leading-tight">{alert.title}</p>
-                    <p
-                      className="text-xs text-muted-foreground mt-0.5 leading-snug break-words"
-                      style={{
-                        display: "-webkit-box",
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical",
-                        overflow: "hidden",
-                      }}
-                    >
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-snug break-words">
                       {alert.message}
                     </p>
-                    <div className="mt-auto pt-2 flex flex-wrap items-center gap-2">
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
                       <span className="text-[11px] text-muted-foreground">
                         {alert.time ? formatTime(alert.time) : "--"}
                       </span>
