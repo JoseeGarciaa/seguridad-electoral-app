@@ -378,11 +378,15 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// DELETE /api/evidences - delete by id (delegados solo pueden eliminar lo propio)
+// DELETE /api/evidences - delete by id (delegate no puede eliminar reportes)
 export async function DELETE(req: NextRequest) {
   const user = await getCurrentUser()
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  if (user.role === DELEGATE_ROLE) {
+    return NextResponse.json({ error: "El rol delegate no puede eliminar reportes" }, { status: 403 })
   }
 
   if (!pool) {
@@ -400,7 +404,7 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "id invalido" }, { status: 400 })
   }
 
-  const isWitness = user.role === DELEGATE_ROLE || user.role === "witness"
+  const isWitness = user.role === "witness"
   let delegateId = isWitness ? user.delegateId : null
   if (isWitness && !delegateId && user.email) {
     try {
@@ -441,11 +445,15 @@ export async function DELETE(req: NextRequest) {
   }
 }
 
-// PATCH /api/evidences - update evidence status (delegados solo pueden actualizar lo propio)
+// PATCH /api/evidences - update evidence status (delegate no puede verificar reportes)
 export async function PATCH(req: NextRequest) {
   const user = await getCurrentUser()
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  if (user.role === DELEGATE_ROLE) {
+    return NextResponse.json({ error: "El rol delegate no puede verificar reportes" }, { status: 403 })
   }
 
   if (!pool) {
@@ -465,7 +473,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "id invalido" }, { status: 400 })
   }
 
-  const isWitness = user.role === DELEGATE_ROLE || user.role === "witness"
+  const isWitness = user.role === "witness"
   let delegateId = isWitness ? user.delegateId : null
   if (isWitness && !delegateId && user.email) {
     try {

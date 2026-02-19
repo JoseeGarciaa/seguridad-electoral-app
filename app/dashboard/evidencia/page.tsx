@@ -400,6 +400,9 @@ export default function EvidenciaPage() {
     []
   )
   const isAdmin = viewerRole === "admin"
+  const canDeleteReports = viewerRole !== "delegate"
+  const canVerifyReports = viewerRole !== "delegate"
+  const canDownloadReports = viewerRole === "admin"
 
   const notify = (message: string, description?: string) => toast({ title: message, description })
 
@@ -431,6 +434,11 @@ export default function EvidenciaPage() {
   }, [])
 
   const handleDownloadImage = useCallback(async () => {
+    if (!canDownloadReports) {
+      notify("Sin permisos", "La descarga de informacion es exclusiva del admin")
+      return
+    }
+
     if (!detailItem) return
     const url = detailItem.url || detailItem.localPreview
     if (!url) {
@@ -461,9 +469,14 @@ export default function EvidenciaPage() {
     } finally {
       setDownloading(false)
     }
-  }, [detailItem, notify])
+  }, [canDownloadReports, detailItem, notify])
 
   const handleDownloadPdf = useCallback(async () => {
+    if (!canDownloadReports) {
+      notify("Sin permisos", "La descarga de informacion es exclusiva del admin")
+      return
+    }
+
     if (!detailItem) return
     try {
       setDownloading(true)
@@ -532,7 +545,7 @@ export default function EvidenciaPage() {
     } finally {
       setDownloading(false)
     }
-  }, [detailItem, fetchImageAsDataUrl, getDetailVotes, notify])
+  }, [canDownloadReports, detailItem, fetchImageAsDataUrl, getDetailVotes, notify])
 
   const preload = useCallback(async () => {
     setLoading(true)
@@ -672,6 +685,11 @@ export default function EvidenciaPage() {
   }, [items, searchQuery, statusFilter, typeFilter])
 
   const handleDeleteEvidence = useCallback(async (item: EvidenceItem) => {
+    if (viewerRole === "delegate") {
+      notify("Sin permisos", "El rol delegate no puede eliminar reportes")
+      return
+    }
+
     if (!item?.id) return
 
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.id)
@@ -711,9 +729,14 @@ export default function EvidenciaPage() {
       }
       notify("No se pudo eliminar", err?.message)
     }
-  }, [preload])
+  }, [preload, viewerRole])
 
   const handleVerifyEvidence = useCallback(async (item: EvidenceItem) => {
+    if (viewerRole === "delegate") {
+      notify("Sin permisos", "El rol delegate no puede marcar reportes como verificados")
+      return
+    }
+
     if (!item?.id) return
 
     if (item.status === "verified") {
@@ -762,7 +785,7 @@ export default function EvidenciaPage() {
       }))
       notify("No se pudo verificar", err?.message)
     }
-  }, [notify, preload])
+  }, [notify, preload, viewerRole])
 
   const selectedMesaLabel = useMemo(
     () => mesas.find((m) => m.id === flow.mesaId)?.label ?? flow.mesaId,
@@ -1456,6 +1479,8 @@ export default function EvidenciaPage() {
                   key={item.id}
                   item={item}
                   dateFormatter={dateFormatter}
+                  canDelete={canDeleteReports}
+                  canVerify={canVerifyReports}
                   onVerify={() => handleVerifyEvidence(item)}
                   onView={() => setDetailItem(item)}
                   onDelete={() => handleDeleteEvidence(item)}
@@ -1628,21 +1653,25 @@ export default function EvidenciaPage() {
                     )}
 
                     <div className="flex flex-wrap gap-2 pt-1">
-                      <Button
-                        variant="outline"
-                        className="bg-zinc-800/60 border-zinc-700"
-                        onClick={handleDownloadImage}
-                        disabled={downloading}
-                      >
-                        Descargar imagen
-                      </Button>
-                      <Button
-                        className="bg-emerald-600 hover:bg-emerald-700"
-                        onClick={handleDownloadPdf}
-                        disabled={downloading}
-                      >
-                        Descargar PDF con votos
-                      </Button>
+                      {canDownloadReports && (
+                        <>
+                          <Button
+                            variant="outline"
+                            className="bg-zinc-800/60 border-zinc-700"
+                            onClick={handleDownloadImage}
+                            disabled={downloading}
+                          >
+                            Descargar imagen
+                          </Button>
+                          <Button
+                            className="bg-emerald-600 hover:bg-emerald-700"
+                            onClick={handleDownloadPdf}
+                            disabled={downloading}
+                          >
+                            Descargar PDF con votos
+                          </Button>
+                        </>
+                      )}
                       <Button variant="ghost" className="text-emerald-400" onClick={() => setDetailItem(null)}>
                         Cerrar
                       </Button>
@@ -2163,7 +2192,7 @@ function ConfirmStep({ flow, onSubmit }: { flow: VoteFlowState; onSubmit: () => 
   )
 }
 
-function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter }: { item: EvidenceItem; onVerify: () => void; onView: () => void; onDelete: () => void; dateFormatter: Intl.DateTimeFormat }) {
+function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter, canDelete = true, canVerify = true }: { item: EvidenceItem; onVerify: () => void; onView: () => void; onDelete: () => void; dateFormatter: Intl.DateTimeFormat; canDelete?: boolean; canVerify?: boolean }) {
   const isVerified = item.status === "verified"
   const displayTags = getDisplayTags(item.tags)
 
@@ -2232,23 +2261,27 @@ function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter }: { ite
           >
             <Eye className="h-4 w-4 mr-2" /> Ver
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 bg-emerald-600/30 border-emerald-700 text-emerald-100 max-w-full"
-            onClick={onVerify}
-            disabled={isVerified}
-          >
-            <CheckCircle className="h-4 w-4 mr-2" /> {isVerified ? "Verificado" : "Marcar verificado"}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 min-w-[36px] text-red-400"
-            onClick={onDelete}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          {canVerify && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 bg-emerald-600/30 border-emerald-700 text-emerald-100 max-w-full"
+              onClick={onVerify}
+              disabled={isVerified}
+            >
+              <CheckCircle className="h-4 w-4 mr-2" /> {isVerified ? "Verificado" : "Marcar verificado"}
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 min-w-[36px] text-red-400"
+              onClick={onDelete}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
