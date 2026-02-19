@@ -555,8 +555,10 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
     setLoading(true)
     setError(null)
     try {
+      const shouldFetchMesas = viewerRole === "delegate" || viewerRole === "witness"
+
       const [mesasRes, catalogosRes, evidencesRes, voteReportsRes] = await Promise.all([
-        fetch("/api/mesas-asignadas", { cache: "no-store" }),
+        shouldFetchMesas ? fetch("/api/mesas-asignadas", { cache: "no-store" }) : Promise.resolve(null),
         fetch("/api/catalogos", { cache: "no-store" }),
         fetch("/api/evidences"),
         fetch("/api/vote-reports"),
@@ -569,7 +571,7 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
         return
       }
 
-      const mesasData = mesasRes.ok ? await mesasRes.json().catch(() => ({ items: [] })) : { items: [] }
+      const mesasData = mesasRes?.ok ? await mesasRes.json().catch(() => ({ items: [] })) : { items: [] }
       const catalogosData = await catalogosRes.json()
       const evidencesData = await evidencesRes.json()
       const voteReportsData = voteReportsRes.ok ? await voteReportsRes.json().catch(() => ({ items: [] })) : { items: [] }
@@ -637,7 +639,7 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [viewerRole])
 
   useEffect(() => {
     preload()

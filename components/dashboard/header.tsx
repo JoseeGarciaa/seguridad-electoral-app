@@ -51,6 +51,7 @@ export function DashboardHeader({ user }: HeaderProps) {
   const isWitness = user.role === "witness" || roleLabel.includes("testigo")
   const isDelegate = !isWitness && (user.role === "delegate" || roleLabel.includes("delegado"))
   const isSimplifiedRole = isWitness || isDelegate
+  const isAdmin = user.role === "admin"
 
   useEffect(() => {
     let cancelled = false
@@ -88,6 +89,7 @@ export function DashboardHeader({ user }: HeaderProps) {
     if (pathname.includes("simpatizantes")) return "Simpatizantes"
     if (pathname.includes("comunicacion")) return "Comunicación"
     if (pathname.includes("alertas")) return "Alertas"
+    if (pathname.includes("descarga-formularios")) return "Descarga Formularios"
     if (pathname.includes("cumplimiento")) return "Cumplimiento"
     if (pathname.includes("settings")) return "Configuración"
     return "Dashboard"
@@ -252,6 +254,7 @@ export function DashboardHeader({ user }: HeaderProps) {
                     { name: "Equipo", href: "/dashboard/equipo" },
                     { name: "Evidencias", href: "/dashboard/evidencias" },
                     { name: "Alertas", href: "/dashboard/alertas" },
+                    ...(isAdmin ? [{ name: "Descarga Formularios", href: "/dashboard/descarga-formularios" }] : []),
                   ].filter((item) => !(isDelegate && item.href === "/dashboard/territorio"))).map((item) => (
                 <Link
                   key={item.name}

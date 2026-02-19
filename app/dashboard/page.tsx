@@ -4,7 +4,6 @@ import { LiveFeed } from "@/components/warroom/live-feed"
 import { CandidateComparison } from "@/components/warroom/candidate-comparison"
 import { MunicipalTrafficLight } from "@/components/warroom/municipal-traffic-light"
 import { AlertsPanel } from "@/components/warroom/alerts-panel"
-import { EvidenceGallery } from "@/components/warroom/evidence-gallery"
 import { WarRoomDataProvider } from "@/components/warroom/warroom-data-provider"
 import { getCurrentUser } from "@/lib/auth"
 import { getWarRoomBootstrapData } from "@/lib/warroom-bootstrap"
@@ -45,13 +44,9 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-2 gap-4">
+        <div className="grid lg:grid-cols-1 gap-4">
           <Suspense fallback={<div className="h-80 animate-pulse bg-secondary/50 rounded-xl" />}>
             <MunicipalTrafficLight />
-          </Suspense>
-
-          <Suspense fallback={<div className="h-80 animate-pulse bg-secondary/50 rounded-xl" />}>
-            <EvidenceGallery />
           </Suspense>
         </div>
 

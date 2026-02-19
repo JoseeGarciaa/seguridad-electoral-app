@@ -45,6 +45,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  const isWitnessLike = user.role === DELEGATE_ROLE || user.role === "witness"
+
+  if (!isWitnessLike) {
+    return NextResponse.json({
+      items: [],
+      witness_name: buildWitnessNameFromEmail(user.email),
+      role: user.role,
+    })
+  }
+
   let delegateId = user.delegateId
   // Allow any session that has a delegateId (some environments store role as "witness")
   if (!delegateId && pool && user.email) {
