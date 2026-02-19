@@ -92,15 +92,22 @@ const WarRoomContext = createContext<{
 async function fetchWarRoom(): Promise<WarRoomPayload> {
   const res = await fetch("/api/warroom", { cache: "no-store" })
   if (!res.ok) {
-    throw new Error(`WarRoom API error ${res.status}`)
+    throw new Error("No se pudieron actualizar datos del Centro de Mando")
   }
   return res.json()
 }
 
-export function WarRoomDataProvider({ children }: { children: React.ReactNode }) {
-  const [data, setData] = useState<WarRoomPayload | null>(null)
-  const [loading, setLoading] = useState(true)
+export function WarRoomDataProvider({
+  children,
+  initialData = null,
+}: {
+  children: React.ReactNode
+  initialData?: WarRoomPayload | null
+}) {
+  const [data, setData] = useState<WarRoomPayload | null>(initialData)
+  const [loading, setLoading] = useState(!initialData)
   const [error, setError] = useState<string | null>(null)
+  const hasInitialData = Boolean(initialData)
 
   useEffect(() => {
     let mounted = true
@@ -108,6 +115,7 @@ export function WarRoomDataProvider({ children }: { children: React.ReactNode })
     let source: EventSource | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let refreshTimer: ReturnType<typeof setTimeout> | null = null
+    let startupTimer: ReturnType<typeof setTimeout> | null = null
 
     const refresh = async () => {
       if (!mounted || inFlight) return
@@ -121,7 +129,9 @@ export function WarRoomDataProvider({ children }: { children: React.ReactNode })
       } catch (err: any) {
         if (!mounted) return
         setError(err?.message ?? "Error cargando datos")
-        setLoading(false)
+        if (!hasInitialData) {
+          setLoading(false)
+        }
       } finally {
         inFlight = false
       }
@@ -156,8 +166,16 @@ export function WarRoomDataProvider({ children }: { children: React.ReactNode })
       }
     }
 
-    refresh()
-    startStream()
+    if (hasInitialData) {
+      startupTimer = setTimeout(() => {
+        if (!mounted) return
+        startStream()
+        scheduleRefresh(800)
+      }, 350)
+    } else {
+      refresh()
+      startStream()
+    }
 
     const interval = setInterval(() => {
       scheduleRefresh(0)
@@ -168,9 +186,10 @@ export function WarRoomDataProvider({ children }: { children: React.ReactNode })
       clearInterval(interval)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (refreshTimer) clearTimeout(refreshTimer)
+      if (startupTimer) clearTimeout(startupTimer)
       if (source) source.close()
     }
-  }, [])
+  }, [hasInitialData])
 
   const value = useMemo(() => ({ data, loading, error }), [data, loading, error])
 

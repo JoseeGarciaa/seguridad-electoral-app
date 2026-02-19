@@ -44,6 +44,10 @@ const noticeStyles = {
 export function AlertsPanel() {
   const router = useRouter()
   const { data, error: warroomError, loading } = useWarRoomData()
+  const timeFormatter = useMemo(
+    () => new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Bogota" }),
+    [],
+  )
 
   const normalizeStatus = (value?: string | null): ApiAlertStatus => {
     const normalized = value?.toLowerCase()
@@ -73,7 +77,7 @@ export function AlertsPanel() {
   const formatTime = (value: string) => {
     const parsed = new Date(value)
     if (Number.isNaN(parsed.getTime())) return value || "--"
-    return parsed.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })
+    return timeFormatter.format(parsed)
   }
 
   const criticalCount = useMemo(() => alerts.filter((a) => a.severity === "critical").length, [alerts])
@@ -104,8 +108,13 @@ export function AlertsPanel() {
       {/* Alerts List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         <AnimatePresence>
-          {warroomError && <p className="text-sm text-destructive px-2">{warroomError}</p>}
+          {warroomError && renderAlerts.length === 0 && <p className="text-sm text-destructive px-2">{warroomError}</p>}
           {loading && <div className="h-16 rounded-lg bg-secondary/50 animate-pulse" />}
+          {!loading && !warroomError && renderAlerts.length === 0 && (
+            <div className="h-full min-h-[110px] rounded-lg border border-border/50 bg-secondary/20 flex items-center justify-center px-3">
+              <p className="text-sm text-muted-foreground text-center">Sin alertas activas por ahora</p>
+            </div>
+          )}
           {!loading && renderAlerts.map((alert, index) => {
             const keyId = resolveAlertId(alert.id)
             const alertKey = keyId ?? `alert-${alert.category ?? "generic"}-${alert.time ?? "no-time"}-${index}`

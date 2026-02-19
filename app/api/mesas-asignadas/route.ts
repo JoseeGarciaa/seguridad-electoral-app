@@ -3,6 +3,8 @@ import { getCurrentUser, DELEGATE_ROLE } from "@/lib/auth"
 import { pool } from "@/lib/pg"
 
 let hasAssignmentDivipole: boolean | null = null
+const MESAS_CACHE_TTL_MS = 20_000
+const mesasCache = new Map<string, { ts: number; payload: any }>()
 
 async function ensureAssignmentDivipoleColumn(): Promise<boolean> {
   if (hasAssignmentDivipole !== null) return hasAssignmentDivipole
@@ -51,6 +53,12 @@ export async function GET(req: NextRequest) {
   }
   if (!delegateId) {
     return NextResponse.json({ error: "Perfil de testigo electoral incompleto" }, { status: 403 })
+  }
+
+  const cacheKey = `${user.id}:${delegateId}`
+  const cached = mesasCache.get(cacheKey)
+  if (cached && Date.now() - cached.ts < MESAS_CACHE_TTL_MS) {
+    return NextResponse.json(cached.payload)
   }
 
   if (!pool) {
@@ -112,11 +120,13 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    return NextResponse.json({
+    const payload = {
       items,
       witness_name: buildWitnessNameFromEmail(user.email),
       role: user.role,
-    })
+    }
+    mesasCache.set(cacheKey, { ts: Date.now(), payload })
+    return NextResponse.json(payload)
   } catch (error) {
     console.error("Mesas asignadas error", error)
     return NextResponse.json({ ...fallbackData, error: "No se pudieron cargar las mesas asignadas" }, { status: 500 })

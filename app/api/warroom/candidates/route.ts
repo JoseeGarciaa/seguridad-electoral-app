@@ -3,6 +3,7 @@ import { pool } from "@/lib/pg"
 import { getCurrentUser } from "@/lib/auth"
 
 const CACHE_TTL_MS = 30_000
+const QUERY_TIMEOUT_MS = 1_800
 const cache = new Map<string, { ts: number; payload: { candidates: any[]; parties: any[] } }>()
 
 async function safeQuery<T>(
@@ -12,13 +13,19 @@ async function safeQuery<T>(
 ): Promise<T[]> {
   if (!pool) return fallback
   try {
-    const result = await pool.query(queryText, params)
+    const result = await pool.query({
+      text: queryText,
+      values: params,
+      query_timeout: QUERY_TIMEOUT_MS,
+      statement_timeout: QUERY_TIMEOUT_MS,
+    })
     return result.rows as T[]
   } catch (err: any) {
-    if (err?.code === "42P01" || err?.code === "42703") {
+    if (err?.code === "42P01" || err?.code === "42703" || err?.code === "57014") {
       return fallback
     }
-    throw err
+    console.warn("warroom candidates query fallback", err)
+    return fallback
   }
 }
 

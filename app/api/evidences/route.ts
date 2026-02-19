@@ -33,6 +33,12 @@ const fallbackData = {
 
 const dataUrlRegex = /^data:(?<mime>[^;]+);base64,(?<data>.+)$/i
 let hasEvidencesTable: boolean | null = null
+const EVIDENCES_CACHE_TTL_MS = 20_000
+const evidencesCache = new Map<string, { ts: number; payload: any }>()
+
+function clearEvidencesCache() {
+  evidencesCache.clear()
+}
 
 function parseDataUrl(dataUrl: string): { buffer: Buffer; mime: string; ext: string } | null {
   const match = dataUrlRegex.exec(dataUrl)
@@ -104,6 +110,21 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get("status") || ""
   const municipality = searchParams.get("municipality") || ""
   const limit = Math.min(Number(searchParams.get("limit") || 200), 500)
+  const cacheKey = [
+    user.id,
+    user.role,
+    delegateId ?? "global",
+    search.toLowerCase(),
+    type,
+    status,
+    municipality.toLowerCase(),
+    String(limit),
+  ].join("|")
+
+  const cached = evidencesCache.get(cacheKey)
+  if (cached && Date.now() - cached.ts < EVIDENCES_CACHE_TTL_MS) {
+    return NextResponse.json(cached.payload)
+  }
 
   const clauses: string[] = []
   const values: any[] = []
@@ -204,7 +225,7 @@ export async function GET(req: NextRequest) {
         client.query(statsQuery, delegateId ? [delegateId] : []),
       ])
 
-      return NextResponse.json({
+      const payload = {
         items: listRes.rows.map((row) => ({
           id: row.id as string,
           type: row.type as string,
@@ -231,7 +252,9 @@ export async function GET(req: NextRequest) {
           verified: Number(statsRes.rows[0]?.verified ?? 0),
         },
         viewerRole: user.role,
-      })
+      }
+      evidencesCache.set(cacheKey, { ts: Date.now(), payload })
+      return NextResponse.json(payload)
     } finally {
       client.release()
     }
@@ -361,6 +384,7 @@ export async function POST(req: NextRequest) {
       const row = rows[0]
 
       emitWarRoomUpdate({ ts: Date.now(), type: "evidence", source: "evidences-post" })
+      clearEvidencesCache()
 
       return NextResponse.json({
         id: evidenceId,
@@ -434,6 +458,8 @@ export async function DELETE(req: NextRequest) {
         return NextResponse.json({ error: "No encontrado" }, { status: 404 })
       }
 
+      clearEvidencesCache()
+
       return NextResponse.json({ id })
     } finally {
       client.release()
@@ -502,6 +528,8 @@ export async function PATCH(req: NextRequest) {
       if (!rowCount) {
         return NextResponse.json({ error: "No encontrado" }, { status: 404 })
       }
+
+      clearEvidencesCache()
 
       return NextResponse.json({ id: rows[0].id as string, status: rows[0].status as string })
     } finally {

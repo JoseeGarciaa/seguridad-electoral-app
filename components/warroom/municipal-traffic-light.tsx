@@ -55,7 +55,7 @@ export function MunicipalTrafficLight() {
 
       {/* Grid of municipalities */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-        {error && <p className="col-span-full text-sm text-destructive">{error}</p>}
+        {error && assignedMunicipalities.length === 0 && <p className="col-span-full text-sm text-destructive">{error}</p>}
         {loading && <div className="col-span-full h-16 rounded-lg bg-secondary/50 animate-pulse" />}
         {!loading && assignedMunicipalities.length === 0 && !error && (
           <p className="col-span-full text-sm text-muted-foreground">Sin municipios con delegados asignados.</p>

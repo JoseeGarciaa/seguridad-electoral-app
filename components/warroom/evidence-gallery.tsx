@@ -3,7 +3,7 @@
 import { motion } from "framer-motion"
 import { CheckCircle, Clock, AlertTriangle, Eye } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useWarRoomData } from "./warroom-data-provider"
 
 const statusConfig = {
@@ -30,6 +30,11 @@ const statusConfig = {
 export function EvidenceGallery() {
   const { data, loading, error } = useWarRoomData()
   const evidences = useMemo(() => data?.evidences ?? [], [data])
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   return (
     <div className="glass rounded-xl border border-border/50 p-4">
@@ -46,8 +51,16 @@ export function EvidenceGallery() {
 
       {/* Gallery Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-        {error && <p className="col-span-full text-sm text-destructive">{error}</p>}
+        {!mounted && <div className="col-span-full h-24 rounded-lg bg-secondary/50 animate-pulse" />}
+        {mounted && (
+          <>
+        {error && evidences.length === 0 && <p className="col-span-full text-sm text-destructive">{error}</p>}
         {loading && <div className="col-span-full h-24 rounded-lg bg-secondary/50 animate-pulse" />}
+        {!loading && !error && evidences.length === 0 && (
+          <div className="col-span-full h-24 rounded-lg border border-border/50 bg-secondary/20 flex items-center justify-center px-3">
+            <p className="text-sm text-muted-foreground text-center">Sin evidencias recientes</p>
+          </div>
+        )}
         {!loading && evidences.map((evidence, index) => {
           const status = statusConfig[evidence.status as keyof typeof statusConfig]
           return (
@@ -83,6 +96,8 @@ export function EvidenceGallery() {
             </motion.div>
           )
         })}
+          </>
+        )}
       </div>
 
       {/* Summary Stats */}

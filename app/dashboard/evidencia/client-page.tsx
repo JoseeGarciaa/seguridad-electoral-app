@@ -558,8 +558,8 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
       const [mesasRes, catalogosRes, evidencesRes, voteReportsRes] = await Promise.all([
         fetch("/api/mesas-asignadas", { cache: "no-store" }),
         fetch("/api/catalogos", { cache: "no-store" }),
-        fetch("/api/evidences", { cache: "no-store" }),
-        fetch("/api/vote-reports", { cache: "no-store" }),
+        fetch("/api/evidences"),
+        fetch("/api/vote-reports"),
       ])
 
       // Mesas pueden fallar para perfiles admin; en ese caso continuamos con lista vacia.

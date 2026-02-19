@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from "next/server"
 import { pool } from "@/lib/pg"
 import { hashPassword } from "@/lib/auth"
 
+const TEAM_CACHE_TTL_MS = 20_000
+const TEAM_STALE_CACHE_FAST_MS = 120_000
+const teamCache = new Map<string, { ts: number; payload: any }>()
+
+function clearTeamCache() {
+  teamCache.clear()
+}
+
 export async function GET(req: NextRequest) {
   if (!pool) {
     return NextResponse.json({ error: "DATABASE_URL no está configurada" }, { status: 500 })
@@ -12,6 +20,22 @@ export async function GET(req: NextRequest) {
   const role = searchParams.get("role") ?? ""
   const status = searchParams.get("status") ?? ""
   const limit = Math.min(Number(searchParams.get("limit") || 300), 500)
+  const fastMode = searchParams.get("fast") === "1"
+  const cacheKey = `${search.toLowerCase()}|${role}|${status}|${limit}`
+  const cached = teamCache.get(cacheKey)
+  if (cached && Date.now() - cached.ts < TEAM_CACHE_TTL_MS) {
+    return NextResponse.json(cached.payload)
+  }
+
+  if (fastMode) {
+    if (cached && Date.now() - cached.ts < TEAM_STALE_CACHE_FAST_MS) {
+      return NextResponse.json(cached.payload)
+    }
+    return NextResponse.json({
+      members: [],
+      stats: { total: 0, active: 0, witnesses: 0, coordinators: 0 },
+    })
+  }
 
   const filters: string[] = []
   const values: any[] = []
@@ -148,7 +172,7 @@ export async function GET(req: NextRequest) {
         client.query(statsQuery),
       ])
 
-      return NextResponse.json({
+      const payload = {
         members: listRes.rows.map((row) => {
           const pollingStationCode = Array.isArray(row.polling_codes) && row.polling_codes.length
             ? row.polling_codes[0]
@@ -195,7 +219,9 @@ export async function GET(req: NextRequest) {
           witnesses: Number(statsRes.rows[0]?.witnesses ?? 0),
           coordinators: Number(statsRes.rows[0]?.coordinators ?? 0),
         },
-      })
+      }
+      teamCache.set(cacheKey, { ts: Date.now(), payload })
+      return NextResponse.json(payload)
     } finally {
       client.release()
     }
@@ -681,6 +707,7 @@ export async function POST(req: NextRequest) {
       await upsertDelegateAndProfile(client, row, meta)
     }
     await client.query("COMMIT")
+    clearTeamCache()
     return NextResponse.json({ inserted: rows.length })
   } catch (error: any) {
     await client.query("ROLLBACK")
@@ -826,10 +853,12 @@ export async function PATCH(req: NextRequest) {
     if (!meta.hasTeamProfiles && changes.status === "inactive") {
       await client.query(`DELETE FROM delegates WHERE id = $1`, [id])
       await client.query("COMMIT")
+      clearTeamCache()
       return NextResponse.json({ deleted: true })
     }
 
     if (meta.hasTeamProfiles) {
+  clearTeamCache()
       const role = meta.hasRole ? changes.role ?? "witness" : "witness"
       const status = changes.status ?? "active"
       const zone = changes.zone ?? null
@@ -997,6 +1026,7 @@ export async function DELETE(req: NextRequest) {
       await client.query(`DELETE FROM delegates WHERE id = $1`, [id])
     }
     await client.query("COMMIT")
+    clearTeamCache()
     return NextResponse.json({ ok: true })
   } catch (error: any) {
     await client.query("ROLLBACK")

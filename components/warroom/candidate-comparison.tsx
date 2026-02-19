@@ -12,18 +12,29 @@ export function CandidateComparison() {
   const [search, setSearch] = useState("")
   const [localCandidates, setLocalCandidates] = useState(data?.candidates ?? [])
   const [localParties, setLocalParties] = useState(data?.parties ?? [])
-  const [localLoading, setLocalLoading] = useState(true)
+  const hasInitialComparisonData = (data?.candidates?.length ?? 0) > 0 || (data?.parties?.length ?? 0) > 0
+  const [localLoading, setLocalLoading] = useState(!hasInitialComparisonData)
   const [localError, setLocalError] = useState<string | null>(null)
+  const numberFormatter = useMemo(() => new Intl.NumberFormat("en-US"), [])
+  const timeFormatter = useMemo(
+    () => new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "America/Bogota" }),
+    [],
+  )
+  const formatNumber = (value: number) => numberFormatter.format(value).replace(/,/g, ".")
 
   useEffect(() => {
     let cancelled = false
+    const hasSeedData = (data?.candidates?.length ?? 0) > 0 || (data?.parties?.length ?? 0) > 0
+    if (hasSeedData) {
+      setLocalLoading(false)
+    }
 
     const load = async () => {
       setLocalError(null)
       try {
         const res = await fetch("/api/warroom/candidates", { cache: "no-store" })
         if (!res.ok) {
-          throw new Error(`Comparativo API error ${res.status}`)
+          throw new Error("No se pudo actualizar el comparativo")
         }
         const json = await res.json()
         if (cancelled) return
@@ -49,6 +60,7 @@ export function CandidateComparison() {
   const parties = localParties.length > 0 ? localParties : (data?.parties ?? [])
   const comparisonLoading = loading || localLoading
   const comparisonError = localError || error
+  const hasRenderableData = candidates.length > 0 || parties.length > 0
   const normalizedSearch = search.trim().toLowerCase()
   const filteredCandidates = useMemo(() => {
     if (!normalizedSearch) return candidates
@@ -85,7 +97,7 @@ export function CandidateComparison() {
           <div>
             <h3 className="text-base font-semibold text-foreground">Comparativo de Candidatos</h3>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {comparisonLoading ? "Cargando..." : `${totalPartyVotes.toLocaleString()} votos contabilizados`}
+              {comparisonLoading ? "Cargando..." : `${formatNumber(totalPartyVotes)} votos contabilizados`}
             </p>
           </div>
           <div className="text-right">
@@ -133,7 +145,7 @@ export function CandidateComparison() {
 
           <div className="flex-1 overflow-y-auto p-4">
             <div className="space-y-4">
-              {comparisonError && <p className="text-sm text-destructive">{comparisonError}</p>}
+              {comparisonError && !hasRenderableData && <p className="text-sm text-destructive">{comparisonError}</p>}
               {comparisonLoading && <div className="h-24 rounded-lg bg-secondary/50 animate-pulse" />}
               {!comparisonLoading && filteredCandidates.map((candidate, index) => (
                 <motion.div
@@ -168,7 +180,7 @@ export function CandidateComparison() {
                           {index === 0 ? "+" : "-"}
                         </div>
                       </div>
-                      <p className="text-sm text-muted-foreground">{candidate.votes.toLocaleString()} votos</p>
+                      <p className="text-sm text-muted-foreground">{formatNumber(candidate.votes)} votos</p>
                     </div>
                   </div>
 
@@ -186,14 +198,14 @@ export function CandidateComparison() {
           </div>
 
           <div className="px-4 pb-4">
-            <p className="text-xs text-muted-foreground">Total por candidatos visibles: {totalFilteredCandidateVotes.toLocaleString()} votos</p>
+            <p className="text-xs text-muted-foreground">Total por candidatos visibles: {formatNumber(totalFilteredCandidateVotes)} votos</p>
           </div>
         </TabsContent>
 
         <TabsContent value="parties" className="flex-1 min-h-0 flex flex-col">
           <div className="flex-1 overflow-y-auto p-4">
             <div className="space-y-4">
-              {comparisonError && <p className="text-sm text-destructive">{comparisonError}</p>}
+              {comparisonError && !hasRenderableData && <p className="text-sm text-destructive">{comparisonError}</p>}
               {comparisonLoading && <div className="h-24 rounded-lg bg-secondary/50 animate-pulse" />}
               {!comparisonLoading && filteredParties.length === 0 && (
                 <div className="p-4 rounded-lg bg-secondary/40 text-sm text-muted-foreground">
@@ -214,7 +226,7 @@ export function CandidateComparison() {
                       <p className="text-xs text-muted-foreground">{party.candidateCount} candidatos con votos</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-lg font-bold text-foreground">{party.totalVotes.toLocaleString()}</p>
+                      <p className="text-lg font-bold text-foreground">{formatNumber(party.totalVotes)}</p>
                       <p className="text-xs text-muted-foreground">{party.percentage}% del total</p>
                     </div>
                   </div>
@@ -222,11 +234,11 @@ export function CandidateComparison() {
                   <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                     <div className="rounded-md bg-secondary/60 px-2 py-1.5">
                       <span className="text-muted-foreground">Voto por candidato</span>
-                      <p className="font-semibold text-foreground">{party.candidateVotes.toLocaleString()}</p>
+                      <p className="font-semibold text-foreground">{formatNumber(party.candidateVotes)}</p>
                     </div>
                     <div className="rounded-md bg-secondary/60 px-2 py-1.5">
                       <span className="text-muted-foreground">Voto por lista</span>
-                      <p className="font-semibold text-foreground">{party.listVotes.toLocaleString()}</p>
+                      <p className="font-semibold text-foreground">{formatNumber(party.listVotes)}</p>
                     </div>
                   </div>
 
@@ -235,7 +247,7 @@ export function CandidateComparison() {
                       {party.topCandidates.map((candidate) => (
                         <div key={candidate.id} className="flex items-center justify-between text-xs text-muted-foreground">
                           <span className="truncate pr-2">{candidate.name}</span>
-                          <span className="text-foreground font-medium">{candidate.votes.toLocaleString()}</span>
+                          <span className="text-foreground font-medium">{formatNumber(candidate.votes)}</span>
                         </div>
                       ))}
                     </div>
@@ -246,7 +258,7 @@ export function CandidateComparison() {
           </div>
 
           <div className="px-4 pb-4">
-            <p className="text-xs text-muted-foreground">Total partidos (candidato + lista): {totalFilteredPartyVotes.toLocaleString()} votos</p>
+            <p className="text-xs text-muted-foreground">Total partidos (candidato + lista): {formatNumber(totalFilteredPartyVotes)} votos</p>
           </div>
         </TabsContent>
       </Tabs>
@@ -254,7 +266,7 @@ export function CandidateComparison() {
       {/* Footer */}
       <div className="p-3 border-t border-border/50 bg-secondary/20">
         <p className="text-xs text-muted-foreground text-center">
-          Última actualización: {data?.stats.lastUpdated ? new Date(data.stats.lastUpdated).toLocaleTimeString("es-CO") : "--"}
+          Última actualización: {data?.stats.lastUpdated ? timeFormatter.format(new Date(data.stats.lastUpdated)) : "--"}
         </p>
       </div>
     </div>

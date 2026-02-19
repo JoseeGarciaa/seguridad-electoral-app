@@ -16,6 +16,10 @@ const typeIcon: Record<string, { icon: ComponentType<{ className?: string }>; co
 export function LiveFeed() {
   const { data, loading, error } = useWarRoomData()
   const feedItems = useMemo(() => data?.feed ?? [], [data])
+  const timeFormatter = useMemo(
+    () => new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Bogota" }),
+    [],
+  )
   const rowsToShow = loading ? 2 : Math.max(feedItems.length, 1)
   const dynamicHeight = Math.min(Math.max(156 + rowsToShow * 72, 228), 500)
 
@@ -33,8 +37,13 @@ export function LiveFeed() {
       {/* Feed */}
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         <AnimatePresence>
-          {error && <p className="text-sm text-destructive px-2">{error}</p>}
+          {error && feedItems.length === 0 && <p className="text-sm text-destructive px-2">{error}</p>}
           {loading && <div className="h-24 rounded-lg bg-secondary/50 animate-pulse" />}
+          {!loading && !error && feedItems.length === 0 && (
+            <div className="h-24 rounded-lg border border-border/50 bg-secondary/20 flex items-center justify-center px-3">
+              <p className="text-sm text-muted-foreground text-center">Sin actividad reciente</p>
+            </div>
+          )}
           {!loading && feedItems.map((item, index) => {
             const meta = typeIcon[item.type] ?? typeIcon.evidence
             return (
@@ -57,7 +66,7 @@ export function LiveFeed() {
                     <p className="text-xs text-muted-foreground truncate">{item.location}</p>
                   </div>
                   <span className="text-xs text-muted-foreground flex-shrink-0">
-                    {item.reportedAt ? new Date(item.reportedAt).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }) : "--"}
+                    {item.reportedAt ? timeFormatter.format(new Date(item.reportedAt)) : "--"}
                   </span>
                 </div>
               </motion.div>

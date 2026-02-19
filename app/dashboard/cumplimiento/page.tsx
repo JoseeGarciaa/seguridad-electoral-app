@@ -28,7 +28,7 @@ export default function CumplimientoPage() {
     let cancelled = false
     const load = async () => {
       try {
-        const res = await fetch("/api/compliance", { cache: "no-store" })
+        const res = await fetch("/api/compliance")
         if (!res.ok) throw new Error("No se pudo cargar cumplimiento")
         const json = await res.json()
         if (cancelled) return

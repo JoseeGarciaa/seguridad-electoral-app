@@ -2,6 +2,10 @@ import { pool } from "@/lib/pg"
 import { getCurrentUser } from "@/lib/auth"
 import { buildOfficialComparison, ensureMesaFactLookupIndex } from "@/lib/mesa-fact"
 
+const VOTE_REPORTS_CACHE_TTL_MS = 20_000
+const voteReportsCache = new Map<string, { ts: number; payload: any }>()
+let voteReportsIndexEnsured = false
+
 export async function GET(req: Request) {
   const user = await getCurrentUser()
   if (!user) {
@@ -25,6 +29,12 @@ export async function GET(req: Request) {
   const isWitness = user.role === "delegate" || user.role === "witness"
   const where = isWitness ? "WHERE vr.delegate_id = $1" : ""
   const params = isWitness ? [delegateId] : []
+  const cacheKey = `${user.id}:${user.role}:${delegateId ?? "global"}`
+
+  const cached = voteReportsCache.get(cacheKey)
+  if (cached && Date.now() - cached.ts < VOTE_REPORTS_CACHE_TTL_MS) {
+    return Response.json(cached.payload)
+  }
 
   const query = `
     SELECT
@@ -87,9 +97,15 @@ export async function GET(req: Request) {
   `
 
   try {
-    await ensureMesaFactLookupIndex()
+    if (!voteReportsIndexEnsured) {
+      voteReportsIndexEnsured = true
+      void ensureMesaFactLookupIndex().catch((error) => {
+        voteReportsIndexEnsured = false
+        console.warn("vote-reports mesa_fact index ensure failed", error)
+      })
+    }
     const { rows } = await pool.query(query, params)
-    return Response.json({
+    const payload = {
       items: rows.map((row: any) => ({
         ...(() => {
           const totalVotes = Number(row.total_votes ?? 0)
@@ -121,7 +137,9 @@ export async function GET(req: Request) {
         details: Array.isArray(row.details) ? row.details.filter(Boolean) : [],
       })),
       viewerRole: user.role,
-    })
+    }
+    voteReportsCache.set(cacheKey, { ts: Date.now(), payload })
+    return Response.json(payload)
   } catch (error: any) {
     console.error("vote-reports list error", error)
     return Response.json({ error: "No se pudo cargar reportes" }, { status: 500 })

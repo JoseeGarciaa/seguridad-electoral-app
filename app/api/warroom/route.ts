@@ -1,10 +1,12 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { pool } from "@/lib/pg"
 import { getCurrentUser } from "@/lib/auth"
 import { buildOfficialComparison } from "@/lib/mesa-fact"
 
 let warRoomIndexesEnsured = false
 const WARROOM_CACHE_TTL_MS = 30_000
+const WARROOM_STALE_CACHE_FAST_MS = 120_000
+const WARROOM_QUERY_TIMEOUT_MS = 1_800
 const warRoomPayloadCache = new Map<string, { ts: number; payload: ReturnType<typeof emptyPayload> }>()
 
 async function ensureWarRoomIndexes() {
@@ -49,17 +51,23 @@ async function safeQuery<T>(
 ): Promise<T[]> {
   if (!pool) return fallback
   try {
-    const result = await pool.query(queryText, params)
+    const result = await pool.query({
+      text: queryText,
+      values: params,
+      query_timeout: WARROOM_QUERY_TIMEOUT_MS,
+      statement_timeout: WARROOM_QUERY_TIMEOUT_MS,
+    })
     return result.rows as T[]
   } catch (err: any) {
-    if (err?.code === "42P01" || err?.code === "42703") {
+    if (err?.code === "42P01" || err?.code === "42703" || err?.code === "57014") {
       return fallback
     }
-    throw err
+    console.warn("warroom query fallback", err)
+    return fallback
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const user = await getCurrentUser()
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -84,6 +92,14 @@ export async function GET() {
   const cached = warRoomPayloadCache.get(cacheKey)
   if (cached && now - cached.ts < WARROOM_CACHE_TTL_MS) {
     return NextResponse.json(cached.payload)
+  }
+
+  const fastMode = req.nextUrl.searchParams.get("fast") === "1"
+  if (fastMode) {
+    if (cached && now - cached.ts < WARROOM_STALE_CACHE_FAST_MS) {
+      return NextResponse.json(cached.payload)
+    }
+    return NextResponse.json(emptyPayload())
   }
 
   const delegateParams = delegateId ? [delegateId] : []
@@ -431,6 +447,43 @@ export async function GET() {
       ORDER BY rr.reported_at DESC NULLS LAST, rr.created_at DESC
     `
 
+  const manualAlertsQuery = delegateId
+    ? `
+      SELECT e.id,
+             e.title,
+             e.description,
+             e.uploaded_at,
+             e.tags,
+             e.status,
+             COALESCE(d.full_name, 'Delegado') AS delegate_name
+      FROM evidences e
+      LEFT JOIN delegates d ON d.id = e.uploaded_by_id
+      WHERE e.type = 'alert'
+        AND LOWER(COALESCE(e.status, 'open')) NOT IN ('resolved', 'verified')
+        AND ($1::boolean OR NOT (COALESCE(e.tags, '{}'::text[]) @> ARRAY['audience:admin']::text[]))
+        AND e.uploaded_by_id = $2
+      ORDER BY e.uploaded_at DESC
+      LIMIT 8
+    `
+    : `
+      SELECT e.id,
+             e.title,
+             e.description,
+             e.uploaded_at,
+             e.tags,
+             e.status,
+             COALESCE(d.full_name, 'Delegado') AS delegate_name
+      FROM evidences e
+      LEFT JOIN delegates d ON d.id = e.uploaded_by_id
+      WHERE e.type = 'alert'
+        AND LOWER(COALESCE(e.status, 'open')) NOT IN ('resolved', 'verified')
+        AND ($1::boolean OR NOT (COALESCE(e.tags, '{}'::text[]) @> ARRAY['audience:admin']::text[]))
+      ORDER BY e.uploaded_at DESC
+      LIMIT 8
+    `
+
+  const manualAlertParams = delegateId ? [user.role === "admin", delegateId] : [user.role === "admin"]
+
   try {
     const [
       statsRows,
@@ -438,6 +491,7 @@ export async function GET() {
       evidenceRows,
       photoMissRows,
       voteRangeRows,
+      manualAlertsRows,
     ] = await Promise.all([
       safeQuery<any>(statsQuery, delegateParams),
       safeQuery<any>(feedQuery, delegateParams),
@@ -446,6 +500,7 @@ export async function GET() {
       enableVoteRangeAlerts
         ? safeQuery<any>(voteRangeAlertsQuery, delegateParams)
         : Promise.resolve([]),
+      safeQuery<any>(manualAlertsQuery, manualAlertParams),
     ])
 
     let muniRows = await safeQuery<any>(municipalitiesQuery, delegateParams)
@@ -655,6 +710,27 @@ export async function GET() {
         ]
       : []
 
+    const manualAlerts = manualAlertsRows
+      .map((row, idx) => {
+        const tags = Array.isArray(row.tags) ? (row.tags as string[]) : []
+        const levelTag = tags.find((tag) => typeof tag === "string" && tag.startsWith("level:"))
+        const levelValue = levelTag?.split(":")[1]?.toLowerCase() ?? "alta"
+        const severity = levelValue === "crítica" ? "critical" : levelValue === "alta" ? "warning" : "info"
+        const detail = String(row.description ?? "").trim()
+        const reporter = String(row.delegate_name ?? "Delegado")
+
+        return {
+          id: String(row.id ?? `manual-${idx}`),
+          severity,
+          title: String(row.title ?? "Alerta manual"),
+          message: detail || `Alerta manual registrada por ${reporter}`,
+          time: row.uploaded_at ? new Date(row.uploaded_at as string).toISOString() : statsPayload.lastUpdated,
+          status: "abierta" as const,
+          category: "alerta",
+        }
+      })
+      .slice(0, 8)
+
     const voteRangeAlerts = voteRangeRows
       .flatMap((row, idx) => {
         const totalReported = Number(row.total_votes ?? 0)
@@ -682,7 +758,9 @@ export async function GET() {
       })
       .slice(0, 6)
 
-    const alerts = [...voteRangeAlerts, ...lowCoverageAlerts, ...warningCoverageAlerts, ...photoAlerts].slice(0, 10)
+    const alerts = [...manualAlerts, ...voteRangeAlerts, ...lowCoverageAlerts, ...warningCoverageAlerts, ...photoAlerts]
+      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+      .slice(0, 10)
 
     const payload = {
       stats: statsPayload,

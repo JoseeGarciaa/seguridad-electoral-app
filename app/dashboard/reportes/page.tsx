@@ -43,6 +43,13 @@ type VoteReportItem = {
   };
 };
 
+const REPORTS_CLIENT_CACHE_TTL_MS = 20_000;
+let reportsClientCache: {
+  ts: number;
+  items: VoteReportItem[];
+  viewerRole: string | null;
+} | null = null;
+
 export default function ReportesPage() {
   const searchParams = useSearchParams();
   const [voteReports, setVoteReports] = useState<VoteReportItem[]>([]);
@@ -69,16 +76,32 @@ export default function ReportesPage() {
   useEffect(() => {
     let cancelled = false;
 
+    if (reportsClientCache && Date.now() - reportsClientCache.ts < REPORTS_CLIENT_CACHE_TTL_MS) {
+      setVoteReports(reportsClientCache.items);
+      setViewerRole(reportsClientCache.viewerRole);
+      setLoadingVotes(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const loadVotes = async () => {
       setLoadingVotes(true);
       setVotesError(null);
       try {
-        const res = await fetch("/api/vote-reports", { cache: "no-store" });
+        const res = await fetch("/api/vote-reports");
         if (!res.ok) throw new Error("No se pudieron cargar los votos");
         const json = await res.json();
         if (cancelled) return;
-        setVoteReports(Array.isArray(json.items) ? json.items : []);
-        setViewerRole(typeof json.viewerRole === "string" ? json.viewerRole : null);
+        const nextItems = Array.isArray(json.items) ? json.items : [];
+        const nextViewerRole = typeof json.viewerRole === "string" ? json.viewerRole : null;
+        reportsClientCache = {
+          ts: Date.now(),
+          items: nextItems,
+          viewerRole: nextViewerRole,
+        };
+        setVoteReports(nextItems);
+        setViewerRole(nextViewerRole);
       } catch (err: any) {
         if (cancelled) return;
         setVotesError(err?.message ?? "No se pudieron cargar los votos");

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { pool } from "@/lib/pg"
 
 const emptyData = { departments: [], municipalities: [], puestos: [] }
+const DIVIPOLE_OPTIONS_CACHE_TTL_MS = 5 * 60_000
+const divipoleOptionsCache = new Map<string, { ts: number; payload: any }>()
 
 type DepartmentRow = { dd: string; departamento: string }
 type MunicipalityRow = { dd: string; mm: string; municipio: string }
@@ -33,6 +35,12 @@ export async function GET(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams
   const dept = searchParams.get("dept")?.trim() || null
   const muni = searchParams.get("muni")?.trim() || null
+  const cacheKey = `${dept ?? "*"}:${muni ?? "*"}`
+
+  const cached = divipoleOptionsCache.get(cacheKey)
+  if (cached && Date.now() - cached.ts < DIVIPOLE_OPTIONS_CACHE_TTL_MS) {
+    return NextResponse.json(cached.payload)
+  }
 
   if (!pool) {
     console.warn("DATABASE_URL not set; divipole options returning empty data")
@@ -52,9 +60,11 @@ export async function GET(req: NextRequest) {
            GROUP BY dd
            ORDER BY MIN(TRIM(departamento))`
         )
-        return NextResponse.json({
+        const payload = {
           departments: rows.map((r) => ({ code: r.dd, name: r.departamento })),
-        })
+        }
+        divipoleOptionsCache.set(cacheKey, { ts: Date.now(), payload })
+        return NextResponse.json(payload)
       }
 
       if (dept && !muni) {
@@ -85,9 +95,11 @@ export async function GET(req: NextRequest) {
            ORDER BY MIN(TRIM(municipio))`,
           [dept]
         )
-        return NextResponse.json({
+        const payload = {
           municipalities: rows.map((r) => ({ code: r.mm, name: r.municipio, departmentCode: r.dd })),
-        })
+        }
+        divipoleOptionsCache.set(cacheKey, { ts: Date.now(), payload })
+        return NextResponse.json(payload)
       }
 
       // Puestos completos por municipio: deduplicamos por nombre normalizado (espacios/acentos/caso).
@@ -249,7 +261,7 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      return NextResponse.json({
+      const payload = {
         puestos: rows.map((r) => ({
           id: r.id,
           code: r.puesto, // usamos nombre de puesto como "código" lógico para evitar colisiones por pp
@@ -265,7 +277,9 @@ export async function GET(req: NextRequest) {
           lng: r.longitud,
           takenTables: Array.from(takenByPuesto.get(normalizeName(r.puesto)) ?? []).sort((a, b) => a - b),
         })),
-      })
+      }
+      divipoleOptionsCache.set(cacheKey, { ts: Date.now(), payload })
+      return NextResponse.json(payload)
     } finally {
       client.release()
     }

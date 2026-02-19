@@ -189,7 +189,7 @@ function EquipoInner() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch("/api/team", { cache: "no-store" })
+      const res = await fetch("/api/team")
       if (!res.ok) throw new Error(`Error ${res.status}`)
       const data = await res.json()
       setMembers(data.members ?? [])
@@ -212,7 +212,7 @@ function EquipoInner() {
     if (!createOpen) return
     const loadDepartments = async () => {
       try {
-        const res = await fetch("/api/divipole/options", { cache: "no-store" })
+        const res = await fetch("/api/divipole/options")
         if (!res.ok) throw new Error("divipole")
         const data = await res.json()
         setDepartments(data.departments ?? [])
@@ -229,7 +229,7 @@ function EquipoInner() {
     if (departments.length > 0) return
     const loadDepartments = async () => {
       try {
-        const res = await fetch("/api/divipole/options", { cache: "no-store" })
+        const res = await fetch("/api/divipole/options")
         if (!res.ok) throw new Error("divipole")
         const data = await res.json()
         setDepartments(data.departments ?? [])
@@ -248,7 +248,7 @@ function EquipoInner() {
     }
     const loadMunicipalities = async () => {
       try {
-        const res = await fetch(`/api/divipole/options?dept=${newMember.departmentCode}`, { cache: "no-store" })
+        const res = await fetch(`/api/divipole/options?dept=${newMember.departmentCode}`)
         if (!res.ok) throw new Error("divipole")
         const data = await res.json()
         setMunicipalities(dedupeByName(data.municipalities ?? []))
@@ -292,10 +292,7 @@ function EquipoInner() {
     }
     const loadPuestos = async () => {
       try {
-        const res = await fetch(
-          `/api/divipole/options?dept=${newMember.departmentCode}&muni=${newMember.municipalityCode}`,
-          { cache: "no-store" }
-        )
+        const res = await fetch(`/api/divipole/options?dept=${newMember.departmentCode}&muni=${newMember.municipalityCode}`)
         if (!res.ok) throw new Error("divipole")
         const data = await res.json()
         setPuestos(dedupeByName(data.puestos ?? []))

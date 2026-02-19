@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation"
 import { getCurrentUser } from "@/lib/auth"
-import Resultados2022ClientPage from "@/app/dashboard/resultados-2022/client-page"
+import Resultados2022ClientPage from "./client-page"
 
 export default async function Resultados2022Page() {
   const user = await getCurrentUser()

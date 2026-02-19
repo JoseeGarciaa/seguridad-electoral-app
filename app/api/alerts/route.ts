@@ -7,6 +7,13 @@ import { buildOfficialComparison, ensureMesaFactLookupIndex } from "@/lib/mesa-f
 
 const dataUrlRegex = /^data:(?<mime>[^;]+);base64,(?<data>.+)$/i
 let hasEvidencesTable: boolean | null = null
+const ALERTS_CACHE_TTL_MS = 20_000
+const ALERTS_STALE_CACHE_FAST_MS = 120_000
+const alertsCache = new Map<string, { ts: number; payload: any }>()
+
+function clearAlertsCache() {
+  alertsCache.clear()
+}
 
 function parseDataUrl(dataUrl: string): { buffer: Buffer; mime: string; ext: string } | null {
   const match = dataUrlRegex.exec(dataUrl)
@@ -147,6 +154,7 @@ export async function POST(req: NextRequest) {
         photos: uploadedUrls,
       }
 
+      clearAlertsCache()
       emitWarRoomUpdate({ ts: Date.now(), type: "alert", source: "alerts-post" })
 
       return NextResponse.json(item)
@@ -202,6 +210,7 @@ export async function PATCH(req: NextRequest) {
       const dbStatus = (rows[0]?.status as string | null) ?? desired
       const mapped = dbStatus === "resolved" || dbStatus === "verified" ? "resuelta" : dbStatus === "in_progress" ? "atendida" : "abierta"
 
+      clearAlertsCache()
       emitWarRoomUpdate({ ts: Date.now(), type: "alert", source: "alerts-patch" })
 
       return NextResponse.json({ id: body.id, status: mapped })
@@ -263,6 +272,7 @@ export async function GET(req: NextRequest) {
     : 200
   const mode = searchParams.get("mode")
   const statsOnly = mode === "stats"
+  const fastMode = searchParams.get("fast") === "1"
 
   const isWitness = user.role === "delegate" || user.role === "witness"
   let delegateId = isWitness ? user.delegateId : null
@@ -275,6 +285,31 @@ export async function GET(req: NextRequest) {
     }
   }
   if (isWitness && !delegateId) {
+    return NextResponse.json({ items: [], stats: { total: 0, criticas: 0, abiertas: 0 }, viewerRole: user.role ?? null })
+  }
+
+  const cacheKey = [
+    user.id,
+    user.role,
+    delegateId ?? "global",
+    search.toLowerCase(),
+    level,
+    status,
+    String(limit),
+    mode ?? "list",
+  ].join("|")
+  const cached = alertsCache.get(cacheKey)
+  if (cached && Date.now() - cached.ts < ALERTS_CACHE_TTL_MS) {
+    return NextResponse.json(cached.payload)
+  }
+
+  if (fastMode) {
+    if (cached && Date.now() - cached.ts < ALERTS_STALE_CACHE_FAST_MS) {
+      return NextResponse.json(cached.payload)
+    }
+    if (statsOnly) {
+      return NextResponse.json({ items: [], stats: { total: 0, criticas: 0, abiertas: 0 }, viewerRole: user.role ?? null })
+    }
     return NextResponse.json({ items: [], stats: { total: 0, criticas: 0, abiertas: 0 }, viewerRole: user.role ?? null })
   }
 
@@ -438,7 +473,7 @@ export async function GET(req: NextRequest) {
 
         const statsRes = await client.query(statsQuery, statsValues)
         const statsRow = statsRes.rows[0] ?? { total: 0, criticas: 0, abiertas: 0 }
-        return NextResponse.json({
+        const payload = {
           items: [],
           stats: {
             total: Number(statsRow.total ?? 0),
@@ -446,7 +481,9 @@ export async function GET(req: NextRequest) {
             abiertas: Number(statsRow.abiertas ?? 0),
           },
           viewerRole: user.role ?? null,
-        })
+        }
+        alertsCache.set(cacheKey, { ts: Date.now(), payload })
+        return NextResponse.json(payload)
       }
 
       const [listRes, alertsRes] = await Promise.all([
@@ -589,7 +626,7 @@ export async function GET(req: NextRequest) {
       const manualAbiertas = manualAlerts.filter((m) => m.status !== "resuelta").length
       const voteAbiertas = voteReportAlerts.length
       const total = manualAlerts.length + voteReportAlerts.length
-      return NextResponse.json({
+      const payload = {
         items: combined,
         stats: {
           total,
@@ -597,7 +634,9 @@ export async function GET(req: NextRequest) {
           abiertas: voteAbiertas + manualAbiertas,
         },
         viewerRole: user.role ?? null,
-      })
+      }
+      alertsCache.set(cacheKey, { ts: Date.now(), payload })
+      return NextResponse.json(payload)
     } finally {
       client.release()
     }

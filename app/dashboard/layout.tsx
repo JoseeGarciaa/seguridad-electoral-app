@@ -1,7 +1,7 @@
 import React from "react"
 import { getCurrentUser } from "@/lib/auth"
 import { redirect } from "next/navigation"
-import { DashboardSidebar } from "@/components/dashboard/sidebar"
+import DashboardSidebar from "@/components/dashboard/sidebar"
 import { DashboardHeader } from "@/components/dashboard/header"
 
 export default async function DashboardLayout({

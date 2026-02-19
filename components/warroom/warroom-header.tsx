@@ -19,6 +19,8 @@ export function WarRoomHeader({
   // Defer real time render to client to prevent SSR/client hydration mismatches.
   const [time, setTime] = useState<Date | null>(null)
   const { data, loading } = useWarRoomData()
+  const numberFormatter = new Intl.NumberFormat("en-US")
+  const formatNumber = (value: number) => numberFormatter.format(value).replace(/,/g, ".")
 
   useEffect(() => {
     setTime(new Date())
@@ -71,7 +73,7 @@ export function WarRoomHeader({
               </div>
               <div>
                 <p className="text-xl font-bold text-foreground">
-                  {loading ? "--" : stat.label === "Cobertura" ? `${stat.value}%` : Number(stat.value).toLocaleString("es-CO")}
+                  {loading ? "--" : stat.label === "Cobertura" ? `${stat.value}%` : formatNumber(Number(stat.value))}
                 </p>
                 <p className="text-xs sm:text-[10px] text-muted-foreground">{stat.label}</p>
               </div>

@@ -19,6 +19,8 @@ type Candidato = {
 }
 
 const fallback = { cargos: [] as Cargo[], partidos: [] as Partido[], candidatos: [] as Candidato[] }
+const CATALOGOS_CACHE_TTL_MS = 5 * 60_000
+let catalogosCache: { ts: number; payload: typeof fallback } | null = null
 
 const slugify = (value: string) =>
   value
@@ -34,6 +36,11 @@ export async function GET(req: NextRequest) {
 
   if (!pool) {
     return NextResponse.json({ ...fallback, warning: "DB no disponible" }, { status: 503 })
+  }
+
+  const now = Date.now()
+  if (catalogosCache && now - catalogosCache.ts < CATALOGOS_CACHE_TTL_MS) {
+    return NextResponse.json(catalogosCache.payload)
   }
 
   const client = await pool.connect()
@@ -79,7 +86,9 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    return NextResponse.json({ cargos: Array.from(cargosMap.values()), partidos: Array.from(partidosMap.values()), candidatos })
+    const payload = { cargos: Array.from(cargosMap.values()), partidos: Array.from(partidosMap.values()), candidatos }
+    catalogosCache = { ts: Date.now(), payload }
+    return NextResponse.json(payload)
   } catch (error) {
     console.error("Catalogos GET error", error)
     return NextResponse.json({ ...fallback, error: "No se pudieron cargar los catalogos" }, { status: 500 })

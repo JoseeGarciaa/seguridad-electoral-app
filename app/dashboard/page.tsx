@@ -7,6 +7,7 @@ import { AlertsPanel } from "@/components/warroom/alerts-panel"
 import { EvidenceGallery } from "@/components/warroom/evidence-gallery"
 import { WarRoomDataProvider } from "@/components/warroom/warroom-data-provider"
 import { getCurrentUser } from "@/lib/auth"
+import { getWarRoomBootstrapData } from "@/lib/warroom-bootstrap"
 import { redirect } from "next/navigation"
 
 export default async function DashboardPage() {
@@ -15,9 +16,14 @@ export default async function DashboardPage() {
     redirect("/dashboard/evidencias")
   }
   const hideActiveWitnesses = user?.role === "delegate" || user?.role === "witness"
+  const initialWarRoomData = await getWarRoomBootstrapData(user, {
+    timeoutMs: 1000,
+    cacheTtlMs: 20_000,
+    allowEmptyPayload: false,
+  })
 
   return (
-    <WarRoomDataProvider>
+    <WarRoomDataProvider initialData={initialWarRoomData}>
       <div className="space-y-4 pb-20 lg:pb-6">
         <WarRoomHeader
           title="CENTRO DE MANDO"

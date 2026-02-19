@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { 
   Shield, 
@@ -18,7 +18,7 @@ import {
   ChevronLeft,
   ChevronRight
 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 interface User {
   id: string
@@ -69,8 +69,9 @@ const simplifiedNavigation: NavItem[] = [
   { name: "Cumplimiento", href: "/dashboard/cumplimiento", icon: FileCheck },
 ]
 
-export function DashboardSidebar({ user }: SidebarProps) {
+function DashboardSidebar({ user }: SidebarProps) {
   const pathname = usePathname()
+  const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
   const roleLabel = user.profile?.role_extended?.toLowerCase() ?? ""
   const isWitness = user.role === "witness" || roleLabel.includes("testigo")
@@ -89,6 +90,16 @@ export function DashboardSidebar({ user }: SidebarProps) {
     ? roleFilteredNavigation.filter((item) => !restrictedForDelegate.has(item.href))
     : roleFilteredNavigation
   const visibleBottomNavigation = isWitness ? [] : bottomNavigation
+
+  useEffect(() => {
+    const targets = [...visibleNavigation, ...visibleBottomNavigation]
+      .map((item) => item.href.split("#")[0])
+      .filter((href) => href && href !== pathname)
+
+    for (const href of targets) {
+      router.prefetch(href)
+    }
+  }, [pathname, router, visibleNavigation, visibleBottomNavigation])
 
   return (
     <>
@@ -216,3 +227,6 @@ export function DashboardSidebar({ user }: SidebarProps) {
     </>
   )
 }
+
+export { DashboardSidebar }
+export default DashboardSidebar

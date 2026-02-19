@@ -207,7 +207,6 @@ export default function AlertasPage() {
     const limit = options?.limit ?? 200
     const query = new URLSearchParams({ limit: String(limit) })
     const res = await fetch(`/api/alerts?${query.toString()}`, {
-      cache: "no-store",
       credentials: "include",
       signal: options?.signal,
     })
@@ -225,7 +224,6 @@ export default function AlertasPage() {
   const fetchAlertStats = useCallback(async (options?: { signal?: AbortSignal }) => {
     const query = new URLSearchParams({ mode: "stats", limit: "200" })
     const res = await fetch(`/api/alerts?${query.toString()}`, {
-      cache: "no-store",
       credentials: "include",
       signal: options?.signal,
     })
@@ -346,7 +344,7 @@ export default function AlertasPage() {
     let cancelled = false
     const loadMesas = async () => {
       try {
-        const res = await fetch("/api/mesas-asignadas", { cache: "no-store", credentials: "include" })
+        const res = await fetch("/api/mesas-asignadas", { credentials: "include" })
         if (res.status === 401) {
           if (!cancelled) {
             setMesas([])

@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { pool } from "./pg";
+import { cache } from "react";
 
 function getPool() {
   if (!pool) throw new Error("DATABASE_URL no configurado");
@@ -81,9 +82,8 @@ export async function deleteSessionCookie() {
   cookieStore.delete(SESSION_COOKIE_NAME);
 }
 
-export async function getCurrentUser() {
+const getCurrentUserByToken = cache(async (token: string | null) => {
   const db = getPool();
-  const token = await getSessionToken();
   if (!token) return null;
 
   let rows: any[] = [];
@@ -124,6 +124,11 @@ export async function getCurrentUser() {
     must_reset_password: row.must_reset_password,
     delegateId: row.delegate_id,
   };
+});
+
+export async function getCurrentUser() {
+  const token = await getSessionToken();
+  return getCurrentUserByToken(token);
 }
 
 export async function logout() {

@@ -1,6 +1,10 @@
 import { pool } from "@/lib/pg"
 import { getCurrentUser } from "@/lib/auth"
 
+const COMPLIANCE_CACHE_TTL_MS = 20_000
+const COMPLIANCE_STALE_CACHE_FAST_MS = 120_000
+const complianceCache = new Map<string, { ts: number; payload: any }>()
+
 export async function GET(req: Request) {
   const user = await getCurrentUser()
   if (!user) {
@@ -17,6 +21,23 @@ export async function GET(req: Request) {
   }
 
   const search = new URL(req.url).searchParams.get("search")?.trim() ?? ""
+  const fastMode = new URL(req.url).searchParams.get("fast") === "1"
+  const cacheKey = `${user.id}:${user.role}:${search.toLowerCase()}`
+  const cached = complianceCache.get(cacheKey)
+  if (cached && Date.now() - cached.ts < COMPLIANCE_CACHE_TTL_MS) {
+    return Response.json(cached.payload)
+  }
+
+  if (fastMode) {
+    if (cached && Date.now() - cached.ts < COMPLIANCE_STALE_CACHE_FAST_MS) {
+      return Response.json(cached.payload)
+    }
+    return Response.json({
+      summary: { assigned: 0, reported: 0, missing: 0, coveragePct: 0 },
+      items: [],
+      viewerRole: user.role,
+    })
+  }
 
   const client = await pool.connect()
   try {
@@ -106,7 +127,7 @@ export async function GET(req: Request) {
       const missing = Math.max(assigned - reported, 0)
       const coveragePct = assigned === 0 ? 0 : Math.round((reported / assigned) * 100)
 
-      return Response.json({
+      const payload = {
         summary: {
           assigned,
           reported,
@@ -124,7 +145,9 @@ export async function GET(req: Request) {
           lastReportedAt: row.last_reported_at ? new Date(row.last_reported_at).toISOString() : null,
         })),
         viewerRole: user.role,
-      })
+      }
+      complianceCache.set(cacheKey, { ts: Date.now(), payload })
+      return Response.json(payload)
     }
 
     const assignedRes = await client.query(
@@ -145,7 +168,7 @@ export async function GET(req: Request) {
     const missing = Math.max(assigned - reported, 0)
     const coveragePct = assigned === 0 ? 0 : Math.round((reported / assigned) * 100)
 
-    return Response.json({
+    const payload = {
       summary: {
         assigned,
         reported,
@@ -154,7 +177,9 @@ export async function GET(req: Request) {
       },
       items: [],
       viewerRole: user.role,
-    })
+    }
+    complianceCache.set(cacheKey, { ts: Date.now(), payload })
+    return Response.json(payload)
   } catch (error: any) {
     console.error("Compliance GET error", error)
     return Response.json({ error: "No se pudo obtener cumplimiento", detail: String(error?.message ?? error) }, { status: 500 })

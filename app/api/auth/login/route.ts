@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/pg";
 import { createSession, setSessionCookie, verifyPassword } from "@/lib/auth";
+import { warmWarRoomBootstrapData } from "@/lib/warroom-bootstrap";
 
 export async function POST(req: Request) {
   let db;
@@ -36,7 +37,7 @@ export async function POST(req: Request) {
 
   try {
     const { rows } = await db.query(
-      "SELECT id, password_hash, role, is_active FROM users WHERE email = $1 LIMIT 1",
+      "SELECT id, email, password_hash, role, delegate_id, is_active FROM users WHERE email = $1 LIMIT 1",
       [email],
     );
     const user = rows[0];
@@ -58,6 +59,12 @@ export async function POST(req: Request) {
 
     const token = await createSession(user.id);
     await setSessionCookie(token);
+
+    warmWarRoomBootstrapData({
+      role: user.role as string,
+      delegateId: (user.delegate_id as string | null) ?? null,
+      email: (user.email as string | null) ?? email,
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
