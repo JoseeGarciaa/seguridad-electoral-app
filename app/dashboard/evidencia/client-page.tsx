@@ -1109,7 +1109,42 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
             reader.readAsDataURL(file)
           })
 
-        const photoPayloads = await Promise.all(photosToSend.slice(0, maxPhotos).map((slot) => toDataUrl(slot.file)))
+        const toOptimizedDataUrl = async (file: File) => {
+          const originalDataUrl = await toDataUrl(file)
+          if (!file.type.startsWith("image/")) return originalDataUrl
+
+          const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const img = new Image()
+            img.onload = () => resolve(img)
+            img.onerror = reject
+            img.src = originalDataUrl
+          }).catch(() => null)
+
+          if (!image) return originalDataUrl
+
+          const maxSide = 1600
+          const longestSide = Math.max(image.width, image.height)
+          const needsResize = longestSide > maxSide
+          const needsCompression = file.size > 900 * 1024
+
+          if (!needsResize && !needsCompression) return originalDataUrl
+
+          const scale = needsResize ? maxSide / longestSide : 1
+          const targetWidth = Math.max(1, Math.round(image.width * scale))
+          const targetHeight = Math.max(1, Math.round(image.height * scale))
+
+          const canvas = document.createElement("canvas")
+          canvas.width = targetWidth
+          canvas.height = targetHeight
+          const context = canvas.getContext("2d")
+          if (!context) return originalDataUrl
+
+          context.drawImage(image, 0, 0, targetWidth, targetHeight)
+          const optimized = canvas.toDataURL("image/jpeg", 0.82)
+          return optimized.length < originalDataUrl.length ? optimized : originalDataUrl
+        }
+
+        const photoPayloads = await Promise.all(photosToSend.slice(0, maxPhotos).map((slot) => toOptimizedDataUrl(slot.file)))
 
         const voteBody = {
           delegate_assignment_id: payload.mesaId,

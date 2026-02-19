@@ -361,20 +361,27 @@ export async function POST(req: NextRequest) {
           if (!parsed || !parsed.mime.startsWith("image/")) {
             throw new Error(`Formato de imagen inválido (${index + 1})`)
           }
-          return parsed
+          return { parsed, original: photo }
         })
 
         if (storageProvider === "local") {
           uploadedUrls = photos as string[]
         } else {
           const baseName = sanitizeFilename(resolvedPollingStation ?? "mesa")
-          uploadedUrls = await Promise.all(
-            parsedPhotos.map(async (parsed, index) => {
+          const uploadResults = await Promise.allSettled(
+            parsedPhotos.map(async ({ parsed }, index) => {
               const filename = `${baseName}-${index + 1}.${parsed.ext}`
               const uploaded = await uploadFile(parsed.buffer, filename, `vote-reports/${delegate_assignment_id}`)
               return uploaded.url
             }),
           )
+
+          uploadedUrls = uploadResults.map((result, index) => {
+            if (result.status === "fulfilled" && result.value) {
+              return result.value
+            }
+            return parsedPhotos[index].original
+          })
         }
       } catch (error: any) {
         return NextResponse.json({ error: error?.message ?? "Formato de imagen inválido" }, { status: 400 })
@@ -702,68 +709,59 @@ export async function POST(req: NextRequest) {
     }
 
     if (hasEvidences) {
-      const stationNumber =
-        resolvedPollingStationNumber !== null && resolvedPollingStationNumber !== undefined
-          ? String(resolvedPollingStationNumber).trim()
-          : null
+      try {
+        const stationNumber =
+          resolvedPollingStationNumber !== null && resolvedPollingStationNumber !== undefined
+            ? String(resolvedPollingStationNumber).trim()
+            : null
 
-      const locationRes = await client.query(
-        `WITH candidate_locations AS (
-           SELECT id, total, mesas, puesto, municipio, departamento, 1 AS priority
-             FROM divipole_locations
-            WHERE $1::bigint IS NOT NULL
-              AND id = $1
+        const locationRes = await client.query(
+          `WITH candidate_locations AS (
+             SELECT id, total, mesas, puesto, municipio, departamento, 1 AS priority
+               FROM divipole_locations
+              WHERE $1::bigint IS NOT NULL
+                AND id = $1
 
-           UNION ALL
+             UNION ALL
 
-           SELECT dl.id, dl.total, dl.mesas, dl.puesto, dl.municipio, dl.departamento, 2 AS priority
-             FROM delegate_polling_assignments a
-             JOIN divipole_locations dl ON dl.id = a.divipole_location_id
-            WHERE $2::boolean
-              AND a.id = $3
+             SELECT id, total, mesas, puesto, municipio, departamento, 2 AS priority
+               FROM divipole_locations
+              WHERE $2::text IS NOT NULL
+                AND (
+                  pp = $2
+                  OR LPAD(pp, 3, '0') = LPAD($2, 3, '0')
+                )
+                AND ($4::text IS NULL OR LOWER(TRIM(municipio)) = LOWER(TRIM($4)))
+                AND ($5::text IS NULL OR LOWER(TRIM(departamento)) = LOWER(TRIM($5)))
 
-           UNION ALL
+             UNION ALL
 
-           SELECT id, total, mesas, puesto, municipio, departamento, 3 AS priority
-             FROM divipole_locations
-            WHERE $4::text IS NOT NULL
-              AND (
-                pp = $4
-                OR LPAD(pp, 3, '0') = LPAD($4, 3, '0')
-              )
-              AND ($6::text IS NULL OR LOWER(TRIM(municipio)) = LOWER(TRIM($6)))
-              AND ($7::text IS NULL OR LOWER(TRIM(departamento)) = LOWER(TRIM($7)))
+             SELECT id, total, mesas, puesto, municipio, departamento, 3 AS priority
+               FROM divipole_locations
+              WHERE $3::text IS NOT NULL
+                AND (
+                  LOWER(TRIM(puesto)) = LOWER(TRIM($3))
+                  OR pp = $3
+                  OR LOWER(TRIM(puesto)) LIKE LOWER(TRIM($3))
+                  OR LOWER(TRIM($3)) LIKE CONCAT('%', LOWER(TRIM(puesto)), '%')
+                )
+                AND ($4::text IS NULL OR LOWER(TRIM(municipio)) = LOWER(TRIM($4)))
+                AND ($5::text IS NULL OR LOWER(TRIM(departamento)) = LOWER(TRIM($5)))
+           )
+           SELECT id, total, mesas, puesto, municipio, departamento
+             FROM candidate_locations
+            ORDER BY priority, id
+            LIMIT 1`,
+          [
+            resolvedDivipoleId,
+            stationNumber,
+            resolvedPollingStation,
+            resolvedMunicipality || null,
+            resolvedDepartment || null,
+          ],
+        )
 
-           UNION ALL
-
-           SELECT id, total, mesas, puesto, municipio, departamento, 4 AS priority
-             FROM divipole_locations
-            WHERE $5::text IS NOT NULL
-              AND (
-                LOWER(TRIM(puesto)) = LOWER(TRIM($5))
-                OR pp = $5
-                OR LOWER(TRIM(puesto)) LIKE LOWER(TRIM($5))
-                OR LOWER(TRIM($5)) LIKE CONCAT('%', LOWER(TRIM(puesto)), '%')
-              )
-              AND ($6::text IS NULL OR LOWER(TRIM(municipio)) = LOWER(TRIM($6)))
-              AND ($7::text IS NULL OR LOWER(TRIM(departamento)) = LOWER(TRIM($7)))
-         )
-         SELECT id, total, mesas, puesto, municipio, departamento
-           FROM candidate_locations
-          ORDER BY priority, id
-          LIMIT 1`,
-        [
-          resolvedDivipoleId,
-          includeAssignmentDivipole,
-          delegate_assignment_id,
-          stationNumber,
-          resolvedPollingStation,
-          resolvedMunicipality || null,
-          resolvedDepartment || null,
-        ],
-      )
-
-      const location = locationRes.rows[0] ?? null
+        const location = locationRes.rows[0] ?? null
 
       const stationRegisteredVoters = Number(location?.total ?? 0)
       const stationTables = Number(location?.mesas ?? 0)
@@ -838,9 +836,12 @@ export async function POST(req: NextRequest) {
           )
         }
         thresholdAlertChanged = true
-      } else if (existingThresholdAlert.rowCount) {
-        await client.query(`DELETE FROM evidences WHERE id = $1`, [existingThresholdAlert.rows[0].id])
-        thresholdAlertChanged = true
+        } else if (existingThresholdAlert.rowCount) {
+          await client.query(`DELETE FROM evidences WHERE id = $1`, [existingThresholdAlert.rows[0].id])
+          thresholdAlertChanged = true
+        }
+      } catch (thresholdError) {
+        console.warn("vote-report threshold alert skipped", thresholdError)
       }
     }
 
