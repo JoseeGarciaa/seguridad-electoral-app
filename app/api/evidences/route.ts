@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser, DELEGATE_ROLE } from "@/lib/auth"
 import { pool } from "@/lib/pg"
 import { getStorageProvider, uploadFile } from "@/lib/storage"
-import { emitWarRoomUpdate } from "@/lib/warroom-events"
+import { emitWarRoomUpdate, subscribeWarRoomUpdates } from "@/lib/warroom-events"
 
 const fallbackData = {
   items: [
@@ -35,9 +35,20 @@ const dataUrlRegex = /^data:(?<mime>[^;]+);base64,(?<data>.+)$/i
 let hasEvidencesTable: boolean | null = null
 const EVIDENCES_CACHE_TTL_MS = 20_000
 const evidencesCache = new Map<string, { ts: number; payload: any }>()
+let evidencesCacheInvalidationSubscribed = false
 
 function clearEvidencesCache() {
   evidencesCache.clear()
+}
+
+function ensureEvidencesCacheInvalidation() {
+  if (evidencesCacheInvalidationSubscribed) return
+  evidencesCacheInvalidationSubscribed = true
+  subscribeWarRoomUpdates((payload) => {
+    if (!payload?.type || payload.type === "votes" || payload.type === "evidence" || payload.type === "assignment") {
+      clearEvidencesCache()
+    }
+  })
 }
 
 function parseDataUrl(dataUrl: string): { buffer: Buffer; mime: string; ext: string } | null {
@@ -86,6 +97,8 @@ async function ensureEvidencesTable(): Promise<boolean> {
 
 // GET /api/evidences - list evidences with optional filters
 export async function GET(req: NextRequest) {
+  ensureEvidencesCacheInvalidation()
+
   const user = await getCurrentUser()
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

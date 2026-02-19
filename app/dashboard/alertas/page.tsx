@@ -252,6 +252,24 @@ export default function AlertasPage() {
     fetchAlertStatsRef.current = fetchAlertStats
   }, [fetchAlertStats])
 
+  const refreshAlertsLive = useCallback(async () => {
+    try {
+      const [alertsResult, statsResult] = await Promise.all([
+        fetchAlertsRef.current({ limit: 200 }),
+        fetchAlertStatsRef.current(),
+      ])
+
+      setData(alertsResult.items)
+      setViewerRole(alertsResult.viewerRole ?? statsResult.viewerRole ?? null)
+      setStats({
+        total: statsResult.total,
+        criticas: statsResult.criticas,
+        abiertas: statsResult.abiertas,
+      })
+    } catch {
+    }
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     const controller = new AbortController()
@@ -339,6 +357,54 @@ export default function AlertasPage() {
       setDetailOpen(true)
     }
   }, [loading, data])
+
+  useEffect(() => {
+    if (viewerRole !== "admin" || typeof window === "undefined" || !("EventSource" in window)) return
+
+    let source: EventSource | null = null
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let mounted = true
+
+    const scheduleRefresh = (delay = 150) => {
+      if (!mounted) return
+      if (refreshTimer) clearTimeout(refreshTimer)
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null
+        void refreshAlertsLive()
+      }, delay)
+    }
+
+    const startStream = () => {
+      if (!mounted) return
+      source = new EventSource("/api/warroom/stream")
+
+      source.addEventListener("ready", () => {
+        scheduleRefresh(0)
+      })
+
+      source.addEventListener("update", () => {
+        scheduleRefresh(100)
+      })
+
+      source.onerror = () => {
+        source?.close()
+        source = null
+        if (!mounted) return
+        if (reconnectTimer) clearTimeout(reconnectTimer)
+        reconnectTimer = setTimeout(startStream, 2_000)
+      }
+    }
+
+    startStream()
+
+    return () => {
+      mounted = false
+      if (refreshTimer) clearTimeout(refreshTimer)
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (source) source.close()
+    }
+  }, [refreshAlertsLive, viewerRole])
 
   useEffect(() => {
     let cancelled = false

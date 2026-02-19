@@ -1,4 +1,5 @@
 import { pool } from "@/lib/pg"
+import { subscribeWarRoomUpdates } from "@/lib/warroom-events"
 
 type BootstrapUser = {
   role?: string | null
@@ -15,6 +16,15 @@ type BootstrapOptions = {
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 1200
 const DEFAULT_BOOTSTRAP_CACHE_TTL_MS = 20_000
 const bootstrapCache = new Map<string, { ts: number; payload: ReturnType<typeof emptyBootstrapPayload> }>()
+let bootstrapCacheInvalidationSubscribed = false
+
+function ensureBootstrapCacheInvalidation() {
+  if (bootstrapCacheInvalidationSubscribed) return
+  bootstrapCacheInvalidationSubscribed = true
+  subscribeWarRoomUpdates(() => {
+    bootstrapCache.clear()
+  })
+}
 
 function emptyBootstrapPayload() {
   return {
@@ -487,8 +497,11 @@ async function fetchWarRoomBootstrapData(user: BootstrapUser | null) {
 }
 
 export async function getWarRoomBootstrapData(user: BootstrapUser | null, options: BootstrapOptions = {}) {
+  ensureBootstrapCacheInvalidation()
+
   const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(250, Math.trunc(options.timeoutMs!)) : DEFAULT_BOOTSTRAP_TIMEOUT_MS
-  const cacheTtlMs = Number.isFinite(options.cacheTtlMs) ? Math.max(5_000, Math.trunc(options.cacheTtlMs!)) : DEFAULT_BOOTSTRAP_CACHE_TTL_MS
+  const requestedCacheTtlMs = Number.isFinite(options.cacheTtlMs) ? Math.max(0, Math.trunc(options.cacheTtlMs!)) : DEFAULT_BOOTSTRAP_CACHE_TTL_MS
+  const cacheTtlMs = user?.role === "admin" ? 0 : requestedCacheTtlMs
   const allowEmptyPayload = options.allowEmptyPayload ?? true
 
   const delegateId = user?.delegateId ?? null
@@ -496,7 +509,7 @@ export async function getWarRoomBootstrapData(user: BootstrapUser | null, option
   const cached = bootstrapCache.get(cacheKey)
   const now = Date.now()
 
-  if (cached && now - cached.ts < cacheTtlMs) {
+  if (cacheTtlMs > 0 && cached && now - cached.ts < cacheTtlMs) {
     return cached.payload
   }
 
@@ -508,7 +521,9 @@ export async function getWarRoomBootstrapData(user: BootstrapUser | null, option
 
   const fetchPromise = fetchWarRoomBootstrapData(user)
     .then((payload) => {
-      bootstrapCache.set(cacheKey, { ts: Date.now(), payload })
+      if (cacheTtlMs > 0) {
+        bootstrapCache.set(cacheKey, { ts: Date.now(), payload })
+      }
       return payload
     })
     .catch((error) => {

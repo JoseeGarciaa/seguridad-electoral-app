@@ -90,7 +90,7 @@ const WarRoomContext = createContext<{
 }>({ data: null, loading: true, error: null })
 
 async function fetchWarRoom(): Promise<WarRoomPayload> {
-  const res = await fetch("/api/warroom", { cache: "no-store" })
+  const res = await fetch("/api/warroom?realtime=1", { cache: "no-store" })
   if (!res.ok) {
     throw new Error("No se pudieron actualizar datos del Centro de Mando")
   }
@@ -137,7 +137,7 @@ export function WarRoomDataProvider({
       }
     }
 
-    const scheduleRefresh = (delay = 250) => {
+    const scheduleRefresh = (delay = 0) => {
       if (!mounted) return
       if (refreshTimer) {
         clearTimeout(refreshTimer)
@@ -152,7 +152,7 @@ export function WarRoomDataProvider({
       if (!mounted || typeof window === "undefined" || !("EventSource" in window)) return
       source = new EventSource("/api/warroom/stream")
       source.addEventListener("update", () => {
-        scheduleRefresh()
+        scheduleRefresh(0)
       })
       source.addEventListener("ready", () => {
         scheduleRefresh(0)
@@ -162,16 +162,13 @@ export function WarRoomDataProvider({
         source = null
         if (!mounted) return
         if (reconnectTimer) clearTimeout(reconnectTimer)
-        reconnectTimer = setTimeout(startStream, 5_000)
+        reconnectTimer = setTimeout(startStream, 2_000)
       }
     }
 
     if (hasInitialData) {
-      startupTimer = setTimeout(() => {
-        if (!mounted) return
-        startStream()
-        scheduleRefresh(800)
-      }, 350)
+      startStream()
+      scheduleRefresh(0)
     } else {
       refresh()
       startStream()
@@ -179,7 +176,7 @@ export function WarRoomDataProvider({
 
     const interval = setInterval(() => {
       scheduleRefresh(0)
-    }, 30_000)
+    }, 2_000)
 
     return () => {
       mounted = false

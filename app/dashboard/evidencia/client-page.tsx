@@ -652,6 +652,54 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
   }, [viewerRole, view])
 
   useEffect(() => {
+    if (viewerRole !== "admin" || typeof window === "undefined" || !("EventSource" in window)) return
+
+    let source: EventSource | null = null
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let mounted = true
+
+    const scheduleRefresh = (delay = 120) => {
+      if (!mounted) return
+      if (refreshTimer) clearTimeout(refreshTimer)
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null
+        void preload()
+      }, delay)
+    }
+
+    const startStream = () => {
+      if (!mounted) return
+      source = new EventSource("/api/warroom/stream")
+
+      source.addEventListener("ready", () => {
+        scheduleRefresh(0)
+      })
+
+      source.addEventListener("update", () => {
+        scheduleRefresh(80)
+      })
+
+      source.onerror = () => {
+        source?.close()
+        source = null
+        if (!mounted) return
+        if (reconnectTimer) clearTimeout(reconnectTimer)
+        reconnectTimer = setTimeout(startStream, 2_000)
+      }
+    }
+
+    startStream()
+
+    return () => {
+      mounted = false
+      if (refreshTimer) clearTimeout(refreshTimer)
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (source) source.close()
+    }
+  }, [preload, viewerRole])
+
+  useEffect(() => {
     setIsOffline(typeof navigator !== "undefined" ? !navigator.onLine : false)
     const handleOnline = () => setIsOffline(false)
     const handleOffline = () => setIsOffline(true)

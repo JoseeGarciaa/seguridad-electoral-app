@@ -1,13 +1,26 @@
 import { NextRequest, NextResponse } from "next/server"
 import { pool } from "@/lib/pg"
 import { getCurrentUser } from "@/lib/auth"
+import { subscribeWarRoomUpdates } from "@/lib/warroom-events"
 import { buildOfficialComparison } from "@/lib/mesa-fact"
+
+export const dynamic = "force-dynamic"
+export const revalidate = 0
 
 let warRoomIndexesEnsured = false
 const WARROOM_CACHE_TTL_MS = 30_000
 const WARROOM_STALE_CACHE_FAST_MS = 120_000
 const WARROOM_QUERY_TIMEOUT_MS = 1_800
 const warRoomPayloadCache = new Map<string, { ts: number; payload: ReturnType<typeof emptyPayload> }>()
+let cacheInvalidationSubscribed = false
+
+function ensureRealtimeCacheInvalidation() {
+  if (cacheInvalidationSubscribed) return
+  cacheInvalidationSubscribed = true
+  subscribeWarRoomUpdates(() => {
+    warRoomPayloadCache.clear()
+  })
+}
 
 async function ensureWarRoomIndexes() {
   if (!pool || warRoomIndexesEnsured) return
@@ -68,6 +81,10 @@ async function safeQuery<T>(
 }
 
 export async function GET(req: NextRequest) {
+  ensureRealtimeCacheInvalidation()
+
+  const realtimeMode = req.nextUrl.searchParams.get("realtime") === "1"
+
   const user = await getCurrentUser()
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -90,7 +107,7 @@ export async function GET(req: NextRequest) {
   const cacheKey = `${user.role}:${delegateId ?? "global"}`
   const now = Date.now()
   const cached = warRoomPayloadCache.get(cacheKey)
-  if (cached && now - cached.ts < WARROOM_CACHE_TTL_MS) {
+  if (!realtimeMode && cached && now - cached.ts < WARROOM_CACHE_TTL_MS) {
     return NextResponse.json(cached.payload)
   }
 
@@ -774,7 +791,9 @@ export async function GET(req: NextRequest) {
       evidences,
     }
 
-    warRoomPayloadCache.set(cacheKey, { ts: Date.now(), payload })
+    if (!realtimeMode) {
+      warRoomPayloadCache.set(cacheKey, { ts: Date.now(), payload })
+    }
     return NextResponse.json(payload)
   } catch (err: any) {
     console.error("warroom error", err)

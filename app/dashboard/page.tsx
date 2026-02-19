@@ -17,7 +17,7 @@ export default async function DashboardPage() {
   const hideActiveWitnesses = user?.role === "delegate" || user?.role === "witness"
   const initialWarRoomData = await getWarRoomBootstrapData(user, {
     timeoutMs: 1000,
-    cacheTtlMs: 20_000,
+    cacheTtlMs: 1_000,
     allowEmptyPayload: false,
   })
 

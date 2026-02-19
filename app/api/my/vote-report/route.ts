@@ -347,6 +347,40 @@ export async function POST(req: NextRequest) {
       ? assignmentRow.divipole_location_id ?? parsedDivipole ?? null
       : null
 
+    const hasNewPhotos = Array.isArray(photos) && photos.length > 0
+    const storageProvider = getStorageProvider()
+    let uploadedUrls: string[] = []
+
+    if (hasNewPhotos) {
+      try {
+        const parsedPhotos = photos.map((photo, index) => {
+          if (typeof photo !== "string" || !photo.startsWith("data:")) {
+            throw new Error(`Formato de foto inválido (${index + 1})`)
+          }
+          const parsed = parseDataUrl(photo)
+          if (!parsed || !parsed.mime.startsWith("image/")) {
+            throw new Error(`Formato de imagen inválido (${index + 1})`)
+          }
+          return parsed
+        })
+
+        if (storageProvider === "local") {
+          uploadedUrls = photos as string[]
+        } else {
+          const baseName = sanitizeFilename(resolvedPollingStation ?? "mesa")
+          uploadedUrls = await Promise.all(
+            parsedPhotos.map(async (parsed, index) => {
+              const filename = `${baseName}-${index + 1}.${parsed.ext}`
+              const uploaded = await uploadFile(parsed.buffer, filename, `vote-reports/${delegate_assignment_id}`)
+              return uploaded.url
+            }),
+          )
+        }
+      } catch (error: any) {
+        return NextResponse.json({ error: error?.message ?? "Formato de imagen inválido" }, { status: 400 })
+      }
+    }
+
     const includeDivipole = await ensureDivipoleColumn()
     const hasAssignmentUnique = await ensureVoteReportAssignmentUnique()
 
@@ -571,13 +605,24 @@ export async function POST(req: NextRequest) {
     }
 
     let total = 0
+    const detailIds: string[] = []
+    const detailReportIds: string[] = []
+    const detailCandidateIds: string[] = []
+    const detailVotes: number[] = []
     for (const [candidateId, votes] of aggregatedByCandidate.entries()) {
       total += votes
-      const detailId = crypto.randomUUID()
+      detailIds.push(crypto.randomUUID())
+      detailReportIds.push(finalReportId)
+      detailCandidateIds.push(candidateId)
+      detailVotes.push(votes)
+    }
+
+    if (detailIds.length > 0) {
       await client.query(
         `INSERT INTO vote_details (id, vote_report_id, candidate_id, votes)
-         VALUES ($1, $2, $3, $4)`,
-        [detailId, finalReportId, candidateId, votes],
+         SELECT *
+         FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::int[])`,
+        [detailIds, detailReportIds, detailCandidateIds, detailVotes],
       )
     }
 
@@ -593,71 +638,59 @@ export async function POST(req: NextRequest) {
         aggregatedByParty.set(key, { position, party, votes: current + votes })
       }
 
+      const partyDetailIds: string[] = []
+      const partyDetailReportIds: string[] = []
+      const partyPositions: string[] = []
+      const partyNames: string[] = []
+      const partyVotes: number[] = []
+
       for (const [, record] of aggregatedByParty.entries()) {
-        const detailId = crypto.randomUUID()
+        partyDetailIds.push(crypto.randomUUID())
+        partyDetailReportIds.push(finalReportId)
+        partyPositions.push(record.position)
+        partyNames.push(record.party)
+        partyVotes.push(record.votes)
+      }
+
+      if (partyDetailIds.length > 0) {
         await client.query(
           `INSERT INTO vote_party_details (id, vote_report_id, "position", party, votes)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [detailId, finalReportId, record.position, record.party, record.votes],
+           SELECT *
+           FROM UNNEST($1::uuid[], $2::uuid[], $3::text[], $4::text[], $5::int[])`,
+          [partyDetailIds, partyDetailReportIds, partyPositions, partyNames, partyVotes],
         )
       }
     }
 
     const hasEvidences = await ensureEvidencesTable()
-    const uploadedUrls: string[] = []
-    const hasNewPhotos = Array.isArray(photos) && photos.length > 0
     let thresholdAlertChanged = false
 
     if (hasNewPhotos && hasEvidences) {
       await client.query(`DELETE FROM evidences WHERE vote_report_id = $1`, [finalReportId])
     }
 
-    const storageProvider = getStorageProvider()
-
-    if (hasNewPhotos) {
-      for (const [index, photo] of photos.entries()) {
-      if (typeof photo !== "string" || !photo.startsWith("data:")) {
-        await client.query("ROLLBACK")
-        return NextResponse.json({ error: "Formato de foto inválido" }, { status: 400 })
-      }
-      const parsed = parseDataUrl(photo)
-      if (!parsed || !parsed.mime.startsWith("image/")) {
-        await client.query("ROLLBACK")
-        return NextResponse.json({ error: "Formato de imagen inválido" }, { status: 400 })
-      }
-
-      let finalUrl = photo
-      if (storageProvider !== "local") {
-        const baseName = sanitizeFilename(resolvedPollingStation ?? "mesa")
-        const filename = `${baseName}-${index + 1}.${parsed.ext}`
-        const uploaded = await uploadFile(parsed.buffer, filename, `vote-reports/${finalReportId}`)
-        finalUrl = uploaded.url
-      }
-
-        uploadedUrls.push(finalUrl)
-
-        if (hasEvidences) {
-          const evidenceId = crypto.randomUUID()
-          await client.query(
-            `INSERT INTO evidences (
-               id, type, title, description, municipality, polling_station, uploaded_by_id,
-               status, url, tags, vote_report_id
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-            [
-              evidenceId,
-              "image",
-              `E14 ${resolvedPollingStation ?? "Mesa"} ${index + 1}`,
-              null,
-              resolvedMunicipality,
-              resolvedPollingStation,
-              delegateId,
-              "pending",
-              finalUrl,
-              ["e14"],
-              finalReportId,
-            ],
-          )
-        }
+    if (hasNewPhotos && hasEvidences) {
+      for (const [index, finalUrl] of uploadedUrls.entries()) {
+        const evidenceId = crypto.randomUUID()
+        await client.query(
+          `INSERT INTO evidences (
+             id, type, title, description, municipality, polling_station, uploaded_by_id,
+             status, url, tags, vote_report_id
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          [
+            evidenceId,
+            "image",
+            `E14 ${resolvedPollingStation ?? "Mesa"} ${index + 1}`,
+            null,
+            resolvedMunicipality,
+            resolvedPollingStation,
+            delegateId,
+            "pending",
+            finalUrl,
+            ["e14"],
+            finalReportId,
+          ],
+        )
       }
     }
 
@@ -669,67 +702,68 @@ export async function POST(req: NextRequest) {
     }
 
     if (hasEvidences) {
-      let location: any = null
+      const stationNumber =
+        resolvedPollingStationNumber !== null && resolvedPollingStationNumber !== undefined
+          ? String(resolvedPollingStationNumber).trim()
+          : null
 
-      if (resolvedDivipoleId !== null && resolvedDivipoleId !== undefined) {
-        const locationRes = await client.query(
-           `SELECT id, total, mesas, puesto, municipio, departamento
+      const locationRes = await client.query(
+        `WITH candidate_locations AS (
+           SELECT id, total, mesas, puesto, municipio, departamento, 1 AS priority
              FROM divipole_locations
-            WHERE id = $1
-            LIMIT 1`,
-          [resolvedDivipoleId],
-        )
-        location = locationRes.rows[0] ?? null
-      }
+            WHERE $1::bigint IS NOT NULL
+              AND id = $1
 
-      if (!location && includeAssignmentDivipole) {
-        const assignmentLocationRes = await client.query(
-           `SELECT dl.id, dl.total, dl.mesas, dl.puesto, dl.municipio, dl.departamento
+           UNION ALL
+
+           SELECT dl.id, dl.total, dl.mesas, dl.puesto, dl.municipio, dl.departamento, 2 AS priority
              FROM delegate_polling_assignments a
              JOIN divipole_locations dl ON dl.id = a.divipole_location_id
-            WHERE a.id = $1
-            LIMIT 1`,
-          [delegate_assignment_id],
-        )
-        location = assignmentLocationRes.rows[0] ?? null
-      }
+            WHERE $2::boolean
+              AND a.id = $3
 
-      if (!location && resolvedPollingStationNumber !== null && resolvedPollingStationNumber !== undefined) {
-        const stationNumber = String(resolvedPollingStationNumber).trim()
-        const fallbackByNumberRes = await client.query(
-          `SELECT id, total, mesas, puesto, municipio, departamento
-             FROM divipole_locations
-            WHERE (
-              pp = $1
-              OR LPAD(pp, 3, '0') = LPAD($1, 3, '0')
-            )
-              AND ($2::text IS NULL OR LOWER(TRIM(municipio)) = LOWER(TRIM($2)))
-              AND ($3::text IS NULL OR LOWER(TRIM(departamento)) = LOWER(TRIM($3)))
-            ORDER BY id
-            LIMIT 1`,
-          [stationNumber, resolvedMunicipality || null, resolvedDepartment || null],
-        )
-        location = fallbackByNumberRes.rows[0] ?? null
-      }
+           UNION ALL
 
-      if (!location && resolvedPollingStation) {
-        const fallbackLocationRes = await client.query(
-          `SELECT id, total, mesas, puesto, municipio, departamento
+           SELECT id, total, mesas, puesto, municipio, departamento, 3 AS priority
              FROM divipole_locations
-            WHERE (
-              LOWER(TRIM(puesto)) = LOWER(TRIM($1))
-              OR pp = $1
-              OR LOWER(TRIM(puesto)) LIKE LOWER(TRIM($1))
-              OR LOWER(TRIM($1)) LIKE CONCAT('%', LOWER(TRIM(puesto)), '%')
-            )
-              AND ($2::text IS NULL OR LOWER(TRIM(municipio)) = LOWER(TRIM($2)))
-              AND ($3::text IS NULL OR LOWER(TRIM(departamento)) = LOWER(TRIM($3)))
-            ORDER BY id
-            LIMIT 1`,
-          [resolvedPollingStation, resolvedMunicipality || null, resolvedDepartment || null],
-        )
-        location = fallbackLocationRes.rows[0] ?? null
-      }
+            WHERE $4::text IS NOT NULL
+              AND (
+                pp = $4
+                OR LPAD(pp, 3, '0') = LPAD($4, 3, '0')
+              )
+              AND ($6::text IS NULL OR LOWER(TRIM(municipio)) = LOWER(TRIM($6)))
+              AND ($7::text IS NULL OR LOWER(TRIM(departamento)) = LOWER(TRIM($7)))
+
+           UNION ALL
+
+           SELECT id, total, mesas, puesto, municipio, departamento, 4 AS priority
+             FROM divipole_locations
+            WHERE $5::text IS NOT NULL
+              AND (
+                LOWER(TRIM(puesto)) = LOWER(TRIM($5))
+                OR pp = $5
+                OR LOWER(TRIM(puesto)) LIKE LOWER(TRIM($5))
+                OR LOWER(TRIM($5)) LIKE CONCAT('%', LOWER(TRIM(puesto)), '%')
+              )
+              AND ($6::text IS NULL OR LOWER(TRIM(municipio)) = LOWER(TRIM($6)))
+              AND ($7::text IS NULL OR LOWER(TRIM(departamento)) = LOWER(TRIM($7)))
+         )
+         SELECT id, total, mesas, puesto, municipio, departamento
+           FROM candidate_locations
+          ORDER BY priority, id
+          LIMIT 1`,
+        [
+          resolvedDivipoleId,
+          includeAssignmentDivipole,
+          delegate_assignment_id,
+          stationNumber,
+          resolvedPollingStation,
+          resolvedMunicipality || null,
+          resolvedDepartment || null,
+        ],
+      )
+
+      const location = locationRes.rows[0] ?? null
 
       const stationRegisteredVoters = Number(location?.total ?? 0)
       const stationTables = Number(location?.mesas ?? 0)

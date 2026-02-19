@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { pool } from "@/lib/pg"
 import { getCurrentUser, DELEGATE_ROLE } from "@/lib/auth"
 import { getStorageProvider, uploadFile } from "@/lib/storage"
-import { emitWarRoomUpdate } from "@/lib/warroom-events"
+import { emitWarRoomUpdate, subscribeWarRoomUpdates } from "@/lib/warroom-events"
 import { buildOfficialComparison, ensureMesaFactLookupIndex } from "@/lib/mesa-fact"
 
 const dataUrlRegex = /^data:(?<mime>[^;]+);base64,(?<data>.+)$/i
@@ -10,9 +10,20 @@ let hasEvidencesTable: boolean | null = null
 const ALERTS_CACHE_TTL_MS = 20_000
 const ALERTS_STALE_CACHE_FAST_MS = 120_000
 const alertsCache = new Map<string, { ts: number; payload: any }>()
+let alertsCacheInvalidationSubscribed = false
 
 function clearAlertsCache() {
   alertsCache.clear()
+}
+
+function ensureAlertsCacheInvalidation() {
+  if (alertsCacheInvalidationSubscribed) return
+  alertsCacheInvalidationSubscribed = true
+  subscribeWarRoomUpdates((payload) => {
+    if (!payload?.type || payload.type === "alert" || payload.type === "votes" || payload.type === "evidence") {
+      clearAlertsCache()
+    }
+  })
 }
 
 function parseDataUrl(dataUrl: string): { buffer: Buffer; mime: string; ext: string } | null {
@@ -26,6 +37,8 @@ function parseDataUrl(dataUrl: string): { buffer: Buffer; mime: string; ext: str
 
 // POST /api/alerts - create manual alert with optional photos; stored in evidences as type "alert"
 export async function POST(req: NextRequest) {
+  ensureAlertsCacheInvalidation()
+
   const user = await getCurrentUser()
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -168,6 +181,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  ensureAlertsCacheInvalidation()
+
   const user = await getCurrentUser()
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -257,6 +272,8 @@ async function ensureEvidencesTable(): Promise<boolean> {
 }
 
 export async function GET(req: NextRequest) {
+  ensureAlertsCacheInvalidation()
+
   const user = await getCurrentUser()
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

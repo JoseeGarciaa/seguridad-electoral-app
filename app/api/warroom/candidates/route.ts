@@ -1,10 +1,22 @@
 import { NextResponse } from "next/server"
 import { pool } from "@/lib/pg"
 import { getCurrentUser } from "@/lib/auth"
+import { subscribeWarRoomUpdates } from "@/lib/warroom-events"
+
+export const dynamic = "force-dynamic"
+export const revalidate = 0
 
 const CACHE_TTL_MS = 30_000
-const QUERY_TIMEOUT_MS = 1_800
 const cache = new Map<string, { ts: number; payload: { candidates: any[]; parties: any[] } }>()
+let cacheInvalidationSubscribed = false
+
+function ensureCandidatesCacheInvalidation() {
+  if (cacheInvalidationSubscribed) return
+  cacheInvalidationSubscribed = true
+  subscribeWarRoomUpdates(() => {
+    cache.clear()
+  })
+}
 
 async function safeQuery<T>(
   queryText: string,
@@ -13,12 +25,7 @@ async function safeQuery<T>(
 ): Promise<T[]> {
   if (!pool) return fallback
   try {
-    const result = await pool.query({
-      text: queryText,
-      values: params,
-      query_timeout: QUERY_TIMEOUT_MS,
-      statement_timeout: QUERY_TIMEOUT_MS,
-    })
+    const result = await pool.query(queryText, params)
     return result.rows as T[]
   } catch (err: any) {
     if (err?.code === "42P01" || err?.code === "42703" || err?.code === "57014") {
@@ -29,7 +36,12 @@ async function safeQuery<T>(
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  ensureCandidatesCacheInvalidation()
+
+  const url = new URL(req.url)
+  const realtimeMode = url.searchParams.get("realtime") === "1"
+
   const user = await getCurrentUser()
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -52,7 +64,7 @@ export async function GET() {
 
   const cacheKey = `${user.role}:${delegateId ?? "global"}`
   const cached = cache.get(cacheKey)
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+  if (!realtimeMode && cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return NextResponse.json(cached.payload)
   }
 
@@ -264,7 +276,9 @@ export async function GET() {
       .sort((a, b) => b.totalVotes - a.totalVotes)
 
     const payload = { candidates, parties }
-    cache.set(cacheKey, { ts: Date.now(), payload })
+    if (!realtimeMode) {
+      cache.set(cacheKey, { ts: Date.now(), payload })
+    }
 
     return NextResponse.json(payload)
   } catch (err: any) {

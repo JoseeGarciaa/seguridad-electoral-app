@@ -1,12 +1,30 @@
 import { pool } from "@/lib/pg"
 import { getCurrentUser } from "@/lib/auth"
+import { subscribeWarRoomUpdates } from "@/lib/warroom-events"
 import { buildOfficialComparison, ensureMesaFactLookupIndex } from "@/lib/mesa-fact"
 
 const VOTE_REPORTS_CACHE_TTL_MS = 20_000
 const voteReportsCache = new Map<string, { ts: number; payload: any }>()
 let voteReportsIndexEnsured = false
+let voteReportsCacheInvalidationSubscribed = false
+
+function clearVoteReportsCache() {
+  voteReportsCache.clear()
+}
+
+function ensureVoteReportsCacheInvalidation() {
+  if (voteReportsCacheInvalidationSubscribed) return
+  voteReportsCacheInvalidationSubscribed = true
+  subscribeWarRoomUpdates((payload) => {
+    if (!payload?.type || payload.type === "votes" || payload.type === "evidence" || payload.type === "assignment") {
+      clearVoteReportsCache()
+    }
+  })
+}
 
 export async function GET(req: Request) {
+  ensureVoteReportsCacheInvalidation()
+
   const user = await getCurrentUser()
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 })

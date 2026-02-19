@@ -32,7 +32,7 @@ export function CandidateComparison() {
     const load = async () => {
       setLocalError(null)
       try {
-        const res = await fetch("/api/warroom/candidates", { cache: "no-store" })
+        const res = await fetch("/api/warroom/candidates?realtime=1", { cache: "no-store" })
         if (!res.ok) {
           throw new Error("No se pudo actualizar el comparativo")
         }
@@ -54,7 +54,7 @@ export function CandidateComparison() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [data?.stats.lastUpdated])
 
   const candidates = localCandidates.length > 0 ? localCandidates : (data?.candidates ?? [])
   const parties = localParties.length > 0 ? localParties : (data?.parties ?? [])
