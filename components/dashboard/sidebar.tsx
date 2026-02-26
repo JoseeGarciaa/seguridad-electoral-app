@@ -148,7 +148,7 @@ function DashboardSidebar({ user }: SidebarProps) {
                   )}
                   title={collapsed ? item.name : undefined}
                 >
-                  <item.icon className="w-5 h-5 flex-shrink-0" />
+                  <item.icon className="w-5 h-5 shrink-0" />
                   {!collapsed && <span>{item.name}</span>}
                 </Link>
               )
@@ -171,7 +171,7 @@ function DashboardSidebar({ user }: SidebarProps) {
                   )}
                   title={collapsed ? item.name : undefined}
                 >
-                  <item.icon className="w-5 h-5 flex-shrink-0" />
+                  <item.icon className="w-5 h-5 shrink-0" />
                   {!collapsed && <span>{item.name}</span>}
                 </Link>
               )

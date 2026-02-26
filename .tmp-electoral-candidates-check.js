@@ -1,0 +1,20 @@
+const fs = require('fs');
+const { Client } = require('pg');
+const envLine = fs.readFileSync('.env.local','utf8').split(/\r?\n/).find(l => l.startsWith('DATABASE_URL='));
+const connectionString = envLine.split('=')[1];
+(async () => {
+  const c = new Client({ connectionString });
+  await c.connect();
+  const cols = await c.query(`select column_name from information_schema.columns where table_schema='public' and table_name='electoral_candidates' order by ordinal_position`);
+  console.log('columns');
+  console.table(cols.rows);
+  const q1 = await c.query(`select * from electoral_candidates limit 1`);
+  console.log('sample row keys', q1.rows[0] ? Object.keys(q1.rows[0]) : []);
+  const q2 = await c.query(`select coalesce(position,'(null)') as position, count(*)::int as total from electoral_candidates group by 1 order by 1`);
+  console.log('positions electoral_candidates');
+  console.table(q2.rows);
+  const q3 = await c.query(`select coalesce(position,'(null)') as position, coalesce(party,'(null)') as party, count(*)::int as total from electoral_candidates where lower(coalesce(position,'')) like '%citrep%' or lower(coalesce(position,'')) like '%paz%' group by 1,2 order by 1,2`);
+  console.log('CITREP in electoral_candidates');
+  console.table(q3.rows);
+  await c.end();
+})().catch((e)=>{console.error(e); process.exit(1);});

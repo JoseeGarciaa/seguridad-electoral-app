@@ -873,7 +873,7 @@ export default function TestigoElectoralPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-background to-black/40 text-foreground flex items-center justify-center px-4">
+      <div className="min-h-screen bg-linear-to-b from-background to-black/40 text-foreground flex items-center justify-center px-4">
         <Card className="max-w-md w-full border-border/60">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
@@ -891,7 +891,7 @@ export default function TestigoElectoralPage() {
 
   if (!currentMesa) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-background to-black/40 text-foreground flex items-center justify-center px-4">
+      <div className="min-h-screen bg-linear-to-b from-background to-black/40 text-foreground flex items-center justify-center px-4">
         <Card className="max-w-md w-full border-border/60 text-center space-y-3">
           <CardHeader>
             <CardTitle className="text-lg">No tienes mesas asignadas</CardTitle>
@@ -910,7 +910,7 @@ export default function TestigoElectoralPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-black/40 text-foreground">
+    <div className="min-h-screen bg-linear-to-b from-background to-black/40 text-foreground">
       <div className="sticky top-0 z-30 border-b border-border/60 bg-background/95 backdrop-blur">
         <div className="px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-col gap-1">
@@ -975,7 +975,7 @@ export default function TestigoElectoralPage() {
         </Card>
 
         {isWitnessFlowRole && allMesasReported && (
-          <Card className="border-emerald-400/30 bg-gradient-to-r from-emerald-500/15 via-primary/10 to-cyan-500/15 shadow-lg">
+          <Card className="border-emerald-400/30 bg-linear-to-r from-emerald-500/15 via-primary/10 to-cyan-500/15 shadow-lg">
             <CardContent className="py-4">
               <div className="flex items-start gap-3">
                 <div className="rounded-xl bg-emerald-500/20 p-2">
@@ -1032,7 +1032,7 @@ export default function TestigoElectoralPage() {
                       </div>
                       <Button
                         size="sm"
-                        className="w-full sm:w-auto sm:min-w-[120px]"
+                        className="w-full sm:w-auto sm:min-w-30"
                         onClick={() => openMesa(index)}
                         variant={completed ? "outline" : "default"}
                       >
@@ -1396,9 +1396,9 @@ export default function TestigoElectoralPage() {
                 <input
                   type="file"
                   accept="image/*"
-                  capture="environment"
                   multiple
                   onChange={handlePhoto}
+                  title="Subir foto del E14"
                   className="w-full rounded-lg border border-border/60 bg-background/80 text-sm file:mr-2 file:rounded-md file:border-0 file:bg-emerald-600 file:px-3 file:py-2 file:text-white"
                 />
                 <div className="flex w-full gap-2">

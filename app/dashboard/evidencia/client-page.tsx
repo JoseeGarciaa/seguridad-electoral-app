@@ -130,6 +130,7 @@ type EvidenceItem = {
   uploadedBy: string | null
   uploadedById: string | null
   uploadedAt: string
+  eventTime?: string | null
   status: string
   url: string
   localPreview?: string
@@ -176,6 +177,7 @@ type VoteReportDetail = {
     url: string
     status: string
     uploadedAt: string
+    eventTime?: string | null
     municipality: string | null
     pollingStation: string | null
     uploadedBy: string | null
@@ -524,7 +526,7 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
       y += 14
       doc.text(`Municipio: ${detailItem.municipality ?? "Sin dato"}`, 40, y)
       y += 14
-      doc.text(`Subido: ${new Date(detailItem.uploadedAt).toLocaleString("es-CO")}`, 40, y)
+      doc.text(`Subido: ${new Date(detailItem.eventTime || detailItem.uploadedAt).toLocaleString("es-CO")}`, 40, y)
       y += 18
 
       if (imageData) {
@@ -1360,7 +1362,7 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
             <CardContent className="grid gap-3 md:grid-cols-2">
               <button
                 onClick={() => setView("wizard")}
-                className="group w-full rounded-2xl border border-border/60 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-background p-4 text-left transition hover:border-emerald-500/60 hover:shadow-lg hover:shadow-emerald-500/10"
+                className="group w-full rounded-2xl border border-border/60 bg-linear-to-br from-emerald-500/10 via-emerald-500/5 to-background p-4 text-left transition hover:border-emerald-500/60 hover:shadow-lg hover:shadow-emerald-500/10"
               >
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center gap-3 text-base font-semibold text-foreground">
@@ -1380,7 +1382,7 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
 
               <button
                 onClick={() => setView("evidencias")}
-                className="group w-full rounded-2xl border border-border/60 bg-gradient-to-br from-zinc-800/60 via-zinc-900/40 to-background p-4 text-left transition hover:border-primary/40 hover:shadow-lg hover:shadow-primary/10"
+                className="group w-full rounded-2xl border border-border/60 bg-linear-to-br from-zinc-800/60 via-zinc-900/40 to-background p-4 text-left transition hover:border-primary/40 hover:shadow-lg hover:shadow-primary/10"
               >
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center gap-3 text-base font-semibold text-foreground">
@@ -1440,7 +1442,7 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
                   } candidatos con votos
                 </Badge>
                 <Badge className="bg-zinc-800 border-zinc-700 min-w-0 max-w-full">
-                  <span className="truncate block max-w-[220px] sm:max-w-[360px]">Mesa: {selectedMesaLabel ?? "sin seleccionar"}</span>
+                  <span className="truncate block max-w-55 sm:max-w-90">Mesa: {selectedMesaLabel ?? "sin seleccionar"}</span>
                 </Badge>
                 {hasExistingReport && <Badge className="bg-emerald-700/60 border-emerald-500/40">Reporte existente · Editable</Badge>}
               </div>
@@ -1679,7 +1681,7 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
                     <img
                       src={detailItem.url || detailItem.localPreview || ""}
                       alt={detailItem.title}
-                      className="w-full h-[320px] md:h-[420px] object-contain bg-black"
+                      className="w-full h-80 md:h-105 object-contain bg-black"
                     />
                   </div>
                   <div className="space-y-4 text-sm text-muted-foreground min-w-0">
@@ -1687,18 +1689,18 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
                       <div className="flex items-center justify-between gap-2 min-w-0">
                         <div className="min-w-0">
                           <p className="text-xs uppercase tracking-wide text-zinc-500">Mesa reportada</p>
-                          <p className="text-foreground font-semibold break-words">{detailItem.pollingStation ?? "Sin dato"}</p>
+                          <p className="text-foreground font-semibold wrap-break-word">{detailItem.pollingStation ?? "Sin dato"}</p>
                         </div>
                         <Badge className="bg-zinc-800 border-zinc-700 text-xs shrink-0 max-w-full">{detailItem.status}</Badge>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
                           <p className="text-[11px] uppercase text-zinc-500">Municipio</p>
-                          <p className="text-foreground font-semibold break-words">{detailItem.municipality ?? "Sin dato"}</p>
+                          <p className="text-foreground font-semibold wrap-break-word">{detailItem.municipality ?? "Sin dato"}</p>
                         </div>
                         <div className="sm:text-right">
                           <p className="text-[11px] uppercase text-zinc-500">Subido</p>
-                          <p className="text-foreground font-semibold">{dateFormatter.format(new Date(detailItem.uploadedAt))}</p>
+                          <p className="text-foreground font-semibold">{dateFormatter.format(new Date(detailItem.eventTime || detailItem.uploadedAt))}</p>
                         </div>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
@@ -1710,15 +1712,15 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
                       </div>
                       <div>
                         <p className="text-[11px] uppercase text-zinc-500">Subido por</p>
-                        <p className="text-foreground font-semibold break-words">{detailItem.uploadedBy ?? "Sin dato"}</p>
+                        <p className="text-foreground font-semibold wrap-break-word">{detailItem.uploadedBy ?? "Sin dato"}</p>
                       </div>
                       <div>
                         <p className="text-[11px] uppercase text-zinc-500">Descripcion</p>
-                        <p className="text-foreground leading-snug break-words">{detailItem.description ?? "Sin descripcion"}</p>
+                        <p className="text-foreground leading-snug wrap-break-word">{detailItem.description ?? "Sin descripcion"}</p>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {getDisplayTags(detailItem.tags).map((tag) => (
-                          <Badge key={`${detailItem.id}-detail-${tag}`} variant="outline" className="bg-zinc-800/50 border-zinc-700 text-xs max-w-full whitespace-normal break-words text-left h-auto py-1">
+                          <Badge key={`${detailItem.id}-detail-${tag}`} variant="outline" className="bg-zinc-800/50 border-zinc-700 text-xs max-w-full whitespace-normal wrap-break-word text-left h-auto py-1">
                             {tag}
                           </Badge>
                         ))}
@@ -1741,11 +1743,11 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
                           </div>
                           <div className="flex items-center justify-between text-sm">
                             <span className="text-muted-foreground">Mesa</span>
-                            <span className="text-foreground font-semibold break-words text-right">{reportDetail.pollingStation ?? detailItem.pollingStation ?? "Sin dato"}</span>
+                            <span className="text-foreground font-semibold wrap-break-word text-right">{reportDetail.pollingStation ?? detailItem.pollingStation ?? "Sin dato"}</span>
                           </div>
                           <div className="flex items-center justify-between text-sm">
                             <span className="text-muted-foreground">Municipio</span>
-                            <span className="text-foreground font-semibold break-words text-right">{reportDetail.municipality ?? detailItem.municipality ?? "Sin dato"}</span>
+                            <span className="text-foreground font-semibold wrap-break-word text-right">{reportDetail.municipality ?? detailItem.municipality ?? "Sin dato"}</span>
                           </div>
                         </div>
 
@@ -1784,7 +1786,7 @@ export default function EvidenciaPage({ initialViewerRole = null }: EvidenciaPag
                                 <img src={photo.url} alt={photo.title} className="h-32 w-full object-cover bg-black" />
                                 <div className="p-2 text-xs">
                                   <p className="font-semibold text-foreground line-clamp-1">{photo.title}</p>
-                                  <p className="text-muted-foreground">{dateFormatter.format(new Date(photo.uploadedAt))}</p>
+                                  <p className="text-muted-foreground">{dateFormatter.format(new Date(photo.eventTime || photo.uploadedAt))}</p>
                                 </div>
                               </div>
                             ))}
@@ -1908,7 +1910,7 @@ function AssignedMesasPanel({ mesas, selectedMesaId, reportsByAssignment, onPick
               }`}
             >
               <div className="flex items-center justify-between gap-2 text-sm font-semibold">
-                <span className="min-w-0 break-words leading-snug">Mesa {mesa.label}</span>
+                <span className="min-w-0 wrap-break-word leading-snug">Mesa {mesa.label}</span>
                 <Badge className={active ? "bg-cyan-600" : hasReport ? "bg-emerald-600/80 border-emerald-500/60" : "bg-amber-700/70 border-amber-500/60"}>
                   {active ? "Actual" : hasReport ? "Reportada" : "Pendiente"}
                 </Badge>
@@ -2179,7 +2181,6 @@ function PhotoStack({ photos, existingPhotos, onAdd, onRemove }: { photos: Photo
             type="file"
             accept="image/*"
             multiple
-            capture="environment"
             className="hidden"
             disabled={remaining === 0}
             onClick={(e) => {
@@ -2339,7 +2340,6 @@ function PhotoStep({ flow, onPhoto }: { flow: VoteFlowState; onPhoto: (f?: File)
           <input
             type="file"
             accept="image/*"
-            capture="environment"
             className="hidden"
             onChange={(e) => onPhoto(e.target.files?.[0])}
           />
@@ -2390,8 +2390,8 @@ function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter, canDele
               {typeIcons[item.type] ?? <FileText className="h-5 w-5" />}
             </div>
             <div className="min-w-0">
-              <p className="font-semibold text-foreground leading-tight break-words">{item.title}</p>
-              <p className="text-xs text-muted-foreground break-words">{item.municipality ?? ""}</p>
+              <p className="font-semibold text-foreground leading-tight wrap-break-word">{item.title}</p>
+              <p className="text-xs text-muted-foreground wrap-break-word">{item.municipality ?? ""}</p>
             </div>
           </div>
           <Badge className={`shrink-0 max-w-full ${statusConfig[item.status]?.color ?? "bg-zinc-700/50"}`}>
@@ -2399,11 +2399,11 @@ function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter, canDele
           </Badge>
         </div>
 
-        <p className="text-sm text-muted-foreground line-clamp-2 break-words">{item.description}</p>
+        <p className="text-sm text-muted-foreground line-clamp-2 wrap-break-word">{item.description}</p>
 
         <div className="flex flex-wrap gap-2">
           {item.pollingStation && (
-            <Badge className="bg-zinc-800 border-zinc-700 text-xs w-full whitespace-normal break-words text-left justify-start h-auto py-1">
+            <Badge className="bg-zinc-800 border-zinc-700 text-xs w-full whitespace-normal wrap-break-word text-left justify-start h-auto py-1">
               Mesa/Puesto: {item.pollingStation}
             </Badge>
           )}
@@ -2418,19 +2418,19 @@ function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter, canDele
 
         <div className="flex min-w-0 flex-wrap gap-2 text-xs text-muted-foreground">
           {item.pollingStation && (
-            <span className="flex min-w-0 items-start gap-1 break-words"><MapPin className="h-3 w-3 mt-0.5 shrink-0" /> <span className="break-words">{item.pollingStation}</span></span>
+            <span className="flex min-w-0 items-start gap-1 wrap-break-word"><MapPin className="h-3 w-3 mt-0.5 shrink-0" /> <span className="wrap-break-word">{item.pollingStation}</span></span>
           )}
           {item.uploadedBy && (
-            <span className="flex min-w-0 items-start gap-1 break-words"><User className="h-3 w-3 mt-0.5 shrink-0" /> <span className="break-words">{item.uploadedBy}</span></span>
+            <span className="flex min-w-0 items-start gap-1 wrap-break-word"><User className="h-3 w-3 mt-0.5 shrink-0" /> <span className="wrap-break-word">{item.uploadedBy}</span></span>
           )}
-          {item.uploadedAt && (
-            <span className="flex min-w-0 items-start gap-1 break-words"><Clock className="h-3 w-3 mt-0.5 shrink-0" /> <span className="break-words">{dateFormatter.format(new Date(item.uploadedAt))}</span></span>
+          {(item.eventTime || item.uploadedAt) && (
+            <span className="flex min-w-0 items-start gap-1 wrap-break-word"><Clock className="h-3 w-3 mt-0.5 shrink-0" /> <span className="wrap-break-word">{dateFormatter.format(new Date(item.eventTime || item.uploadedAt))}</span></span>
           )}
         </div>
 
         <div className="flex flex-wrap gap-2">
           {displayTags.map((tag) => (
-            <Badge key={`${item.id}-${tag}`} variant="outline" className="bg-zinc-800/50 border-zinc-700 text-xs max-w-full whitespace-normal break-words text-left h-auto py-1">
+            <Badge key={`${item.id}-${tag}`} variant="outline" className="bg-zinc-800/50 border-zinc-700 text-xs max-w-full whitespace-normal wrap-break-word text-left h-auto py-1">
               {tag}
             </Badge>
           ))}
@@ -2461,7 +2461,7 @@ function EvidenceCard({ item, onVerify, onView, onDelete, dateFormatter, canDele
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9 min-w-[36px] text-red-400"
+              className="h-9 w-9 min-w-9 text-red-400"
               onClick={onDelete}
             >
               <Trash2 className="h-4 w-4" />

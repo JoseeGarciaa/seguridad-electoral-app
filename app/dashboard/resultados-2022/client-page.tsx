@@ -316,19 +316,19 @@ export default function Resultados2022ClientPage() {
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     <div className="rounded-md border border-zinc-800 bg-zinc-900/50 p-3">
                       <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Departamento</p>
-                      <p className="text-sm font-semibold break-words">{row.depto}</p>
+                      <p className="text-sm font-semibold wrap-break-word">{row.depto}</p>
                     </div>
                     <div className="rounded-md border border-zinc-800 bg-zinc-900/50 p-3">
                       <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Municipio</p>
-                      <p className="text-sm font-semibold break-words">{row.municipio}</p>
+                      <p className="text-sm font-semibold wrap-break-word">{row.municipio}</p>
                     </div>
                     <div className="rounded-md border border-zinc-800 bg-zinc-900/50 p-3">
                       <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Zona</p>
-                      <p className="text-sm font-semibold break-words">{row.zona}</p>
+                      <p className="text-sm font-semibold wrap-break-word">{row.zona}</p>
                     </div>
                     <div className="rounded-md border border-zinc-800 bg-zinc-900/50 p-3 sm:col-span-2 lg:col-span-3">
                       <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Puesto de votación</p>
-                      <p className="text-sm font-semibold break-words">{row.puesto}</p>
+                      <p className="text-sm font-semibold wrap-break-word">{row.puesto}</p>
                     </div>
                     <div className="rounded-md border border-zinc-800 bg-zinc-900/50 p-3">
                       <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Mesa</p>

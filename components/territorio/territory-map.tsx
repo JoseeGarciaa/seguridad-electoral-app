@@ -84,7 +84,7 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
   const mapRef = useRef<MLMap | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [mapError, setMapError] = useState<string | null>(null)
-  const mapViewportHeight = features.length <= 10 ? 300 : features.length <= 50 ? 380 : 460
+  const mapViewportClass = features.length <= 10 ? "h-75" : features.length <= 50 ? "h-95" : "h-115"
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current || mapError) return
@@ -327,7 +327,7 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
         </div>
       </div>
 
-      <div ref={containerRef} className="w-full" style={{ height: `${mapViewportHeight}px` }} />
+      <div ref={containerRef} className={`w-full ${mapViewportClass}`} />
     </div>
   )
 }

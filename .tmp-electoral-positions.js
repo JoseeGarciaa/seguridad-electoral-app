@@ -1,0 +1,20 @@
+const fs = require('fs');
+const { Client } = require('pg');
+const envLine = fs.readFileSync('.env.local','utf8').split(/\r?\n/).find(l => l.startsWith('DATABASE_URL='));
+const connectionString = envLine.split('=')[1];
+(async () => {
+  const c = new Client({ connectionString });
+  await c.connect();
+  const tables = await c.query(`select table_name from information_schema.tables where table_schema='public' and lower(table_name) like 'electoral_%' order by table_name`);
+  console.table(tables.rows);
+  const posCols = await c.query(`select column_name from information_schema.columns where table_schema='public' and table_name='electoral_positions' order by ordinal_position`);
+  console.log('electoral_positions cols');
+  console.table(posCols.rows);
+  const pos = await c.query(`select * from electoral_positions order by created_at desc limit 20`);
+  console.log('electoral_positions sample');
+  console.table(pos.rows);
+  const cit = await c.query(`select p.code, p.name, count(*)::int as total from electoral_candidates c join electoral_positions p on p.id=c.position_id group by p.code,p.name order by p.code,p.name`);
+  console.log('electoral_candidates by position');
+  console.table(cit.rows);
+  await c.end();
+})().catch((e)=>{console.error(e); process.exit(1);});
