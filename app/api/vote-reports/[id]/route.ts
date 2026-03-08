@@ -3,6 +3,25 @@ import { getCurrentUser } from "@/lib/auth"
 import { pool } from "@/lib/pg"
 import { getVoteReportMesaComparison } from "@/lib/mesa-fact"
 
+const NON_PREFERENTIAL_PARTIES = ["colombia renaciente", "pacto historico", "centro democratico"]
+
+const normalizeText = (value: string | null | undefined) =>
+  String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+
+const isSyntheticPartyCandidate = (detail: { fullName?: string | null; party?: string | null; position?: string | null }) => {
+  const partyName = normalizeText(detail.party)
+  if (!partyName) return false
+  if (NON_PREFERENTIAL_PARTIES.some((party) => partyName.includes(party))) return false
+  const positionName = normalizeText(detail.position)
+  if (positionName !== "citrep" && positionName !== "camara de representantes") return false
+  return normalizeText(detail.fullName) === partyName
+}
+
 function isUuid(value: string): boolean {
   return /^[0-9a-fA-F-]{36}$/.test(value)
 }
@@ -87,15 +106,22 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       totalVotes: Number(row.total_votes ?? 0),
       reportedAt: row.reported_at as string,
       notes: (row.notes as string) ?? null,
-      details: detailsRes.rows.map((r) => ({
-        candidateId: r.candidate_id as string,
-        votes: Number(r.votes ?? 0),
-        fullName: (r.full_name as string) ?? null,
-        party: (r.party as string) ?? null,
-        position: (r.position as string) ?? null,
-        ballotNumber: r.ballot_number === null || r.ballot_number === undefined ? null : Number(r.ballot_number),
-        color: (r.color as string) ?? null,
-      })),
+      details: detailsRes.rows.map((r) => {
+        const detail = {
+          candidateId: r.candidate_id as string,
+          votes: Number(r.votes ?? 0),
+          fullName: (r.full_name as string) ?? null,
+          party: (r.party as string) ?? null,
+          position: (r.position as string) ?? null,
+          ballotNumber: r.ballot_number === null || r.ballot_number === undefined ? null : Number(r.ballot_number),
+          color: (r.color as string) ?? null,
+        }
+
+        return {
+          ...detail,
+          ballotNumber: isSyntheticPartyCandidate(detail) ? null : detail.ballotNumber,
+        }
+      }),
       photos: (photosRes.rows.length ? photosRes.rows.map((r) => ({
         id: r.id as string,
         title: (r.title as string) ?? "Foto",

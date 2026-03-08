@@ -337,6 +337,19 @@ const isForcedNonPreferentialParty = (partyName: string) => {
 const resolveListTypeForParty = (partyName: string): "Preferente" | "No Preferente" =>
   isForcedNonPreferentialParty(partyName) ? "No Preferente" : "Preferente"
 
+const isSyntheticPartyCandidate = (candidate?: Pick<Candidato, "full_name" | "nombre" | "party" | "ballot_number"> | null) => {
+  const candidateName = String(candidate?.full_name ?? candidate?.nombre ?? "").trim()
+  const partyName = String(candidate?.party ?? "").trim()
+  if (!candidateName || !partyName) return false
+  return normalizePartyName(candidateName) === normalizePartyName(partyName)
+}
+
+const getCandidateBallotLabel = (candidate?: Pick<Candidato, "full_name" | "nombre" | "party" | "ballot_number"> | null) => {
+  if (isSyntheticPartyCandidate(candidate)) return null
+  const ballotNumber = candidate?.ballot_number
+  return typeof ballotNumber === "number" && ballotNumber > 0 ? `#${ballotNumber}` : null
+}
+
 const PARTY_LOGOS: Array<{ tokens: string[]; src: string }> = [
   { tokens: ["coalicion", "verde"], src: "/Coalición_verde.png" },
   { tokens: ["alianza", "verde"], src: "/Coalición_verde.png" },
@@ -2076,13 +2089,18 @@ function CandidateVotesPanel({
 
                 {items.map((candidato) => (
                   <div key={candidato.id} className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2">
+                    {(() => {
+                      const ballotLabel = getCandidateBallotLabel(candidato)
+                      return (
                     <div className="flex items-center justify-between mb-2">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold leading-tight truncate">{candidato.full_name ?? candidato.nombre}</p>
-                        <p className="text-[11px] text-muted-foreground">#{candidato.ballot_number ?? "S/N"}</p>
+                        {ballotLabel ? <p className="text-[11px] text-muted-foreground">{ballotLabel}</p> : null}
                       </div>
-                      <Badge className="bg-zinc-800 border-zinc-700">#{candidato.ballot_number ?? "S/N"}</Badge>
+                      {ballotLabel ? <Badge className="bg-zinc-800 border-zinc-700">{ballotLabel}</Badge> : null}
                     </div>
+                      )
+                    })()}
                     {partido?.listType === "No Preferente" ? (
                       <p className="text-[11px] text-muted-foreground">Registro por lista cerrada: votos por candidato deshabilitados.</p>
                     ) : (

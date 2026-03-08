@@ -37,6 +37,25 @@ const EVIDENCES_CACHE_TTL_MS = 20_000
 const evidencesCache = new Map<string, { ts: number; payload: any }>()
 let evidencesCacheInvalidationSubscribed = false
 
+const NON_PREFERENTIAL_PARTIES = ["colombia renaciente", "pacto historico", "centro democratico"]
+
+const normalizeText = (value: string | null | undefined) =>
+  String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+
+const isSyntheticPartyCandidate = (detail: { fullName?: string | null; party?: string | null; position?: string | null }) => {
+  const partyName = normalizeText(detail.party)
+  if (!partyName) return false
+  if (NON_PREFERENTIAL_PARTIES.some((party) => partyName.includes(party))) return false
+  const positionName = normalizeText(detail.position)
+  if (positionName !== "citrep" && positionName !== "camara de representantes") return false
+  return normalizeText(detail.fullName) === partyName
+}
+
 function clearEvidencesCache() {
   evidencesCache.clear()
 }
@@ -255,7 +274,12 @@ export async function GET(req: NextRequest) {
           voteReportId: row.vote_report_id as string | null,
           totalVotes: row.vr_total_votes === null || row.vr_total_votes === undefined ? null : Number(row.vr_total_votes),
           reportedAt: row.vr_reported_at ? new Date(row.vr_reported_at as string).toISOString() : null,
-          voteDetails: Array.isArray(row.vote_details) ? row.vote_details : [],
+          voteDetails: Array.isArray(row.vote_details)
+            ? row.vote_details.map((detail: any) => ({
+                ...detail,
+                ballotNumber: isSyntheticPartyCandidate(detail) ? null : detail.ballotNumber,
+              }))
+            : [],
         })),
         stats: {
           total: Number(statsRes.rows[0]?.total ?? 0),

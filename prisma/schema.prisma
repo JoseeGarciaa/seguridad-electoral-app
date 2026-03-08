@@ -52,7 +52,7 @@ model ElectoralPosition {
 
 model Candidate {
   id               String              @id @default(uuid()) @db.Uuid
-  ballot_number    Int                 @db.Integer
+  ballot_number    Int?                @db.Integer
   full_name        String              @db.Text
   position         String              @db.Text
   region           String?             @db.Text

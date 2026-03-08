@@ -119,6 +119,18 @@ const isForcedNonPreferentialParty = (partyName: string | null | undefined) => {
 const resolveListTypeForParty = (partyName: string | null | undefined): ListType =>
   isForcedNonPreferentialParty(partyName) ? "No Preferente" : "Preferente"
 
+const isSyntheticPartyCandidate = (candidate: Pick<Candidate, "fullName" | "party"> | null | undefined) => {
+  const candidateName = String(candidate?.fullName ?? "").trim()
+  const partyName = String(candidate?.party ?? "").trim()
+  if (!candidateName || !partyName) return false
+  return normalizePartyName(candidateName) === normalizePartyName(partyName)
+}
+
+const getCandidateBallotLabel = (candidate: Pick<Candidate, "fullName" | "party" | "ballotNumber"> | null | undefined) => {
+  if (isSyntheticPartyCandidate(candidate)) return null
+  return candidate?.ballotNumber !== null && candidate?.ballotNumber !== undefined ? `#${candidate.ballotNumber}` : null
+}
+
 const PARTY_LOGOS: Array<{ tokens: string[]; src: string }> = [
   { tokens: ["coalicion", "verde"], src: "/Coalición_verde.png" },
   { tokens: ["alianza", "verde"], src: "/Coalición_verde.png" },
@@ -1153,6 +1165,7 @@ export default function TestigoElectoralPage() {
                       )}
                       {party.candidates.map((candidate) => {
                         const votes = draftVotes[candidate.id] ?? 0
+                        const ballotLabel = getCandidateBallotLabel(candidate)
                         return (
                           <div key={candidate.id} className="rounded-xl border border-border/60 bg-muted/20 p-3 space-y-2">
                             <div className="flex items-center justify-between gap-2">
@@ -1160,12 +1173,10 @@ export default function TestigoElectoralPage() {
                                 <p className="text-sm font-semibold truncate">{candidate.fullName}</p>
                                 <p className="text-[11px] text-muted-foreground truncate">
                                   {candidate.position ?? "Cargo"}
-                                  {candidate.ballotNumber !== null ? ` · #${candidate.ballotNumber}` : " · S/N"}
+                                  {ballotLabel ? ` · ${ballotLabel}` : ""}
                                 </p>
                               </div>
-                              <Badge variant="outline" className="text-xs px-2 py-1">
-                                {candidate.ballotNumber !== null ? `#${candidate.ballotNumber}` : "S/N"}
-                              </Badge>
+                              {ballotLabel ? <Badge variant="outline" className="text-xs px-2 py-1">{ballotLabel}</Badge> : null}
                             </div>
                             {party.listType === "No Preferente" ? (
                               <p className="text-xs text-muted-foreground">Registro por lista cerrada: votos individuales ocultos.</p>
