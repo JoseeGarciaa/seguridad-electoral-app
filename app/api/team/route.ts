@@ -118,7 +118,7 @@ export async function GET(req: NextRequest) {
             COALESCE(d.municipality, loc.municipio) AS municipality,
             ${hasDeptCode ? "COALESCE(d.department_code, loc.dd)" : "loc.dd"} AS department_code,
             ${hasMunicipalityCode ? "COALESCE(d.municipality_code, loc.mm)" : "loc.mm"} AS municipality_code,
-            ${hasTeamProfiles ? "COALESCE(tp.role, 'witness')" : "'witness'"} AS role,
+            COALESCE(${hasTeamProfiles ? "tp.role, " : ""}usr.role, 'delegate') AS role,
             ${hasTeamProfiles ? "COALESCE(tp.status, 'active')" : "'active'"} AS status,
             ${hasTeamProfiles ? "tp.zone" : "NULL"} AS zone,
             ${hasTeamProfiles ? "COALESCE(tp.assigned_polling_stations, COALESCE(a.assigned_count, 0))" : "COALESCE(a.assigned_count, 0)"} AS assigned_polling_stations,
@@ -134,6 +134,7 @@ export async function GET(req: NextRequest) {
             loc.direccion AS polling_station_address,
             loc.mesas AS polling_station_mesas
           FROM delegates d
+          LEFT JOIN users usr ON usr.delegate_id = d.id
           ${hasSupervisor ? "LEFT JOIN delegates sup ON sup.id = d.supervisor_id" : ""}
           ${hasTeamProfiles ? "LEFT JOIN team_profiles tp ON tp.delegate_id = d.id" : ""}
           LEFT JOIN (
@@ -162,7 +163,7 @@ export async function GET(req: NextRequest) {
         SELECT
           COUNT(*) AS total,
           COUNT(*) FILTER (WHERE status = 'active') AS active,
-          COUNT(*) FILTER (WHERE role = 'witness') AS witnesses,
+          COUNT(*) FILTER (WHERE role = 'delegate') AS witnesses,
           COUNT(*) FILTER (WHERE role = 'coordinator') AS coordinators
         FROM base
       `

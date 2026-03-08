@@ -36,6 +36,7 @@ type Props = {
 export function TerritoryTable({ features, search, onSearchChange, selectedId, onSelect }: Props) {
   const formatter = new Intl.NumberFormat("es-CO")
   const displayed = features
+  const listViewportClass = "max-h-130 overflow-y-auto lg:max-h-130"
 
   const handleExport = () => {
     if (displayed.length === 0) return
@@ -74,7 +75,7 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
   }
 
   return (
-    <div className="glass rounded-xl border border-border/50 overflow-hidden">
+    <div className="glass rounded-xl border border-border/50 overflow-hidden lg:h-155 lg:flex lg:flex-col">
       {/* Header */}
       <div className="p-3 border-b border-border/50">
         <div className="flex items-center justify-between mb-3">
@@ -93,11 +94,11 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
       </div>
 
       {/* Table */}
-      <div>
+      <div className="lg:flex-1 lg:min-h-0">
         {displayed.length === 0 ? (
           <div className="p-4 text-sm text-muted-foreground">Sin resultados para estos filtros.</div>
         ) : (
-          <div className="divide-y divide-border/50">
+          <div className={`divide-y divide-border/50 ${listViewportClass}`}>
             {displayed.map((puesto, index) => {
               const votersPerMesa =
                 puesto.properties.votersPerMesa ??
@@ -123,7 +124,7 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
                         <p className="text-sm font-medium text-foreground truncate">{puesto.properties.puesto}</p>
                         {(!puesto.geometry.coordinates || puesto.geometry.coordinates.length !== 2 ||
                           (puesto.geometry.coordinates[0] === 0 && puesto.geometry.coordinates[1] === 0)) && (
-                          <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] bg-neon-orange/10 text-neon-orange">
+                          <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] bg-neon-orange/10 text-neon-orange">
                             Sin coords
                           </span>
                         )}
@@ -132,7 +133,7 @@ export function TerritoryTable({ features, search, onSearchChange, selectedId, o
                         {puesto.properties.municipio}, {puesto.properties.departamento}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-2 shrink-0">
                       {assigned ? (
                         <CheckCircle className="w-4 h-4 text-neon-green" />
                       ) : (

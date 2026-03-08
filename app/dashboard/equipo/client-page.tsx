@@ -83,6 +83,7 @@ type MesaOption = {
 }
 
 const roleLabels: Record<string, string> = {
+  delegate: "Testigo",
   witness: "Testigo",
   coordinator: "Coordinador",
   mobilizer: "Movilizador",
@@ -97,6 +98,7 @@ const statusLabels: Record<string, string> = {
 }
 
 const roleColors: Record<string, string> = {
+  delegate: "bg-cyan-500/20 text-cyan-300 border-cyan-500/40",
   witness: "bg-cyan-500/20 text-cyan-300 border-cyan-500/40",
   coordinator: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
   mobilizer: "bg-amber-500/20 text-amber-300 border-amber-500/40",
@@ -1134,6 +1136,7 @@ function EquipoInner() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos los roles</SelectItem>
+              <SelectItem value="delegate">Testigo</SelectItem>
               <SelectItem value="witness">Testigo</SelectItem>
               <SelectItem value="coordinator">Coordinador</SelectItem>
               <SelectItem value="mobilizer">Movilizador</SelectItem>

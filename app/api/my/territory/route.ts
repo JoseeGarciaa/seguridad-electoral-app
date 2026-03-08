@@ -165,35 +165,39 @@ export async function GET(req: NextRequest) {
       GROUP BY COALESCE(vr.divipole_location_id, dpa.divipole_location_id)
     )`
     : `reports AS (
-      SELECT LOWER(COALESCE(vr.polling_station_code, dpa.polling_station)) AS polling_station_lower,
+      SELECT ${NORMALIZE_SQL("COALESCE(vr.department, del.department)")} AS department_key,
+             ${NORMALIZE_SQL("COALESCE(vr.municipality, del.municipality)")} AS municipality_key,
+             ${NORMALIZE_SQL("COALESCE(vr.polling_station_code, dpa.polling_station)")} AS polling_station_key,
              COUNT(*)::int AS reported_mesas
       FROM vote_reports vr
       LEFT JOIN delegate_polling_assignments dpa ON dpa.id = vr.delegate_assignment_id
+      LEFT JOIN delegates del ON del.id = COALESCE(vr.delegate_id, dpa.delegate_id)
       WHERE COALESCE(vr.polling_station_code, dpa.polling_station) IS NOT NULL
-      GROUP BY LOWER(COALESCE(vr.polling_station_code, dpa.polling_station))
+      GROUP BY 1, 2, 3
     )`
 
   const assignmentsCte = `
     WITH latest_assignments AS (
-      SELECT DISTINCT ON (${hasDivipoleLocationId ? "divipole_location_id" : "LOWER(polling_station)"})
-        id,
-        delegate_id,
-        polling_station,
-        polling_station_number,
-        ${hasDivipoleLocationId ? "divipole_location_id" : "LOWER(polling_station) AS polling_station_lower"},
-        updated_at,
-        created_at
+      SELECT DISTINCT ON (${hasDivipoleLocationId ? "delegate_polling_assignments.divipole_location_id" : "LOWER(delegate_polling_assignments.polling_station)"})
+        delegate_polling_assignments.id,
+        delegate_polling_assignments.delegate_id,
+        delegate_polling_assignments.polling_station,
+        delegate_polling_assignments.polling_station_number,
+        ${hasDivipoleLocationId ? "delegate_polling_assignments.divipole_location_id" : `${NORMALIZE_SQL("delegate_polling_assignments.polling_station")} AS polling_station_key, ${NORMALIZE_SQL("del.department")} AS delegate_department_key, ${NORMALIZE_SQL("del.municipality")} AS delegate_municipality_key, del.department_code AS delegate_department_code, del.municipality_code AS delegate_municipality_code`},
+        delegate_polling_assignments.updated_at,
+        delegate_polling_assignments.created_at
       FROM delegate_polling_assignments
-      WHERE ${hasDivipoleLocationId ? "divipole_location_id IS NOT NULL" : "polling_station IS NOT NULL"}
-      ${delegateParamIndex ? `AND delegate_id = $${delegateParamIndex}` : ""}
-      ORDER BY ${hasDivipoleLocationId ? "divipole_location_id" : "LOWER(polling_station)"}, updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+      ${hasDivipoleLocationId ? "" : "JOIN delegates del ON del.id = delegate_polling_assignments.delegate_id"}
+      WHERE ${hasDivipoleLocationId ? "delegate_polling_assignments.divipole_location_id IS NOT NULL" : "delegate_polling_assignments.polling_station IS NOT NULL"}
+      ${delegateParamIndex ? `AND delegate_polling_assignments.delegate_id = $${delegateParamIndex}` : ""}
+      ORDER BY ${hasDivipoleLocationId ? "delegate_polling_assignments.divipole_location_id" : "LOWER(delegate_polling_assignments.polling_station)"}, delegate_polling_assignments.updated_at DESC NULLS LAST, delegate_polling_assignments.created_at DESC NULLS LAST
     ),
     ${reportsCte}
   `
 
   const assignmentJoin = isAdmin
-    ? `LEFT JOIN latest_assignments la ON ${hasDivipoleLocationId ? "dl.id = la.divipole_location_id" : "(LOWER(dl.puesto) = la.polling_station_lower OR LOWER(dl.pp) = la.polling_station_lower)"}`
-    : `LEFT JOIN latest_assignments la ON ${hasDivipoleLocationId ? "dl.id = la.divipole_location_id" : "(LOWER(dl.puesto) = la.polling_station_lower OR LOWER(dl.pp) = la.polling_station_lower)"}`
+    ? `LEFT JOIN latest_assignments la ON ${hasDivipoleLocationId ? "dl.id = la.divipole_location_id" : `${NORMALIZE_SQL("dl.puesto")} = la.polling_station_key AND (la.delegate_department_code IS NULL OR dl.dd = la.delegate_department_code) AND (la.delegate_municipality_code IS NULL OR dl.mm = la.delegate_municipality_code) AND (la.delegate_department_code IS NOT NULL OR la.delegate_department_key = '' OR ${NORMALIZE_SQL("dl.departamento")} = la.delegate_department_key) AND (la.delegate_municipality_code IS NOT NULL OR la.delegate_municipality_key = '' OR ${NORMALIZE_SQL("dl.municipio")} = la.delegate_municipality_key)`}`
+    : `LEFT JOIN latest_assignments la ON ${hasDivipoleLocationId ? "dl.id = la.divipole_location_id" : `${NORMALIZE_SQL("dl.puesto")} = la.polling_station_key AND (la.delegate_department_code IS NULL OR dl.dd = la.delegate_department_code) AND (la.delegate_municipality_code IS NULL OR dl.mm = la.delegate_municipality_code) AND (la.delegate_department_code IS NOT NULL OR la.delegate_department_key = '' OR ${NORMALIZE_SQL("dl.departamento")} = la.delegate_department_key) AND (la.delegate_municipality_code IS NOT NULL OR la.delegate_municipality_key = '' OR ${NORMALIZE_SQL("dl.municipio")} = la.delegate_municipality_key)`}`
 
   const featuresQuery = `
     ${assignmentsCte}
@@ -224,7 +228,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN delegates del ON del.id = la.delegate_id
          ${hasDivipoleLocationId
            ? "LEFT JOIN reports rep ON rep.divipole_location_id = dl.id"
-           : "LEFT JOIN reports rep ON rep.polling_station_lower IS NOT NULL AND (rep.polling_station_lower = LOWER(dl.puesto) OR rep.polling_station_lower = LOWER(dl.pp))"}
+           : `LEFT JOIN reports rep ON rep.polling_station_key = ${NORMALIZE_SQL("dl.puesto")} AND rep.department_key = ${NORMALIZE_SQL("dl.departamento")} AND rep.municipality_key = ${NORMALIZE_SQL("dl.municipio")}`}
       ${whereClause}
       ORDER BY dl.departamento, dl.municipio, dl.puesto
       LIMIT $${values.length + 1}
@@ -241,7 +245,7 @@ export async function GET(req: NextRequest) {
       ${assignmentJoin}
          ${hasDivipoleLocationId
            ? "LEFT JOIN reports rep ON rep.divipole_location_id = dl.id"
-           : "LEFT JOIN reports rep ON rep.polling_station_lower IS NOT NULL AND (rep.polling_station_lower = LOWER(dl.puesto) OR rep.polling_station_lower = LOWER(dl.pp))"}
+         : `LEFT JOIN reports rep ON rep.polling_station_key = ${NORMALIZE_SQL("dl.puesto")} AND rep.department_key = ${NORMALIZE_SQL("dl.departamento")} AND rep.municipality_key = ${NORMALIZE_SQL("dl.municipio")}`}
       ${whereClause}
   `
 

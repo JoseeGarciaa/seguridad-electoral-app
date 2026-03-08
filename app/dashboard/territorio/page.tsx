@@ -297,9 +297,9 @@ export default function TerritorioPage() {
       {/* Map and Table */}
       <div className="grid lg:grid-cols-5 gap-4">
         {/* Map - Takes 3 columns */}
-        <div className="lg:col-span-3">
+        <div className="lg:col-span-3 lg:sticky lg:top-4 lg:self-start">
           {loading ? (
-            <div className="h-56 animate-pulse bg-secondary/50 rounded-xl" />
+            <div className="h-105 lg:h-155 animate-pulse bg-secondary/50 rounded-xl" />
           ) : filteredFeatures.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border/60 flex items-center justify-center text-sm text-muted-foreground px-6 py-16 text-center">
               Selecciona un departamento para cargar los puestos de votación.
