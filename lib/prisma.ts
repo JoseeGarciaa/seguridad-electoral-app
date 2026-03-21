@@ -1,3 +1,4 @@
+// @ts-expect-error PrismaClient type depends on generated client availability in this workspace setup.
 import { PrismaClient } from "@prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
 import { Pool } from "pg"

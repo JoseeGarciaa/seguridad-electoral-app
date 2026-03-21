@@ -79,7 +79,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-[100dvh] overflow-hidden bg-background grid-background flex items-center justify-center px-4 py-6 sm:py-10">
+    <div className="min-h-dvh overflow-hidden bg-background grid-background flex items-center justify-center px-4 py-6 sm:py-10">
       {/* Background Effects */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <motion.div
@@ -112,11 +112,11 @@ export default function LoginPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className={`relative w-full ${isStandalone ? "max-w-[620px]" : "max-w-[620px] sm:max-w-lg lg:max-w-6xl"} mx-auto flex flex-col justify-center`}
+        className={`relative w-full ${isStandalone ? "max-w-155" : "max-w-155 sm:max-w-lg lg:max-w-6xl"} mx-auto flex flex-col justify-center`}
       >
         <div className={`flex flex-col gap-4 ${isStandalone ? "items-center" : ""} items-stretch`}>
         {/* Login Card */}
-        <div className={`order-2 glass rounded-2xl border border-border/50 p-7 sm:p-12 shadow-lg w-[84%] sm:w-[70%] mx-auto ${isStandalone ? "max-w-[620px]" : ""}`}>
+        <div className={`order-2 glass rounded-2xl border border-border/50 p-7 sm:p-12 shadow-lg w-[84%] sm:w-[70%] mx-auto ${isStandalone ? "max-w-155" : ""}`}>
           {/* Header */}
           <div className="text-center mb-6">
             <Link href="/" className="inline-flex items-center gap-2 mb-6">
@@ -229,7 +229,7 @@ export default function LoginPage() {
         {/* Collage (web only) */}
         {isStandalone === false && (
           <div className="order-1 glass rounded-2xl border border-border/50 overflow-hidden shadow-lg bg-secondary/40 w-[84%] sm:w-[70%] mx-auto aspect-video">
-            <div className="relative h-full bg-gradient-to-br from-primary/15 via-background/5 to-accent/10 flex items-center justify-center">
+            <div className="relative h-full bg-linear-to-br from-primary/15 via-background/5 to-accent/10 flex items-center justify-center">
               {collageImages.map((src, index) => (
                 <motion.div
                   key={src}

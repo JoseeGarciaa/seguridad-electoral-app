@@ -117,6 +117,7 @@ const getCurrentUserByToken = cache(async (token: string | null) => {
 
   return {
     id: row.user_id,
+    name: null,
     email: row.email,
     role: row.role,
     is_active: row.is_active,

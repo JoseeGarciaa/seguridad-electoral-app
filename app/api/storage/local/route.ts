@@ -15,14 +15,14 @@ const contentTypes: Record<string, string> = {
   ".svg": "image/svg+xml",
 }
 
-const dataUrlRegex = /^data:(?<mime>[^;]+);base64,(?<data>.+)$/i
+const dataUrlRegex = /^data:([^;]+);base64,(.+)$/i
 
 function parseDataUrl(dataUrl: string): { buffer: Buffer; mime: string } | null {
   const match = dataUrlRegex.exec(dataUrl)
-  if (!match?.groups?.data || !match.groups.mime) return null
+  if (!match || !match[1] || !match[2]) return null
   return {
-    buffer: Buffer.from(match.groups.data, "base64"),
-    mime: match.groups.mime,
+    buffer: Buffer.from(match[2], "base64"),
+    mime: match[1],
   }
 }
 
@@ -46,7 +46,7 @@ function normalizeRelativePath(rawPath: string): string {
 function buildBinaryResponse(file: Buffer, filenameOrPath: string, contentTypeOverride?: string) {
   const ext = path.extname(filenameOrPath).toLowerCase()
   const contentType = contentTypeOverride || contentTypes[ext] || "application/octet-stream"
-  return new NextResponse(file, {
+  return new NextResponse(new Uint8Array(file), {
     status: 200,
     headers: {
       "Content-Type": contentType,

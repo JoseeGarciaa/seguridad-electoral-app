@@ -100,7 +100,7 @@ export async function GET(req: NextRequest) {
           `
 
       const divipoleJoin = hasDpaLocationId
-        ? "LEFT JOIN divipole_locations loc ON loc.id = COALESCE(d.polling_station_id, a.primary_location_id)"
+        ? `LEFT JOIN divipole_locations loc ON loc.id = COALESCE(${hasDelegatePollingStationId ? "d.polling_station_id" : "NULL::bigint"}, a.primary_location_id)`
         : hasDelegatePollingStationId
         ? "LEFT JOIN divipole_locations loc ON loc.id = d.polling_station_id"
         : hasDeptCode && hasMunicipalityCode && hasPollingStationCode
@@ -134,7 +134,7 @@ export async function GET(req: NextRequest) {
             loc.direccion AS polling_station_address,
             loc.mesas AS polling_station_mesas
           FROM delegates d
-          LEFT JOIN users usr ON usr.delegate_id = d.id
+          JOIN users usr ON usr.delegate_id = d.id
           ${hasSupervisor ? "LEFT JOIN delegates sup ON sup.id = d.supervisor_id" : ""}
           ${hasTeamProfiles ? "LEFT JOIN team_profiles tp ON tp.delegate_id = d.id" : ""}
           LEFT JOIN (
@@ -395,7 +395,7 @@ async function resolveAssignmentLocationIds(
   `
 
   if (pollingStationId) {
-    const byIdRes = await client.query<{ id: string }>(
+    const byIdRes = await client.query(
       `WITH target AS (
          SELECT dd, mm, ${normalizeExpr("puesto")} AS puesto_key
          FROM divipole_locations
@@ -412,7 +412,7 @@ async function resolveAssignmentLocationIds(
     )
 
     if (byIdRes.rowCount) {
-      return Array.from(new Set(byIdRes.rows.map((r) => r.id).filter(Boolean)))
+      return Array.from(new Set(byIdRes.rows.map((r: any) => r.id).filter(Boolean)))
     }
 
     return [pollingStationId]
@@ -422,7 +422,7 @@ async function resolveAssignmentLocationIds(
     return []
   }
 
-  const byCodeRes = await client.query<{ id: string }>(
+  const byCodeRes = await client.query(
     `SELECT id::text AS id
      FROM divipole_locations
      WHERE dd = $1
@@ -431,7 +431,7 @@ async function resolveAssignmentLocationIds(
     [departmentCode, municipalityCode, pollingStationCode]
   )
 
-  return Array.from(new Set(byCodeRes.rows.map((r) => r.id).filter(Boolean)))
+  return Array.from(new Set(byCodeRes.rows.map((r: any) => r.id).filter(Boolean)))
 }
 
 async function upsertDelegateAndProfile(client: any, payload: MemberPayload, meta: DelegateMeta) {
@@ -802,10 +802,10 @@ export async function PATCH(req: NextRequest) {
       .filter((n) => Number.isInteger(n))
 
     const { deptCode } = meta.hasDeptCode && changes.department_code !== undefined
-      ? await validateCodes(client, changes.department_code ?? null, null)
+      ? await validateCodes(client, changes.department_code ?? null, null, false)
       : { deptCode: undefined }
     const { muniCode } = meta.hasMunicipalityCode && changes.municipality_code !== undefined
-      ? await validateCodes(client, null, changes.municipality_code ?? null)
+      ? await validateCodes(client, null, changes.municipality_code ?? null, false)
       : { muniCode: undefined }
 
     const nextDept = changes.department_code !== undefined ? deptCode : undefined
@@ -814,7 +814,7 @@ export async function PATCH(req: NextRequest) {
     const sanitizedNumbers = Array.isArray(changes.polling_station_numbers)
       ? changes.polling_station_numbers
           .map((n: any) => Number(n))
-          .filter((n) => Number.isFinite(n) && Number.isInteger(n) && n >= 0)
+          .filter((n: number) => Number.isFinite(n) && Number.isInteger(n) && n >= 0)
       : changes.polling_station_number !== undefined
       ? [Number(changes.polling_station_number)].filter((n) => Number.isInteger(n))
       : existingAssignmentNums

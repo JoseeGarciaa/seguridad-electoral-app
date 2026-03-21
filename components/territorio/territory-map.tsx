@@ -52,7 +52,7 @@ function normalizeFeatures(features: Feature[]): Feature[] {
 
 // Raster OSM libre con etiquetas visibles (sin claves ni CORS externas)
 const TILE_STYLE = {
-  version: 8,
+  version: 8 as const,
   sources: {
     osm: {
       type: "raster",
@@ -94,11 +94,11 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
     try {
       map = new maplibregl.Map({
         container: containerRef.current,
-        style: TILE_STYLE,
+        style: TILE_STYLE as any,
         center: [-74.1, 4.65],
         zoom: 5,
         pitch: 0,
-        attributionControl: true,
+        attributionControl: false,
       })
     } catch (err) {
       console.error("MapLibre init error", err)
@@ -185,16 +185,19 @@ export function TerritoryMap({ viewMode, features, onViewModeChange, selectedId,
         map.fitBounds(bounds, { padding: 60, maxZoom: 12, duration: 400 })
       }
 
-      map.on("click", "clusters", (e) => {
+      map.on("click", "clusters", async (e) => {
         const feature = e.features?.[0]
         if (!feature) return
         const clusterId = feature.properties?.cluster_id
         const source = map.getSource("puestos") as GeoJSONSource
         if (!source || clusterId === undefined) return
-        source.getClusterExpansionZoom(clusterId, (err, zoom) => {
-          if (err) return
-          map.easeTo({ center: feature.geometry.coordinates as [number, number], zoom })
-        })
+        try {
+          const zoom = await source.getClusterExpansionZoom(clusterId)
+          const coordinates = (feature.geometry as any)?.coordinates as [number, number]
+          if (!coordinates) return
+          map.easeTo({ center: coordinates, zoom })
+        } catch {
+        }
       })
 
       map.on("click", "unclustered-point", (e) => {
@@ -338,45 +341,53 @@ function addPointsLayer(map: MLMap, mode: ViewMode) {
     map.removeLayer("unclustered-point")
   }
 
+  if (mode === "heatmap") {
+    map.addLayer({
+      id: "unclustered-point",
+      type: "heatmap",
+      source: "puestos",
+      filter: ["!", ["has", "point_count"]],
+      paint: {
+        "heatmap-weight": ["interpolate", ["linear"], ["get", "total"], 0, 0, 500, 1],
+        "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 5, 0.5, 12, 2],
+        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 5, 15, 12, 30],
+        "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.7, 12, 0.9],
+      },
+    })
+    return
+  }
+
   map.addLayer({
     id: "unclustered-point",
-    type: mode === "heatmap" ? "heatmap" : "circle",
+    type: "circle",
     source: "puestos",
     filter: ["!", ["has", "point_count"]],
-    paint:
-      mode === "heatmap"
-        ? {
-            "heatmap-weight": ["interpolate", ["linear"], ["get", "total"], 0, 0, 500, 1],
-            "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 5, 0.5, 12, 2],
-            "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 5, 15, 12, 30],
-            "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.7, 12, 0.9],
-          }
-        : {
-            "circle-color": [
-              "case",
-              ["==", ["get", "delegateAssigned"], true],
-              "#22c55e",
-              "#f59e0b",
-            ],
-            "circle-radius": [
-              "interpolate",
-              ["linear"],
-              ["get", "total"],
-              0,
-              4,
-              50,
-              6,
-              150,
-              10,
-              300,
-              14,
-              600,
-              18,
-            ],
-            "circle-stroke-width": 1,
-            "circle-stroke-color": "#0f172a",
-            "circle-opacity": 0.9,
-          },
+    paint: {
+      "circle-color": [
+        "case",
+        ["==", ["get", "delegateAssigned"], true],
+        "#22c55e",
+        "#f59e0b",
+      ],
+      "circle-radius": [
+        "interpolate",
+        ["linear"],
+        ["get", "total"],
+        0,
+        4,
+        50,
+        6,
+        150,
+        10,
+        300,
+        14,
+        600,
+        18,
+      ],
+      "circle-stroke-width": 1,
+      "circle-stroke-color": "#0f172a",
+      "circle-opacity": 0.9,
+    },
   })
 }
 

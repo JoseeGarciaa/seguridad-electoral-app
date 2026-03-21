@@ -15,7 +15,25 @@ type BootstrapOptions = {
 
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 1200
 const DEFAULT_BOOTSTRAP_CACHE_TTL_MS = 20_000
-const bootstrapCache = new Map<string, { ts: number; payload: ReturnType<typeof emptyBootstrapPayload> }>()
+
+type BootstrapPayload = {
+  stats: {
+    reports: number
+    activeDelegates: number
+    totalLocations: number
+    reportedLocations: number
+    coverage: number
+    lastUpdated: string
+  }
+  candidates: any[]
+  parties: any[]
+  feed: any[]
+  alerts: any[]
+  municipalities: any[]
+  evidences: any[]
+}
+
+const bootstrapCache = new Map<string, { ts: number; payload: BootstrapPayload }>()
 let bootstrapCacheInvalidationSubscribed = false
 
 function ensureBootstrapCacheInvalidation() {
@@ -26,7 +44,7 @@ function ensureBootstrapCacheInvalidation() {
   })
 }
 
-function emptyBootstrapPayload() {
+function emptyBootstrapPayload(): BootstrapPayload {
   return {
     stats: {
       reports: 0,

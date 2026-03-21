@@ -16,6 +16,8 @@ model Department {
   delegates           Delegate[]            @relation("DepartmentDelegates")
   candidates          Candidate[]           @relation("CandidateDepartment")
   electoralCandidates ElectoralCandidate[]  @relation("ElectoralCandidateDepartment")
+  leaders             Leader[]
+  admin_communes      AdminCommune[]
 
   @@map("departments")
   @@unique([name])
@@ -30,6 +32,8 @@ model Municipality {
   department      Department  @relation(fields: [department_code], references: [code], onDelete: Cascade)
   delegates       Delegate[]
   supporters      Supporter[]
+  leaders         Leader[]
+  admin_communes  AdminCommune[]
 
   @@map("municipalities")
   @@index([department_code])
@@ -65,6 +69,8 @@ model Candidate {
   position_ref     ElectoralPosition?  @relation(fields: [position_id], references: [id], onDelete: SetNull)
   department_ref   Department?         @relation("CandidateDepartment", fields: [department_code], references: [code], onDelete: SetNull)
   vote_details     VoteDetail[]
+  leaders          Leader[]
+  commitments      CandidateCommitment[]
 
   @@map("candidates")
   @@index([position_id])
@@ -108,6 +114,8 @@ model Delegate {
   polling_station_code   String?                      @db.Text
   polling_station_number Int?                         @db.Integer
   supervisor_id          String?                      @db.Uuid
+  leader_id              String?                      @db.Uuid
+  commune_id             String?                      @db.Uuid
   created_at             DateTime                     @default(now()) @db.Timestamptz(6)
   updated_at             DateTime                     @default(now()) @db.Timestamptz(6)
   department_code        String?                      @db.Text
@@ -116,6 +124,8 @@ model Delegate {
   municipality_ref       Municipality?                @relation(fields: [municipality_code], references: [code])
   supervisor             Delegate?                    @relation("DelegateSupervisor", fields: [supervisor_id], references: [id], onDelete: SetNull)
   subordinates           Delegate[]                   @relation("DelegateSupervisor")
+  leader_ref             Leader?                      @relation("LeaderWitnesses", fields: [leader_id], references: [id], onDelete: SetNull)
+  commune_ref            AdminCommune?                @relation(fields: [commune_id], references: [id], onDelete: SetNull)
   user                   User?                        @relation("UserDelegate")
   assignments            DelegatePollingAssignment[]
   vote_reports           VoteReport[]
@@ -134,13 +144,16 @@ model User {
   password_hash      String        @db.Text
   role               String        @db.Text
   delegate_id        String?       @unique @db.Uuid
+  leader_id          String?       @db.Uuid
   is_active          Boolean       @default(true)
   last_login_at      DateTime?     @db.Timestamptz(6)
   created_at         DateTime      @default(now()) @db.Timestamptz(6)
   updated_at         DateTime      @default(now()) @db.Timestamptz(6)
   must_reset_password Boolean      @default(false)
   delegate           Delegate?     @relation("UserDelegate", fields: [delegate_id], references: [id], onDelete: SetNull)
+  leader             Leader?       @relation("UserLeader", fields: [leader_id], references: [id], onDelete: SetNull)
   sessions           AuthSession[]
+  created_admin_commitments AdminCommitment[] @relation("AdminCommitmentCreator")
 
   @@map("users")
   @@unique([email])
@@ -208,6 +221,7 @@ model VoteReport {
   id                     String                     @id @default(uuid()) @db.Uuid
   delegate_id            String?                    @db.Uuid
   delegate_assignment_id String?                    @db.Uuid
+  divipole_location_id   BigInt?                    @db.BigInt
   polling_station_code   String?                    @db.Text
   department             String                     @db.Text
   municipality           String                     @db.Text
@@ -219,6 +233,7 @@ model VoteReport {
   created_at             DateTime                   @default(now()) @db.Timestamptz(6)
   delegate               Delegate?                  @relation(fields: [delegate_id], references: [id], onDelete: SetNull)
   assignment             DelegatePollingAssignment? @relation(fields: [delegate_assignment_id], references: [id], onDelete: SetNull)
+  divipole_location      DivipoleLocation?          @relation(fields: [divipole_location_id], references: [id], onDelete: SetNull)
   vote_details           VoteDetail[]
   vote_party_details     VotePartyDetail[]
   evidences              Evidence[]
@@ -227,6 +242,7 @@ model VoteReport {
   @@unique([delegate_assignment_id])
   @@index([delegate_id])
   @@index([delegate_assignment_id])
+  @@index([divipole_location_id])
 }
 
 model VoteDetail {
@@ -301,6 +317,7 @@ model Assignment {
 model Task {
   id             String      @id @default(uuid()) @db.Uuid
   assignment_id  String?     @db.Uuid
+  leader_id      String?     @db.Uuid
   title          String      @db.Text
   owner          String      @db.Text
   place          String?     @db.Text
@@ -311,9 +328,160 @@ model Task {
   created_at     DateTime    @default(now()) @db.Timestamptz(6)
   updated_at     DateTime    @default(now()) @db.Timestamptz(6)
   assignment     Assignment? @relation(fields: [assignment_id], references: [id], onDelete: SetNull)
+  leader         Leader?     @relation(fields: [leader_id], references: [id], onDelete: SetNull)
 
   @@map("tasks")
   @@index([assignment_id])
+  @@index([leader_id])
+}
+
+model Leader {
+  id                        String                     @id @default(uuid()) @db.Uuid
+  candidate_id              String                     @db.Uuid
+  full_name                 String                     @db.Text
+  email                     String?                    @db.Text
+  phone                     String?                    @db.Text
+  department_code           String?                    @db.Text
+  municipality_code         String?                    @db.Text
+  created_at                DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                   @default(now()) @db.Timestamptz(6)
+  candidate                 Candidate                  @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  department                Department?                @relation(fields: [department_code], references: [code], onDelete: SetNull)
+  municipality              Municipality?              @relation(fields: [municipality_code], references: [code], onDelete: SetNull)
+  users                     User[]                     @relation("UserLeader")
+  witnesses                 Delegate[]                 @relation("LeaderWitnesses")
+  tasks                     Task[]
+  commitment_promises       LeaderCommitmentPromise[]
+  commune_assignments       LeaderCommuneAssignment[]
+  admin_commitments         LeaderAdminCommitment[]
+
+  @@map("leaders")
+  @@unique([email])
+  @@index([candidate_id])
+  @@index([department_code, municipality_code])
+}
+
+model CandidateCommitment {
+  id                String                     @id @default(uuid()) @db.Uuid
+  candidate_id      String                     @db.Uuid
+  title             String                     @db.Text
+  description       String?                    @db.Text
+  status            String                     @default("pending") @db.Text
+  fulfilled_at      DateTime?                  @db.Timestamptz(6)
+  created_at        DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime                   @default(now()) @db.Timestamptz(6)
+  candidate         Candidate                  @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  leader_promises   LeaderCommitmentPromise[]
+
+  @@map("candidate_commitments")
+  @@index([candidate_id, status])
+}
+
+model LeaderCommitmentPromise {
+  leader_id       String              @db.Uuid
+  commitment_id   String              @db.Uuid
+  promised_votes  Int                 @db.Integer
+  created_at      DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime            @default(now()) @db.Timestamptz(6)
+  leader          Leader              @relation(fields: [leader_id], references: [id], onDelete: Cascade)
+  commitment      CandidateCommitment @relation(fields: [commitment_id], references: [id], onDelete: Cascade)
+
+  @@id([leader_id, commitment_id])
+  @@map("leader_commitment_promises")
+  @@index([leader_id])
+  @@index([commitment_id])
+}
+
+model AdminCommune {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  department_code     String?                  @db.Text
+  municipality_code   String                   @db.Text
+  name                String                   @db.Text
+  divipole_comuna     String?                  @db.Text
+  voters_current      Int                      @default(0) @db.Integer
+  tables_current      Int                      @default(0) @db.Integer
+  created_at          DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime                 @default(now()) @db.Timestamptz(6)
+  department          Department?              @relation(fields: [department_code], references: [code], onDelete: SetNull)
+  municipality        Municipality             @relation(fields: [municipality_code], references: [code], onDelete: Cascade)
+  voter_history       CommuneVoterHistory[]
+  leader_assignments  LeaderCommuneAssignment[]
+  delegates           Delegate[]
+
+  @@map("admin_communes")
+  @@unique([municipality_code, name])
+  @@index([department_code])
+  @@index([municipality_code])
+}
+
+model CommuneVoterHistory {
+  id             String       @id @default(uuid()) @db.Uuid
+  commune_id     String       @db.Uuid
+  snapshot_date  DateTime     @db.Date
+  women          Int          @default(0) @db.Integer
+  men            Int          @default(0) @db.Integer
+  total          Int          @default(0) @db.Integer
+  tables         Int          @default(0) @db.Integer
+  source         String?      @db.Text
+  created_at     DateTime     @default(now()) @db.Timestamptz(6)
+  commune        AdminCommune @relation(fields: [commune_id], references: [id], onDelete: Cascade)
+
+  @@map("commune_voter_history")
+  @@unique([commune_id, snapshot_date])
+  @@index([snapshot_date])
+}
+
+model LeaderCommuneAssignment {
+  id                 String       @id @default(uuid()) @db.Uuid
+  leader_id          String       @db.Uuid
+  commune_id         String       @db.Uuid
+  assigned_votes     Int          @default(0) @db.Integer
+  assigned_witnesses Int          @default(0) @db.Integer
+  status             String       @default("active") @db.Text
+  created_at         DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime     @default(now()) @db.Timestamptz(6)
+  leader             Leader       @relation(fields: [leader_id], references: [id], onDelete: Cascade)
+  commune            AdminCommune @relation(fields: [commune_id], references: [id], onDelete: Cascade)
+
+  @@map("leader_commune_assignments")
+  @@unique([leader_id, commune_id])
+  @@index([commune_id])
+  @@index([status])
+}
+
+model AdminCommitment {
+  id                        String                  @id @default(uuid()) @db.Uuid
+  title                     String                  @db.Text
+  description               String?                 @db.Text
+  status                    String                  @default("pending") @db.Text
+  due_date                  DateTime?               @db.Timestamptz(6)
+  created_by_user_id        String?                 @db.Uuid
+  created_at                DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                @default(now()) @db.Timestamptz(6)
+  created_by_user           User?                   @relation("AdminCommitmentCreator", fields: [created_by_user_id], references: [id], onDelete: SetNull)
+  leader_assignments        LeaderAdminCommitment[]
+
+  @@map("admin_commitments")
+  @@index([status])
+  @@index([due_date])
+}
+
+model LeaderAdminCommitment {
+  id                    String            @id @default(uuid()) @db.Uuid
+  admin_commitment_id   String            @db.Uuid
+  leader_id             String            @db.Uuid
+  status                String            @default("assigned") @db.Text
+  notes                 String?           @db.Text
+  assigned_at           DateTime          @default(now()) @db.Timestamptz(6)
+  completed_at          DateTime?         @db.Timestamptz(6)
+  created_at            DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime          @default(now()) @db.Timestamptz(6)
+  admin_commitment      AdminCommitment   @relation(fields: [admin_commitment_id], references: [id], onDelete: Cascade)
+  leader                Leader            @relation(fields: [leader_id], references: [id], onDelete: Cascade)
+
+  @@map("leader_admin_commitments")
+  @@unique([admin_commitment_id, leader_id])
+  @@index([leader_id, status])
 }
 
 model Supporter {

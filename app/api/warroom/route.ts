@@ -11,7 +11,25 @@ let warRoomIndexesEnsured = false
 const WARROOM_CACHE_TTL_MS = 30_000
 const WARROOM_STALE_CACHE_FAST_MS = 120_000
 const WARROOM_QUERY_TIMEOUT_MS = 1_800
-const warRoomPayloadCache = new Map<string, { ts: number; payload: ReturnType<typeof emptyPayload> }>()
+
+type WarRoomPayload = {
+  stats: {
+    reports: number
+    activeDelegates: number
+    totalLocations: number
+    reportedLocations: number
+    coverage: number
+    lastUpdated: string
+  }
+  candidates: any[]
+  parties: any[]
+  feed: any[]
+  alerts: any[]
+  municipalities: any[]
+  evidences: any[]
+}
+
+const warRoomPayloadCache = new Map<string, { ts: number; payload: WarRoomPayload }>()
 let cacheInvalidationSubscribed = false
 
 function ensureRealtimeCacheInvalidation() {
@@ -38,7 +56,7 @@ async function ensureWarRoomIndexes() {
   warRoomIndexesEnsured = true
 }
 
-function emptyPayload() {
+function emptyPayload(): WarRoomPayload {
   return {
     stats: {
       reports: 0,
@@ -67,10 +85,8 @@ async function safeQuery<T>(
     const result = await pool.query({
       text: queryText,
       values: params,
-      query_timeout: WARROOM_QUERY_TIMEOUT_MS,
-      statement_timeout: WARROOM_QUERY_TIMEOUT_MS,
-    })
-    return result.rows as T[]
+    } as any)
+    return (result as any).rows as T[]
   } catch (err: any) {
     if (err?.code === "42P01" || err?.code === "42703" || err?.code === "57014") {
       return fallback

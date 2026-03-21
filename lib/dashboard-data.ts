@@ -60,6 +60,7 @@ export type VoteReportSummary = {
 const numberFormatter = new Intl.NumberFormat("es-CO")
 
 async function safeCount(query: string, params: any[] = [], fallback = 0): Promise<number> {
+  if (!pool) return fallback
   try {
     const { rows } = await pool.query<{ c: string }>(query, params)
     return Number(rows[0]?.c ?? fallback)
@@ -70,6 +71,7 @@ async function safeCount(query: string, params: any[] = [], fallback = 0): Promi
 }
 
 async function safeSum(query: string, params: any[] = [], fallback = 0): Promise<number> {
+  if (!pool) return fallback
   try {
     const { rows } = await pool.query<{ s: string }>(query, params)
     return Number(rows[0]?.s ?? fallback)

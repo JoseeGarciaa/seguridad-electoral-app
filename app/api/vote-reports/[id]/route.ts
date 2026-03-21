@@ -26,12 +26,12 @@ function isUuid(value: string): boolean {
   return /^[0-9a-fA-F-]{36}$/.test(value)
 }
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   if (!pool) {
     return NextResponse.json({ error: "DB no disponible" }, { status: 503 })
   }
 
-  const reportId = params?.id
+  const { id: reportId } = await context.params
   if (!reportId || !isUuid(reportId)) {
     return NextResponse.json({ error: "id invalido" }, { status: 400 })
   }

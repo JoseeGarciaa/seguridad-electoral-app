@@ -12,6 +12,23 @@ const ALERTS_STALE_CACHE_FAST_MS = 120_000
 const alertsCache = new Map<string, { ts: number; payload: any }>()
 let alertsCacheInvalidationSubscribed = false
 
+type AlertLevel = "crítica" | "alta" | "media"
+type AlertItem = {
+  id: string
+  title: string
+  level: AlertLevel
+  category: string
+  municipality: string
+  time: string | null
+  status: "abierta" | "atendida" | "resuelta"
+  detail: string
+  delegateName: string
+  reportId?: string | null
+  reportUrl?: string | null
+  department?: string | null
+  photos?: string[]
+}
+
 function clearAlertsCache() {
   alertsCache.clear()
 }
@@ -521,7 +538,7 @@ export async function GET(req: NextRequest) {
       ])
       const canOpenReports = user.role !== "delegate"
 
-      const voteReportAlerts = listRes.rows.flatMap((row) => {
+      const voteReportAlerts: AlertItem[] = listRes.rows.flatMap((row): AlertItem[] => {
         const totalReported = Number(row.total_votes ?? 0)
         const totalOficial = row.official_total_oficial === null || row.official_total_oficial === undefined
           ? null
@@ -575,7 +592,7 @@ export async function GET(req: NextRequest) {
         }]
       })
 
-      const manualAlerts = alertsRes.rows.map((row) => {
+      const manualAlerts: AlertItem[] = alertsRes.rows.map((row): AlertItem => {
         const normalizeReportId = (value: string | null | undefined) => {
           const normalized = String(value ?? "").trim()
           if (!normalized) return null
@@ -632,7 +649,7 @@ export async function GET(req: NextRequest) {
         }
       })
 
-      const combined = [...manualAlerts, ...voteReportAlerts].sort((a, b) => {
+      const combined = [...manualAlerts, ...voteReportAlerts].sort((a: AlertItem, b: AlertItem) => {
         const ta = a.time ? new Date(a.time).getTime() : 0
         const tb = b.time ? new Date(b.time).getTime() : 0
         return tb - ta

@@ -1137,7 +1137,6 @@ function EquipoInner() {
             <SelectContent>
               <SelectItem value="all">Todos los roles</SelectItem>
               <SelectItem value="delegate">Testigo</SelectItem>
-              <SelectItem value="witness">Testigo</SelectItem>
               <SelectItem value="coordinator">Coordinador</SelectItem>
               <SelectItem value="mobilizer">Movilizador</SelectItem>
               <SelectItem value="leader">Líder</SelectItem>

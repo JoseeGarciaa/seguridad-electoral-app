@@ -10,7 +10,7 @@ function parseMesaId(value: string) {
   return parsed
 }
 
-export async function GET(_: Request, { params }: { params: { mesaid: string } }) {
+export async function GET(_: Request, context: { params: Promise<{ mesaid: string }> }) {
   if (!pool) {
     return NextResponse.json({ error: "DB no disponible" }, { status: 503 })
   }
@@ -20,7 +20,8 @@ export async function GET(_: Request, { params }: { params: { mesaid: string } }
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const mesaid = parseMesaId(params?.mesaid ?? "")
+  const { mesaid: mesaidParam } = await context.params
+  const mesaid = parseMesaId(mesaidParam ?? "")
   if (!mesaid) {
     return NextResponse.json({ error: "mesaid invalido" }, { status: 400 })
   }
