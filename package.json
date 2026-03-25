@@ -6,7 +6,8 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "eslint .",
-    "start": "next start"
+    "start": "next start",
+    "import:divipole-2026": "node scripts/import-divipole-2026.js"
   },
   "dependencies": {
     "@emotion/is-prop-valid": "latest",

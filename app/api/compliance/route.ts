@@ -77,15 +77,21 @@ export async function GET(req: Request) {
       const where = filters.length ? `WHERE ${filters.join(" AND ")}` : ""
 
       const listQuery = `
-        WITH assigned AS (
-          SELECT delegate_id, COUNT(*) AS assigned
-          FROM delegate_polling_assignments
-          GROUP BY delegate_id
+        WITH active_delegates AS (
+          SELECT DISTINCT u.delegate_id
+          FROM users u
+          WHERE u.delegate_id IS NOT NULL AND COALESCE(u.is_active, true) = true
+        ), assigned AS (
+          SELECT a.delegate_id, COUNT(*) AS assigned
+          FROM delegate_polling_assignments a
+          JOIN active_delegates ad ON ad.delegate_id = a.delegate_id
+          GROUP BY a.delegate_id
         ), reported AS (
-          SELECT delegate_id, COUNT(DISTINCT delegate_assignment_id) AS reported, MAX(reported_at) AS last_reported_at
-          FROM vote_reports
-          WHERE delegate_assignment_id IS NOT NULL
-          GROUP BY delegate_id
+          SELECT v.delegate_id, COUNT(DISTINCT v.delegate_assignment_id) AS reported, MAX(v.reported_at) AS last_reported_at
+          FROM vote_reports v
+          JOIN active_delegates ad ON ad.delegate_id = v.delegate_id
+          WHERE v.delegate_assignment_id IS NOT NULL
+          GROUP BY v.delegate_id
         )
         SELECT d.id,
                d.full_name,
@@ -96,6 +102,7 @@ export async function GET(req: Request) {
                GREATEST(COALESCE(a.assigned, 0) - COALESCE(r.reported, 0), 0) AS missing,
                r.last_reported_at
         FROM delegates d
+        JOIN active_delegates ad ON ad.delegate_id = d.id
         LEFT JOIN assigned a ON a.delegate_id = d.id
         LEFT JOIN reported r ON r.delegate_id = d.id
         ${where}
@@ -104,13 +111,19 @@ export async function GET(req: Request) {
       `
 
       const summaryQuery = `
-        WITH assigned AS (
+        WITH active_delegates AS (
+          SELECT DISTINCT u.delegate_id
+          FROM users u
+          WHERE u.delegate_id IS NOT NULL AND COALESCE(u.is_active, true) = true
+        ), assigned AS (
           SELECT COUNT(*) AS assigned
-          FROM delegate_polling_assignments
+          FROM delegate_polling_assignments a
+          JOIN active_delegates ad ON ad.delegate_id = a.delegate_id
         ), reported AS (
-          SELECT COUNT(DISTINCT delegate_assignment_id) AS reported
-          FROM vote_reports
-          WHERE delegate_assignment_id IS NOT NULL
+          SELECT COUNT(DISTINCT v.delegate_assignment_id) AS reported
+          FROM vote_reports v
+          JOIN active_delegates ad ON ad.delegate_id = v.delegate_id
+          WHERE v.delegate_assignment_id IS NOT NULL
         )
         SELECT
           (SELECT assigned FROM assigned) AS assigned,

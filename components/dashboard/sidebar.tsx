@@ -12,6 +12,7 @@ import {
   Bell,
   BarChart3,
   Download,
+  UserCog,
   Settings,
   CheckSquare,
   FileCheck,
@@ -51,6 +52,7 @@ const navigation: NavItem[] = [
   { name: "Descarga Formularios", href: "/dashboard/descarga-formularios", icon: Download, adminOnly: true },
   { name: "Centro Descargas", href: "/dashboard/centro-descargas", icon: Download, adminOnly: true },
   { name: "Resultados 2022", href: "/dashboard/resultados-2022", icon: BarChart3, adminOnly: true },
+  { name: "Líderes", href: "/dashboard/lideres", icon: UserCog, adminOnly: true },
   { name: "Cumplimiento", href: "/dashboard/cumplimiento", icon: FileCheck },
 ]
 

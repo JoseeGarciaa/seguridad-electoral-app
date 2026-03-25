@@ -1,50 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { pool } from "@/lib/pg"
 
-const fallbackData = {
-  items: [
-    {
-      id: "EV-101",
-      title: "Caravana barrio centro",
-      date: new Date(Date.now() + 86400000).toISOString(),
-      hour: "16:00",
-      place: "Parque Central",
-      type: "movilización",
-      attendance: 320,
-      lead: "Coordinación zonal",
-      status: "confirmado",
-    },
-    {
-      id: "EV-102",
-      title: "Formación jurados",
-      date: new Date(Date.now() + 3 * 86400000).toISOString(),
-      hour: "09:00",
-      place: "Colegio Distrital",
-      type: "formación",
-      attendance: 85,
-      lead: "Laura Méndez",
-      status: "planificado",
-    },
-    {
-      id: "EV-103",
-      title: "Reunión líderes comunales",
-      date: null,
-      hour: null,
-      place: "Casa comunal",
-      type: "territorial",
-      attendance: 45,
-      lead: "Equipo territorio",
-      status: "borrador",
-    },
-  ],
-  stats: {
-    total: 3,
-    confirmados: 1,
-    aforo: 450,
-    proximo: new Date(Date.now() + 86400000).toISOString(),
-  },
-}
-
 export async function GET(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams
   const search = searchParams.get("search")?.trim() ?? ""
@@ -83,13 +39,25 @@ export async function GET(req: NextRequest) {
   `
 
   if (!pool) {
-    console.warn("DATABASE_URL not set; serving events fallback data")
-    return NextResponse.json(fallbackData)
+    return NextResponse.json({ error: "DB no disponible" }, { status: 503 })
   }
 
   try {
     const client = await pool.connect()
     try {
+      const tableCheck = await client.query("SELECT to_regclass('public.events') AS reg")
+      if (!tableCheck.rows[0]?.reg) {
+        return NextResponse.json({
+          items: [],
+          stats: {
+            total: 0,
+            confirmados: 0,
+            aforo: 0,
+            proximo: null,
+          },
+        })
+      }
+
       const [listRes, statsRes] = await Promise.all([
         client.query(listQuery, values),
         client.query(statsQuery),
@@ -119,6 +87,6 @@ export async function GET(req: NextRequest) {
     }
   } catch (error) {
     console.error("Events GET error", error)
-    return NextResponse.json({ ...fallbackData, warning: "DB no disponible, usando datos de respaldo" })
+    return NextResponse.json({ error: "No se pudieron obtener eventos" }, { status: 500 })
   }
 }
